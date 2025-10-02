@@ -1,0 +1,79 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Start API with debug logs",
+			"type": "shell",
+			"command": "npm run start --silent",
+			"args": []
+		},
+		{
+			"label": "Start API with debug logs",
+			"type": "shell",
+			"command": "npm run start --silent",
+			"args": []
+		},
+		{
+			"label": "Start API with debug logs",
+			"type": "shell",
+			"command": "npm run start --silent",
+			"args": []
+		},
+		{
+			"label": "Start API with debug logs",
+			"type": "shell",
+			"command": "npm run start --silent",
+			"args": []
+		},
+		{
+			"label": "Restart API",
+			"type": "shell",
+			"command": "pkill -f \"node .*dist/src/index.js\" || true && npm run start --silent",
+			"args": []
+		},
+		{
+			"label": "Start API (fresh)",
+			"type": "shell",
+			"command": "npm run start --silent",
+			"args": []
+		},
+		{
+			"label": "API: Start (persist)",
+			"type": "shell",
+			"command": "npm run start --silent",
+			"isBackground": true,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "API: Start (persist)",
+			"type": "shell",
+			"command": "npm run start --silent",
+			"args": [],
+			"isBackground": true,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "API: Start (persist)",
+			"type": "shell",
+			"command": "npm run dev:api --silent",
+			"args": [],
+			"isBackground": true,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent",
+			"args": []
+		}
+	]
+}

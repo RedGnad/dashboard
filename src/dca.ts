@@ -1,0 +1,85 @@
+import { Address, encodeFunctionData, zeroAddress, parseUnits } from 'viem';
+import { UNISWAP_V2_ROUTER02, USDC, WMON } from './constants';
+import { createExecution, ExecutionMode } from '@metamask/delegation-toolkit';
+import { DelegationManager } from '@metamask/delegation-toolkit/contracts';
+
+export type DcaParams = {
+  amountUSDC: bigint; // in USDC 6 decimals wei
+  slippageBps: number;
+  unwrapToMon: boolean;
+};
+
+// Minimal ABIs
+const erc20Abi = [
+  { name: 'approve', type: 'function', stateMutability: 'nonpayable', inputs: [
+    { name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }
+  ], outputs: [{ name: '', type: 'bool' }] },
+];
+
+const routerAbi = [
+  { name: 'swapExactTokensForTokens', type: 'function', stateMutability: 'nonpayable', inputs: [
+    { name: 'amountIn', type: 'uint256' },
+    { name: 'amountOutMin', type: 'uint256' },
+    { name: 'path', type: 'address[]' },
+    { name: 'to', type: 'address' },
+    { name: 'deadline', type: 'uint256' },
+  ], outputs: [{ name: 'amounts', type: 'uint256[]' }] },
+];
+
+const wmonAbi = [
+  { name: 'withdraw', type: 'function', stateMutability: 'nonpayable', inputs: [
+    { name: 'wad', type: 'uint256' }
+  ], outputs: [] },
+];
+
+export function buildExecutions(params: DcaParams & { recipient: Address }) {
+  const { amountUSDC, slippageBps, unwrapToMon, recipient } = params;
+
+  // For simplicity, we set amountOutMin to 0 (not recommended in prod). In prod, quote via a DEX oracles/router.
+  const amountOutMin = 0n;
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 5); // +5 min
+
+  const approveRouter = createExecution({
+    target: USDC,
+    value: 0n,
+    callData: encodeFunctionData({ abi: erc20Abi as any, functionName: 'approve', args: [UNISWAP_V2_ROUTER02, amountUSDC] }),
+  });
+
+  const swap = createExecution({
+    target: UNISWAP_V2_ROUTER02,
+    value: 0n,
+    callData: encodeFunctionData({
+      abi: routerAbi as any,
+      functionName: 'swapExactTokensForTokens',
+      args: [amountUSDC, amountOutMin, [USDC, WMON], recipient, deadline],
+    }),
+  });
+
+  const executions = [approveRouter, swap];
+
+  if (unwrapToMon) {
+    // unwrap entire received WMON amount is non-trivial without exact amount; for demo, unwrap amountUSDC-equivalent
+    // In production, derive exact out amount from swap event or router return; here we unwrap a placeholder amount
+    const unwrap = createExecution({
+      target: WMON,
+      value: 0n,
+      callData: encodeFunctionData({ abi: wmonAbi as any, functionName: 'withdraw', args: [0n] }),
+    });
+    executions.push(unwrap);
+  }
+
+  return { executions };
+}
+
+export function encodeRedeemCalldata(signedDelegation: any, executions: any[]) {
+  const sdel = signedDelegation?.delegation || {}
+  const saltVal = typeof sdel?.salt === 'string' && sdel.salt.startsWith('0x')
+    ? BigInt(sdel.salt === '0x' ? '0x0' : sdel.salt)
+    : (sdel?.salt ?? 0n)
+  const encSigned = { ...sdel, salt: saltVal, signature: signedDelegation.signature }
+  return DelegationManager.encode.redeemDelegations({
+    delegations: [encSigned as any],
+    modes: [ExecutionMode.SingleDefault],
+    executions: [executions],
+  })
+}

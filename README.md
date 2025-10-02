@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DCA Autonomous Wallet (Monad Testnet)
 
-## Getting Started
+Minimal backend agent DCA using MetaMask Delegation Toolkit (v0.13) on Monad Testnet, with ERC-4337 userOperations and ERC-20 paymaster (ZeroDev/Pimlico compatible). Swaps USDC -> WMON (optional unwrap to MON) periodically without popups via off-chain delegations.
 
-First, run the development server:
+## Stack
+- Node.js + TypeScript
+- viem + @metamask/delegation-toolkit
+- ERC-4337 BundlerClient + PaymasterClient (ZeroDev preferred; Pimlico fallback)
+- Uniswap Universal Router for swaps
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Network
+- Chain: Monad Testnet (chainId 10143)
+- RPC: https://testnet-rpc.monad.xyz
+- EntryPoint v0.7: 0x0000000071727De22E5E9d8BAf0edAc6f37da032
+- Universal Router: 0x3ae6d8a282d67893e17aa70ebffb33ee5aa65893
+- WMON: 0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701
+- USDC (testnet): 0xf817257fed379853cDe0fa4F97AB987181B1E5Ea
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Env
+Copy `.env.example` to `.env` and fill:
+- RPC_URL
+- ZERO_DEV_BUNDLER_RPC (or PIMLICO_BUNDLER_RPC)
+- ZERO_DEV_PAYMASTER_RPC (or PIMLICO_PAYMASTER_RPC)
+- DELEGATE_PRIVATE_KEY (agent signer)
+- DCA_AMOUNT_USDC=1
+- SLIPPAGE_BPS=100
+- UNWRAP_TO_MON=true|false
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Run (dev)
+- install deps
+- run scheduler to execute every minute
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Quick start:
+- Copy .env.example to .env, fill RPC and ZeroDev URLs, and DELEGATE_PRIVATE_KEY test key.
+- Start backend API (listens on :3000): npm start
+- In another terminal, run the web app:
+	- cd web && npm install && npm run dev
+	- Open http://localhost:5173
+	- Connect wallet, create & sign delegation, which posts to backend.
+- Backend will detect delegations and can run a DCA userOperation.
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notes
+- Delegations are off-chain (ERC-7710) and attached to the userOperation during signing; no on-chain redeem necessary for 4337 Hybrid flow. Use Delegation Manager only if you opt into the on-chain redeem flow.
+- Allowance management: approve USDC to Paymaster and Router when needed.
