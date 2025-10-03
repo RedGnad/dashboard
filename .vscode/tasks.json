@@ -74,6 +74,18 @@
 			"type": "shell",
 			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent",
 			"args": []
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent",
+			"args": []
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent",
+			"args": []
 		}
 	]
 }

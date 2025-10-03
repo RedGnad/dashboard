@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   useAccount,
   useConnect,
@@ -42,6 +42,31 @@ export default function App() {
 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>("");
+  const [lastUserOp, setLastUserOp] = useState<{
+    hash?: string;
+    txHash?: string;
+    status?: string;
+    polling?: boolean;
+    countdown?: number;
+  } | null>(null);
+  const pollRef = useRef<number | null>(null);
+  // DCA job state for current delegator SA
+  const [job, setJob] = useState<{
+    delegatorSA: string;
+    intervalSec: number;
+    active: boolean;
+    lastRunAt?: number;
+    lastOpHash?: string;
+    lastError?: string;
+    expiresAt?: number;
+    runsDone?: number;
+  } | null>(null);
+  const [emissionCountdown, setEmissionCountdown] = useState<number | null>(
+    null
+  );
+  const jobRef = useRef<typeof job>(null);
+  const jobPollRef = useRef<number | null>(null);
+  const [hasDelegation, setHasDelegation] = useState<boolean>(false);
   const [amount, setAmount] = useState("1");
   const [slippageBps, setSlippageBps] = useState("100");
   const [unwrapToMon, setUnwrapToMon] = useState(false);
@@ -284,6 +309,7 @@ export default function App() {
             amountUSDC: amount,
             slippageBps: Number(slippageBps),
             intervalSec: 60,
+            durationSec: 24 * 60 * 60,
             unwrapToMon,
             usePaymaster,
             // Echo back executions shape for server side logging/debug if needed
@@ -304,12 +330,20 @@ export default function App() {
 
       console.log("POST /api/delegations ->", res.body);
       if (res.status === 200 && res.body?.ok) {
+        setHasDelegation(true);
+        if (res.body?.job) {
+          setJob(res.body.job);
+          jobRef.current = res.body.job;
+        }
         const hash = res.body.userOperationHash as string | undefined;
-        setMsg(
-          hash
-            ? `Delegation saved. userOperationHash: ${hash}`
-            : "Delegation saved. Backend can now execute your DCA."
-        );
+        if (hash) {
+          setMsg(
+            `Delegation saved. userOperationHash: ${hash}\nTracking inclusion for up to 60s…`
+          );
+          startUserOpPolling(hash, 60);
+        } else {
+          setMsg("Delegation saved. Backend can now execute your DCA.");
+        }
       } else {
         const errMsg = res.body?.error || res.body?.details || "Backend error";
         const reason = res.body?.revertReason
@@ -323,6 +357,207 @@ export default function App() {
       }
     } catch (e: any) {
       setMsg(`Error: ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // --- userOperation inclusion polling helpers ---
+  function stopUserOpPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  async function fetchUserOp(hash: string) {
+    try {
+      const r = await fetch(`${apiBase || ""}/api/userop/${hash}?waitMs=0`);
+      const t = await r.text();
+      return t ? JSON.parse(t) : {};
+    } catch {
+      return {} as any;
+    }
+  }
+
+  function startUserOpPolling(hash: string, seconds = 60) {
+    stopUserOpPolling();
+    setLastUserOp({ hash, polling: true, countdown: seconds });
+    let sec = seconds;
+    pollRef.current = window.setInterval(async () => {
+      sec -= 1;
+      setLastUserOp((prev) => (prev ? { ...prev, countdown: sec } : prev));
+      // Ping every 3s, and at t=0
+      if (sec % 3 === 0 || sec <= 0) {
+        const j = await fetchUserOp(hash);
+        if (j?.found && j?.txHash) {
+          stopUserOpPolling();
+          const txHash = j.txHash as string;
+          setLastUserOp({
+            hash,
+            txHash,
+            status: j?.status,
+            polling: false,
+            countdown: sec,
+          });
+          setMsg(
+            `Delegation saved. userOperationHash: ${hash}\nIncluded: ${txHash}\nExplorer: https://testnet.monadexplorer.com/tx/${txHash}`
+          );
+          return;
+        }
+      }
+      if (sec <= 0) {
+        stopUserOpPolling();
+        setMsg(
+          (m) =>
+            `${
+              m || ""
+            }\nStill pending after 60s; will continue next run or check later.`
+        );
+      }
+    }, 1000);
+  }
+
+  useEffect(() => {
+    return () => stopUserOpPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // --- DCA job polling & countdown ---
+  async function refreshJobStatus() {
+    try {
+      const delegatorSa = saPanel.delegator?.address?.toLowerCase();
+      if (!delegatorSa) {
+        setJob(null);
+        jobRef.current = null;
+        setHasDelegation(false);
+        return;
+      }
+      // Check if delegation exists for this SA
+      try {
+        const r0 = await fetch(
+          `${apiBase || ""}/api/delegations/${delegatorSa}`
+        );
+        const t0 = await r0.text();
+        const j0 = t0 ? JSON.parse(t0) : {};
+        setHasDelegation(Boolean(j0?.exists));
+      } catch {}
+      const r = await fetch(`${apiBase || ""}/api/jobs`);
+      const t = await r.text();
+      const j = t ? JSON.parse(t) : {};
+      const found = Array.isArray(j?.jobs)
+        ? j.jobs.find((x: any) => x.delegatorSA?.toLowerCase() === delegatorSa)
+        : null;
+      setJob(found || null);
+      jobRef.current = found || null;
+    } catch {
+      // ignore transient errors
+    }
+  }
+
+  useEffect(() => {
+    // Clear previous poller
+    if (jobPollRef.current) {
+      clearInterval(jobPollRef.current);
+      jobPollRef.current = null;
+    }
+    // Start polling when we have a delegator SA
+    if (!saPanel.delegator?.address) {
+      setJob(null);
+      setEmissionCountdown(null);
+      return;
+    }
+    // Initial fetch
+    refreshJobStatus();
+    let tick = 0;
+    jobPollRef.current = window.setInterval(() => {
+      tick += 1;
+      // Refresh from server every 3s to catch new lastRunAt / status
+      if (tick % 3 === 0) refreshJobStatus();
+      // Update countdown locally every second
+      setEmissionCountdown(() => {
+        const j = jobRef.current as any;
+        if (!j || !j.active || !j.lastRunAt || !j.intervalSec) return null;
+        const elapsed = Math.floor((Date.now() - j.lastRunAt) / 1000);
+        const remaining = Math.max(0, j.intervalSec - elapsed);
+        return remaining;
+      });
+    }, 1000);
+    return () => {
+      if (jobPollRef.current) {
+        clearInterval(jobPollRef.current);
+        jobPollRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saPanel.delegator?.address, apiBase]);
+
+  async function startDca() {
+    if (!saPanel.delegator?.address) return;
+    try {
+      setBusy(true);
+      const r = await fetch(`${apiBase || ""}/api/jobs/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          delegatorSA: saPanel.delegator.address,
+          intervalSec: 60,
+          durationSec: 24 * 60 * 60,
+          immediate: false,
+        }),
+      });
+      const t = await r.text();
+      const j = t ? JSON.parse(t) : {};
+      if (j?.ok && j?.job) {
+        setJob(j.job);
+        jobRef.current = j.job;
+      }
+    } catch (e: any) {
+      setMsg(`Start failed: ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopDca() {
+    if (!saPanel.delegator?.address) return;
+    try {
+      setBusy(true);
+      const r = await fetch(`${apiBase || ""}/api/jobs/stop`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ delegatorSA: saPanel.delegator.address }),
+      });
+      const t = await r.text();
+      const j = t ? JSON.parse(t) : {};
+      if (j?.ok && j?.job) {
+        setJob(j.job);
+        jobRef.current = j.job;
+      }
+    } catch (e: any) {
+      setMsg(`Stop failed: ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runNowOnce() {
+    if (!saPanel.delegator?.address) return;
+    try {
+      setBusy(true);
+      const r = await fetch(`${apiBase || ""}/api/jobs/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ delegatorSA: saPanel.delegator.address }),
+      });
+      const t = await r.text();
+      const j = t ? JSON.parse(t) : {};
+      if (j?.ok && j?.job) {
+        setJob(j.job);
+        jobRef.current = j.job;
+      }
+    } catch (e: any) {
+      setMsg(`Run failed: ${e?.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -459,6 +694,82 @@ export default function App() {
             <button onClick={createAndPostDelegation} disabled={busy}>
               {busy ? "Working…" : "Create & Sign Delegation"}
             </button>
+            {/* DCA job controls */}
+            <div
+              style={{
+                marginTop: 8,
+                padding: 12,
+                border: "1px solid #eee",
+                borderRadius: 8,
+                background: "#fcfcfd",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <strong>DCA Scheduler</strong>
+                <div style={{ fontSize: 12, color: "#666" }}>
+                  Interval: 60s • Duration: 24h
+                </div>
+              </div>
+              <div style={{ fontSize: 13, marginTop: 6 }}>
+                Status: {job?.active ? "Active" : "Stopped"}
+                {job?.runsDone != null ? ` • Runs: ${job.runsDone}` : ""}
+                {job?.lastError ? (
+                  <span style={{ color: "#b00" }}>
+                    {" "}
+                    • Last error: {job.lastError}
+                  </span>
+                ) : null}
+              </div>
+              <div style={{ fontSize: 13 }}>
+                Last run:{" "}
+                {job?.lastRunAt
+                  ? new Date(job.lastRunAt).toLocaleTimeString()
+                  : "—"}
+              </div>
+              <div style={{ fontSize: 13 }}>
+                Next in:{" "}
+                {job?.active && emissionCountdown != null
+                  ? `${emissionCountdown}s`
+                  : "—"}
+              </div>
+              <div style={{ fontSize: 12, color: "#666" }}>
+                Expires:{" "}
+                {job?.expiresAt
+                  ? new Date(job.expiresAt).toLocaleString()
+                  : "—"}
+              </div>
+              {!hasDelegation && (
+                <div style={{ fontSize: 12, color: "#b26" }}>
+                  Créez et signez d’abord la délégation pour autoriser le DCA.
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button
+                  onClick={startDca}
+                  disabled={
+                    busy || !saPanel.delegator?.address || !hasDelegation
+                  }
+                >
+                  Start DCA
+                </button>
+                <button
+                  onClick={stopDca}
+                  disabled={
+                    busy || !saPanel.delegator?.address || !hasDelegation
+                  }
+                >
+                  Stop DCA
+                </button>
+                <button
+                  onClick={runNowOnce}
+                  disabled={
+                    busy || !saPanel.delegator?.address || !hasDelegation
+                  }
+                >
+                  Run now
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -473,6 +784,36 @@ export default function App() {
         >
           {msg}
         </pre>
+      )}
+      {lastUserOp?.hash && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 8,
+            border: "1px solid #eee",
+            borderRadius: 8,
+            background: "#fff",
+            fontSize: 13,
+          }}
+        >
+          <div style={{ wordBreak: "break-all" }}>
+            userOp: <code>{lastUserOp.hash}</code>
+          </div>
+          {lastUserOp.txHash ? (
+            <div>
+              tx:{" "}
+              <a
+                href={`https://testnet.monadexplorer.com/tx/${lastUserOp.txHash}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {lastUserOp.txHash}
+              </a>
+            </div>
+          ) : (
+            <div>Pending… {lastUserOp.countdown}s</div>
+          )}
+        </div>
       )}
     </div>
   );

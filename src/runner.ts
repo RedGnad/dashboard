@@ -39,14 +39,54 @@ export async function runOnceForDelegator(delegatorSA: Address) {
   const slippageBps = Number(json.job?.slippageBps ?? 100)
   const unwrapToMon = Boolean(json.job?.unwrapToMon ?? false)
 
+  // Pre-check: ensure delegator has enough USDC to avoid simulation revert (TransferHelper: TRANSFER_FROM_FAILED)
+  try {
+    const erc20Abi = [
+      { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
+    ] as const
+    const bal = (await publicClient.readContract({
+      address: USDC,
+      abi: erc20Abi as any,
+      functionName: 'balanceOf',
+      args: [delegatorSA],
+    })) as bigint
+    if (bal < amountUSDC) {
+      const msg = `Insufficient USDC: have ${bal.toString()}, need ${amountUSDC.toString()}`
+      console.warn('[runner] skip execution:', msg)
+      throw new Error(msg)
+    }
+  } catch (e) {
+    // If read fails, proceed (bundler may still simulate); but prefer explicit error
+    if (e instanceof Error && /Insufficient USDC/.test(e.message)) throw e
+  }
+
   // Prefer executions passed from the frontend (to match exactExecutionBatch caveat); otherwise build locally.
-  const executions = Array.isArray(json.job?.executions) && json.job.executions.length
+  let executions = Array.isArray(json.job?.executions) && json.job.executions.length
     ? (json.job.executions as any[]).map((e) => ({
         target: e.target as Address,
         value: typeof e.value === 'string' ? BigInt(e.value) : BigInt(e.value ?? 0),
         callData: e.callData as `0x${string}`,
       }))
     : buildExecutions({ amountUSDC, slippageBps, unwrapToMon, recipient: delegatorSA }).executions
+  // If first call is USDC.approve and allowance already sufficient, drop the approve to make repeats succeed
+  try {
+    const sel = (executions?.[0]?.callData as string | undefined)?.slice(0, 10)
+    if (executions?.[0]?.target?.toLowerCase() === USDC.toLowerCase() && sel === '0x095ea7b3') {
+      // read allowance(delegatorSA, router)
+      const erc20Abi = [
+        { name: 'allowance', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' }, { name: 'spender', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] },
+      ] as const
+      const allowance = await publicClient.readContract({
+        address: USDC,
+        abi: erc20Abi as any,
+        functionName: 'allowance',
+        args: [delegatorSA, UNISWAP_V2_ROUTER02],
+      }) as bigint
+      if (allowance >= amountUSDC) {
+        executions = executions.slice(1)
+      }
+    }
+  } catch {}
   // Minimal debug context without simulations
   const debugBundle = { ...buildDebugBundle({
     label: 'runner.pre-encode',

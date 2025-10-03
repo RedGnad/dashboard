@@ -1,9 +1,10 @@
 import express from 'express'
 import cors from 'cors'
 import 'dotenv/config'
-import { writeFileSync, mkdirSync } from 'node:fs'
+import { writeFileSync, mkdirSync, existsSync, statSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { publicClient, monadTestnet, bundlerClient } from './clients'
+import { startJob, stopJob, runNow, getJobs } from './scheduler'
 import { decodeErrorResult } from 'viem'
 import { runOnceForDelegator } from './runner'
 import { buildDebugBundle } from './utils/debug'
@@ -187,7 +188,16 @@ app.post('/api/delegations', async (req, res) => {
   })
   try {
     const uo = await runOnceForDelegator(delegatorSA)
-    return res.json({ ok: true, userOperationHash: uo })
+    // If intervalSec provided, auto-start scheduler
+    let startedJob: any = null
+    const iv = Number(job?.intervalSec)
+    if (!Number.isNaN(iv) && iv > 0) {
+      // Default to 24h duration unless specified; trigger immediate next tick optional via job.immediate
+      const durationSec = Number(job?.durationSec) > 0 ? Number(job?.durationSec) : 24 * 60 * 60
+      const immediate = Boolean(job?.immediate ?? false)
+      startedJob = startJob(delegatorSA, Math.max(10, iv), { durationSec, immediate })
+    }
+    return res.json({ ok: true, userOperationHash: uo, job: startedJob })
   } catch (e: any) {
     console.error('DCA execution failed:', e?.message)
     if (e?.debugBundle) console.error('DCA debug:', JSON.stringify(e.debugBundle, null, 2))
@@ -212,6 +222,33 @@ app.post('/api/delegations', async (req, res) => {
       }
     } catch {}
     return res.status(500).json(errorObj)
+  }
+})
+
+// Check if a signed delegation exists for a delegator smart account
+// GET /api/delegations/:delegatorSA
+app.get('/api/delegations/:delegatorSA', async (req, res) => {
+  try {
+    const delegatorSA = (req.params.delegatorSA || '').toLowerCase()
+    if (!delegatorSA.startsWith('0x') || delegatorSA.length !== 42) {
+      return res.status(400).json({ error: 'Invalid delegatorSA' })
+    }
+    const dir = join(process.cwd(), 'data', 'delegations')
+    const file = join(dir, `${delegatorSA}.json`)
+    const exists = existsSync(file)
+    const out: any = { ok: true, exists }
+    if (exists) {
+      try {
+        const st = statSync(file)
+        out.updatedAt = st.mtimeMs
+        const raw = readFileSync(file, 'utf8')
+        const json = JSON.parse(raw)
+        if (json?.job) out.job = json.job
+      } catch {}
+    }
+    return res.json(out)
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'check failed' })
   }
 })
 
@@ -253,6 +290,34 @@ app.get('/api/userop/:hash', async (req, res) => {
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'lookup failed' })
   }
+})
+
+// Simple DCA job control endpoints
+app.get('/api/jobs', (_req, res) => res.json({ ok: true, jobs: getJobs() }))
+app.post('/api/jobs/start', async (req, res) => {
+  const { delegatorSA, intervalSec, durationSec, immediate, expiresAtMs } = req.body || {}
+  if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
+  const iv = Math.max(10, Number(intervalSec ?? 60))
+  const j = startJob(delegatorSA, iv, {
+    durationSec: typeof durationSec === 'number' ? durationSec : undefined,
+    immediate: Boolean(immediate),
+    expiresAtMs: typeof expiresAtMs === 'number' ? expiresAtMs : undefined,
+  })
+  return res.json({ ok: true, job: j })
+})
+app.post('/api/jobs/stop', async (req, res) => {
+  const { delegatorSA } = req.body || {}
+  if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
+  const j = stopJob(delegatorSA)
+  if (!j) return res.status(404).json({ error: 'Job not found' })
+  return res.json({ ok: true, job: j })
+})
+app.post('/api/jobs/run', async (req, res) => {
+  const { delegatorSA } = req.body || {}
+  if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
+  const j = await runNow(delegatorSA)
+  if (!j) return res.status(404).json({ error: 'Job not found' })
+  return res.json({ ok: true, job: j })
 })
 
 // Fallback 404 handler (always JSON)
