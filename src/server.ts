@@ -11,6 +11,8 @@ import { buildDebugBundle } from './utils/debug'
 import { Implementation, toMetaMaskSmartAccount, getDeleGatorEnvironment } from '@metamask/delegation-toolkit'
 import { privateKeyToAccount } from 'viem/accounts'
 import { USDC, UNISWAP_V2_ROUTER02, WMON } from './constants'
+import { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } from './encoding'
+import { Address, encodeFunctionData } from 'viem'
 
 const app = express()
 app.use(cors({ origin: true }))
@@ -54,6 +56,57 @@ app.get('/', (_req, res) => {
   res.json({ ok: true, name: 'DCA API', endpoints: ['/api/health', '/api/delegate', '/api/diag'] })
 })
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
+// Lightweight cached git version info to avoid spawning repeatedly
+let CACHED_VERSION: { git: string; resolvedAt: number } | null = null
+function resolveGitShort(): string {
+  if (process.env.GIT_COMMIT) return process.env.GIT_COMMIT.slice(0, 12)
+  try {
+    // Try reading .git/HEAD then referenced ref for detached-less lookup
+    const fs = require('node:fs') as typeof import('node:fs')
+    const headPath = join(process.cwd(), '.git', 'HEAD')
+    if (fs.existsSync(headPath)) {
+      const head = fs.readFileSync(headPath, 'utf8').trim()
+      if (head.startsWith('ref:')) {
+        const ref = head.split(' ')[1].trim()
+        const refPath = join(process.cwd(), '.git', ref)
+        if (fs.existsSync(refPath)) {
+          const full = fs.readFileSync(refPath, 'utf8').trim()
+          if (full) return full.slice(0, 12)
+        }
+      } else if (/^[0-9a-f]{40}$/i.test(head)) {
+        return head.slice(0, 12)
+      }
+    }
+  } catch {}
+  try {
+    const cp = require('node:child_process').execSync('git rev-parse --short HEAD', { stdio: ['ignore','pipe','ignore'] })
+    return String(cp).trim()
+  } catch {}
+  return 'unknown'
+}
+app.get('/api/version', (_req, res) => {
+  const now = Date.now()
+  if (!CACHED_VERSION || now - CACHED_VERSION.resolvedAt > 15_000) {
+    CACHED_VERSION = { git: resolveGitShort(), resolvedAt: now }
+  }
+  res.json({ ok: true, ts: now, git: CACHED_VERSION.git })
+})
+// Enumerate registered routes (debug)
+app.get('/api/routes', (_req, res) => {
+  try {
+    const anyApp: any = app as any
+    const stack = (anyApp?._router?.stack || [])
+    const routes = stack
+      .filter((l: any) => l.route && l.route.path)
+      .map((l: any) => ({
+        path: l.route.path,
+        methods: Object.keys(l.route.methods || {}),
+      }))
+    return res.json({ ok: true, count: routes.length, routes })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'failed' })
+  }
+})
 // View recent logs in the browser (last 200 lines by default)
 app.get('/api/_logs', (req, res) => {
   const n = Math.min(Number(req.query.n ?? 200), 500)
@@ -118,7 +171,7 @@ app.get('/api/diag', async (req, res) => {
     // Add delegate balances if available
     try {
       if (cachedDelegate?.sa) {
-        const [balMon, balToken] = await Promise.all([
+        const [balMon, balToken, balWmon] = await Promise.all([
           publicClient.getBalance({ address: cachedDelegate.sa as `0x${string}` }),
           publicClient.readContract({
             address: USDC,
@@ -126,8 +179,14 @@ app.get('/api/diag', async (req, res) => {
             functionName: 'balanceOf',
             args: [cachedDelegate.sa as `0x${string}`],
           }) as Promise<bigint>,
+          publicClient.readContract({
+            address: WMON,
+            abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
+            functionName: 'balanceOf',
+            args: [cachedDelegate.sa as `0x${string}`],
+          }) as Promise<bigint>,
         ])
-        out.delegateBalances = { mon: balMon.toString(), usdc: (balToken as bigint).toString() }
+        out.delegateBalances = { mon: balMon.toString(), usdc: (balToken as bigint).toString(), wmon: (balWmon as bigint).toString() }
       }
     } catch (e: any) {
       out.delegateBalancesError = String(e?.message || e)
@@ -135,7 +194,7 @@ app.get('/api/diag', async (req, res) => {
     if (delegator) {
       out.delegator = delegator
       try {
-        const [balMon, balToken] = await Promise.all([
+        const [balMon, balToken, balWmon] = await Promise.all([
           publicClient.getBalance({ address: delegator }),
           publicClient.readContract({
             address: USDC,
@@ -143,8 +202,14 @@ app.get('/api/diag', async (req, res) => {
             functionName: 'balanceOf',
             args: [delegator],
           }) as Promise<bigint>,
+          publicClient.readContract({
+            address: WMON,
+            abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
+            functionName: 'balanceOf',
+            args: [delegator],
+          }) as Promise<bigint>,
         ])
-        out.delegatorBalances = { mon: balMon.toString(), usdc: (balToken as bigint).toString() }
+        out.delegatorBalances = { mon: balMon.toString(), usdc: (balToken as bigint).toString(), wmon: (balWmon as bigint).toString() }
       } catch (e: any) {
         out.delegatorBalancesError = String(e?.message || e)
       }
@@ -170,11 +235,17 @@ app.get('/api/diag', async (req, res) => {
 })
 
 app.post('/api/delegations', async (req, res) => {
-  const { delegatorSA, signedDelegation, job } = req.body || {}
+  let { delegatorSA, signedDelegation, job } = req.body || {}
+  if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
   if (!delegatorSA || !signedDelegation) return res.status(400).json({ error: 'Missing delegatorSA or signedDelegation' })
   const dir = join(process.cwd(), 'data', 'delegations')
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, `${delegatorSA}.json`), JSON.stringify({ delegatorSA, signedDelegation, job }, null, 2))
+  const enrichedJob = {
+    createdAtMs: Date.now(),
+    unwrapEvery: Number(job?.unwrapEvery ?? 24),
+    ...job,
+  }
+  writeFileSync(join(dir, `${delegatorSA}.json`), JSON.stringify({ delegatorSA, signedDelegation, job: enrichedJob }, null, 2))
   console.log('[api/delegations] intake', {
     delegatorSA,
     hasSigned: !!signedDelegation,
@@ -187,41 +258,42 @@ app.post('/api/delegations', async (req, res) => {
     jobKeys: Object.keys(job || {}),
   })
   try {
-    const uo = await runOnceForDelegator(delegatorSA)
-    // If intervalSec provided, auto-start scheduler
-    let startedJob: any = null
-    const iv = Number(job?.intervalSec)
-    if (!Number.isNaN(iv) && iv > 0) {
-      // Default to 24h duration unless specified; trigger immediate next tick optional via job.immediate
-      const durationSec = Number(job?.durationSec) > 0 ? Number(job?.durationSec) : 24 * 60 * 60
-      const immediate = Boolean(job?.immediate ?? false)
-      startedJob = startJob(delegatorSA, Math.max(10, iv), { durationSec, immediate })
-    }
-    return res.json({ ok: true, userOperationHash: uo, job: startedJob })
-  } catch (e: any) {
-    console.error('DCA execution failed:', e?.message)
-    if (e?.debugBundle) console.error('DCA debug:', JSON.stringify(e.debugBundle, null, 2))
-    const errorObj: any = { ok: false, error: e?.message || 'execution failed' }
-    if (e?.walk?.() || e?.details || e?.shortMessage) {
-      errorObj.details = e.details || e.shortMessage
-    }
-    if (e?.cause) errorObj.cause = String(e.cause)
-    if (e?.stack) errorObj.stack = e.stack
-    // Attach last debug context if present
-    if (e?.debugBundle) errorObj.debug = e.debugBundle
-    // Try to decode a readable revert string if present
+    // Ne plus exécuter immédiatement: on vérifie d'abord le solde USDC pour indiquer si top-up nécessaire
+    let usdcBal = 0n
     try {
-      const match = /0x08c379a0[0-9a-fA-F]*/.exec(String(e?.details || e?.cause || ''))
-      if (match) {
-        const decoded = decodeErrorResult({
-          data: match[0] as `0x${string}`,
-          abi: [{ type: 'error', name: 'Error', inputs: [{ name: 'message', type: 'string' }] }] as const,
-        }) as any
-        const reason = decoded?.args?.[0]
-        if (typeof reason === 'string') errorObj.revertReason = reason
-      }
+      usdcBal = await publicClient.readContract({
+        address: USDC,
+        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
+        functionName: 'balanceOf',
+        args: [delegatorSA as Address],
+      }) as bigint
     } catch {}
-    return res.status(500).json(errorObj)
+    const iv = Number(job?.intervalSec)
+    let startedJob: any = null
+    let immediateResult: { ok: boolean; hash?: string; error?: string } | null = null
+    // Lancer l'exécution immédiate AVANT d'initialiser l'intervalle pour ne pas décaler le prochain tick
+    try {
+      const hash = await runOnceForDelegator(delegatorSA as Address, { runIndex: 0 })
+      immediateResult = { ok: true, hash }
+    } catch (e: any) {
+      immediateResult = { ok: false, error: e?.message || String(e) }
+    }
+    if (!Number.isNaN(iv) && iv > 0) {
+      const durationSec = Number(job?.durationSec) > 0 ? Number(job?.durationSec) : 24 * 60 * 60
+      startedJob = startJob(delegatorSA, Math.max(10, iv), { durationSec, immediate: false })
+    }
+    const needsTopup = usdcBal === 0n
+    return res.json({
+      ok: true,
+      job: startedJob,
+      needsTopup,
+      immediateRun: immediateResult,
+      notice: immediateResult?.ok
+        ? 'Premier swap exécuté immédiatement'
+        : `Tentative immédiate échouée: ${immediateResult?.error}`,
+    })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'post-delegation failed' })
   }
 })
 
@@ -295,15 +367,35 @@ app.get('/api/userop/:hash', async (req, res) => {
 // Simple DCA job control endpoints
 app.get('/api/jobs', (_req, res) => res.json({ ok: true, jobs: getJobs() }))
 app.post('/api/jobs/start', async (req, res) => {
-  const { delegatorSA, intervalSec, durationSec, immediate, expiresAtMs } = req.body || {}
-  if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
-  const iv = Math.max(10, Number(intervalSec ?? 60))
-  const j = startJob(delegatorSA, iv, {
-    durationSec: typeof durationSec === 'number' ? durationSec : undefined,
-    immediate: Boolean(immediate),
-    expiresAtMs: typeof expiresAtMs === 'number' ? expiresAtMs : undefined,
-  })
-  return res.json({ ok: true, job: j })
+  try {
+    const { delegatorSA, intervalSec, durationSec, immediate, expiresAtMs, unwrapToMon } = req.body || {}
+    if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
+    // If unwrapToMon passed, patch delegation JSON job config
+    if (typeof unwrapToMon === 'boolean') {
+      try {
+        const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA.toLowerCase()}.json`)
+        if (existsSync(file)) {
+          const raw = readFileSync(file, 'utf8')
+          const json = JSON.parse(raw)
+            json.job = json.job || {}
+            json.job.unwrapToMon = unwrapToMon
+            json.job.unwrapEvery = unwrapToMon ? 1 : (json.job.unwrapEvery || 24)
+            // Clear cached executions batch so runner rebuilds with withdraw if needed
+            delete json.job.executions
+          writeFileSync(file, JSON.stringify(json, null, 2))
+        }
+      } catch (e) { console.warn('[jobs/start] unwrap patch failed', e) }
+    }
+    const iv = Math.max(10, Number(intervalSec ?? 60))
+    const j = startJob(delegatorSA, iv, {
+      durationSec: typeof durationSec === 'number' ? durationSec : undefined,
+      immediate: Boolean(immediate),
+      expiresAtMs: typeof expiresAtMs === 'number' ? expiresAtMs : undefined,
+    })
+    return res.json({ ok: true, job: j })
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'start_failed' })
+  }
 })
 app.post('/api/jobs/stop', async (req, res) => {
   const { delegatorSA } = req.body || {}
@@ -318,6 +410,523 @@ app.post('/api/jobs/run', async (req, res) => {
   const j = await runNow(delegatorSA)
   if (!j) return res.status(404).json({ error: 'Job not found' })
   return res.json({ ok: true, job: j })
+})
+
+// Manual unwrap endpoint: executes WMON.withdraw for the delegator SA under existing delegation
+app.post('/api/unwrap', async (req, res) => {
+  try {
+    let { delegatorSA, amount, percent } = req.body || {}
+    if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
+    if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
+    const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+    if (!existsSync(file)) return res.status(404).json({ error: 'No delegation found for delegator' })
+    const raw = readFileSync(file, 'utf8')
+    const json = JSON.parse(raw)
+    const signed = json.signedDelegation
+    const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+    if (!pk) return res.status(500).json({ error: 'Missing DELEGATE_PRIVATE_KEY' })
+    const eoa = privateKeyToAccount(pk)
+    let env: any
+    try { env = getDeleGatorEnvironment(monadTestnet.id) } catch {}
+    const sa = await toMetaMaskSmartAccount({
+      client: publicClient,
+      implementation: Implementation.Hybrid,
+      deployParams: [eoa.address, [], [], []],
+      deploySalt: '0x',
+      signer: { account: eoa },
+      ...(env ? { environment: env } : {}),
+    })
+    // Determine withdraw amount:
+    // Priority: explicit amount > percent (0-100) > default 96% if amount not provided/zero
+    let wad = 0n
+    if (amount != null) {
+      try { wad = BigInt(String(amount)) } catch { wad = 0n }
+    }
+    let chosenPercent: number | null = null
+    if (wad === 0n) {
+      // fetch full balance
+      let bal = 0n
+      try {
+        bal = await publicClient.readContract({
+          address: WMON,
+          abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
+          functionName: 'balanceOf',
+          args: [delegatorSA as Address],
+        }) as bigint
+      } catch {}
+      // resolve percent
+      let p = 96
+      if (percent != null) {
+        const pn = Number(percent)
+        if (!Number.isNaN(pn) && pn > 0 && pn <= 100) p = pn
+      }
+      chosenPercent = p
+      wad = (bal * BigInt(p)) / 100n
+      if (wad === 0n && bal > 0n) wad = bal // ensure non-zero if balance positive
+    }
+    if (wad === 0n) return res.status(400).json({ error: 'No WMON to unwrap' })
+    const callData = encodeFunctionData({
+      abi: [{ name: 'withdraw', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'wad', type: 'uint256' }], outputs: [] }] as any,
+      functionName: 'withdraw',
+      args: [wad],
+    })
+    const exec = [{ target: WMON as Address, value: 0n, callData }]
+    const flat = {
+      delegate: signed.delegation.delegate,
+      delegator: signed.delegation.delegator,
+      authority: signed.delegation.authority,
+      caveats: (signed.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+      salt: signed.delegation.salt,
+      signature: signed.signature,
+    }
+    const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
+    const { calldatas, modes } = encodeExecutionCalldatasWithModes([exec])
+    const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
+    const data = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
+    let maxFeePerGas: bigint = 80n * 10n ** 9n
+    let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
+    try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp/2n || 1n } } catch {}
+    const uoHash = await bundlerClient.sendUserOperation({
+      account: sa,
+      calls: [{ to: env.DelegationManager as Address, data }],
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+    })
+    return res.json({ ok: true, userOperationHash: uoHash, unwrapped: wad.toString(), percent: chosenPercent })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'unwrap failed' })
+  }
+})
+
+// Withdraw native MON from delegator SA to its ownerEOA by unwrapping WMON balance
+app.post('/api/withdraw-native', async (req, res) => {
+  try {
+    let { delegatorSA, amount } = req.body || {}
+    if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
+    if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
+    const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+    if (!existsSync(file)) return res.status(404).json({ error: 'delegation_missing' })
+    const raw = readFileSync(file, 'utf8')
+    const json = JSON.parse(raw)
+    const ownerEOA = json?.job?.ownerEOA as string | undefined
+    if (!ownerEOA) return res.status(400).json({ error: 'ownerEOA_missing' })
+    const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+    if (!pk) return res.status(500).json({ error: 'Missing DELEGATE_PRIVATE_KEY' })
+    const eoa = privateKeyToAccount(pk)
+    const env = getDeleGatorEnvironment(monadTestnet.id)
+    const delegateSA = await toMetaMaskSmartAccount({
+      client: publicClient,
+      implementation: Implementation.Hybrid,
+      deployParams: [eoa.address, [], [], []],
+      deploySalt: '0x',
+      signer: { account: eoa },
+      environment: env as any,
+    })
+    // Read WMON balance of delegator SA
+    let wbal = 0n
+    try {
+      wbal = await publicClient.readContract({
+        address: WMON as any,
+        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] } ] as any,
+        functionName: 'balanceOf',
+        args: [delegatorSA],
+      }) as bigint
+    } catch {}
+    if (wbal === 0n) return res.json({ ok: false, error: 'no_wmon_balance' })
+    let wad: bigint
+    if (amount != null) {
+      try { wad = BigInt(String(amount)) } catch { wad = wbal }
+      if (wad <= 0n || wad > wbal) wad = wbal
+    } else {
+      wad = wbal
+    }
+    // Build executions: withdraw(wad) on WMON then transfer native MON to ownerEOA (delegator SA already receives native, so we just need a native call?)
+    // For native transfer from SA, we can use a zero calldata execution with value if the smart account supports direct value send via execution bundling.
+    // Simpler: withdraw to SA (WMON withdraw sends MON to msg.sender), then flushToken path exists but here we compose direct withdraw only.
+    const { encodeFunctionData } = await import('viem')
+    const withdrawData = encodeFunctionData({
+      abi: [ { name: 'withdraw', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'wad', type: 'uint256' } ], outputs: [] } ] as any,
+      functionName: 'withdraw',
+      args: [wad],
+    }) as `0x${string}`
+    // After withdraw, we add a transfer of native MON (value) to ownerEOA with empty calldata
+    const executions: { target: `0x${string}`; value: bigint; callData: `0x${string}` }[] = [
+      { target: WMON as `0x${string}`, value: 0n, callData: withdrawData },
+      { target: ownerEOA as `0x${string}`, value: wad, callData: '0x' as `0x${string}` },
+    ]
+    // Encode delegation redeem like in runner (reuse existing signedDelegation)
+    const signed = json.signedDelegation
+    const flat = {
+      delegate: signed.delegation.delegate,
+      delegator: signed.delegation.delegator,
+      authority: signed.delegation.authority,
+      caveats: (signed.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+      salt: signed.delegation.salt,
+      signature: signed.signature,
+    }
+    const { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } = await import('./encoding')
+    const ctxArr = encodePermissionContextsFromDelegations([[flat as any]])
+    if (!Array.isArray(ctxArr) || ctxArr.length === 0) return res.status(500).json({ error: 'permission_ctx_failed' })
+    const [ctx] = ctxArr
+    const execGroups = executions.map((e) => [e])
+    const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
+    const permissionContexts = execGroups.map(() => ctx)
+    const { encodeFunctionData: encFD } = await import('viem')
+    const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
+    const dmCalldata = encFD({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
+    // Gas params basic
+    let maxFeePerGas = await publicClient.getGasPrice().catch(() => 80n * 10n ** 9n)
+    if (maxFeePerGas < 80n * 10n ** 9n) maxFeePerGas = 80n * 10n ** 9n
+    const maxPriorityFeePerGas = maxFeePerGas / 2n
+    const uoHash = await bundlerClient.sendUserOperation({
+      account: delegateSA,
+      calls: [{ to: env.DelegationManager as any, data: dmCalldata }],
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+    })
+    return res.json({ ok: true, userOperationHash: uoHash, wad: String(wad) })
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'withdraw_native_failed' })
+  }
+})
+
+// Flush tokens from SA to EOA (ERC20 via transferFrom(from=SA, to=EOA) or native MON via value call)
+app.post('/api/flush', async (req, res) => {
+  try {
+  let { delegatorSA, token, to, amount } = req.body || {}
+  if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
+  if (!delegatorSA || !token || !to) return res.status(400).json({ error: 'Missing fields' })
+    const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+    if (!existsSync(file)) return res.status(404).json({ error: 'No delegation found' })
+    const raw = readFileSync(file, 'utf8')
+    const json = JSON.parse(raw)
+    const signed = json.signedDelegation
+    const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+    if (!pk) return res.status(500).json({ error: 'Missing DELEGATE_PRIVATE_KEY' })
+    const eoa = privateKeyToAccount(pk)
+    let env: any
+    try { env = getDeleGatorEnvironment(monadTestnet.id) } catch {}
+    const sa = await toMetaMaskSmartAccount({
+      client: publicClient,
+      implementation: Implementation.Hybrid,
+      deployParams: [eoa.address, [], [], []],
+      deploySalt: '0x',
+      signer: { account: eoa },
+      ...(env ? { environment: env } : {}),
+    })
+    let exec: { target: Address; value: bigint; callData: `0x${string}` }[] = []
+    if (token === 'MON') {
+      return res.status(400).json({ ok: false, error: 'MON native flush désactivé; utiliser WMON (unwrap puis flush WMON)' })
+    } else {
+      const tokenAddr = token === 'USDC' ? USDC : token === 'WMON' ? WMON : null
+      if (!tokenAddr) return res.status(400).json({ error: 'Unsupported token' })
+      let amt: bigint
+      if (amount === 'all') {
+        try {
+          amt = await publicClient.readContract({
+            address: tokenAddr as Address,
+            abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
+            functionName: 'balanceOf',
+            args: [delegatorSA as Address],
+          }) as bigint
+        } catch { amt = 0n }
+      } else {
+        amt = BigInt(String(amount || 0))
+      }
+      // Use transferFrom(from=SA,to=EOA) since original delegation already allowed selector 23b872dd
+      const callData = encodeFunctionData({
+        abi: [ { name: 'transferFrom', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'from', type: 'address' }, { name: 'to', type: 'address' }, { name: 'value', type: 'uint256' } ], outputs: [ { name: '', type: 'bool' } ] } ] as any,
+        functionName: 'transferFrom',
+        args: [delegatorSA as Address, to as Address, amt],
+      })
+      exec = [{ target: tokenAddr as Address, value: 0n, callData }]
+    }
+    const flat = {
+      delegate: signed.delegation.delegate,
+      delegator: signed.delegation.delegator,
+      authority: signed.delegation.authority,
+      caveats: (signed.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+      salt: signed.delegation.salt,
+      signature: signed.signature,
+    }
+    const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
+    const { calldatas, modes } = encodeExecutionCalldatasWithModes([exec])
+    const DM_REDEEM_ABI = [
+      { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [
+        { name: '_permissionContexts', type: 'bytes[]' },
+        { name: '_modes', type: 'bytes32[]' },
+        { name: '_executionCallDatas', type: 'bytes[]' },
+      ], outputs: [] },
+    ] as const
+    const data = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
+    // gas
+    let maxFeePerGas: bigint = 80n * 10n ** 9n
+    let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
+    try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp/2n || 1n } } catch {}
+    const uoHash = await bundlerClient.sendUserOperation({
+      account: sa,
+      calls: [{ to: env.DelegationManager as Address, data }],
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+    })
+  return res.json({ ok: true, userOperationHash: uoHash })
+  } catch (e: any) {
+  console.error('[flush] error', e?.message)
+  return res.status(500).json({ ok: false, error: e?.message || 'flush failed' })
+  }
+})
+
+// Top-up USDC: prepend permit or transferWithAuthorization then transferFrom/implicit transfer
+app.post('/api/topup', async (req, res) => {
+  try {
+  let { delegatorSA, amountUSDC, permit, auth3009 } = req.body || {}
+  if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
+    if (!delegatorSA || !amountUSDC) return res.status(400).json({ error: 'Missing fields' })
+    const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+    if (!existsSync(file)) {
+      console.warn('[topup] delegation missing for', delegatorSA)
+      return res.status(404).json({ error: 'No delegation found', code: 'delegation_missing', delegatorSA })
+    }
+    const raw = readFileSync(file, 'utf8')
+    const json = JSON.parse(raw)
+  // fallback: si pas fourni dans body, utiliser ceux persistés dans job
+  if (!permit && json?.job?.permit) permit = json.job.permit
+  if (!auth3009 && json?.job?.auth3009) auth3009 = json.job.auth3009
+    const signed = json.signedDelegation
+    const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+    if (!pk) return res.status(500).json({ error: 'Missing DELEGATE_PRIVATE_KEY' })
+    const eoa = privateKeyToAccount(pk)
+    let env: any
+    try { env = getDeleGatorEnvironment(monadTestnet.id) } catch {}
+    const sa = await toMetaMaskSmartAccount({
+      client: publicClient,
+      implementation: Implementation.Hybrid,
+      deployParams: [eoa.address, [], [], []],
+      deploySalt: '0x',
+      signer: { account: eoa },
+      ...(env ? { environment: env } : {}),
+    })
+    const toPull = BigInt(amountUSDC) // already in 6 decimals
+    const { encodeFunctionData } = await import('viem')
+    const seq: { target: Address; value: bigint; callData: `0x${string}` }[] = []
+
+    // --- Préflight diagnostics ---
+    const ownerAddr: Address | undefined = permit?.owner || auth3009?.from
+    if (!ownerAddr) {
+      return res.status(400).json({ ok: false, error: 'Missing permit/auth owner', code: 'missing_owner' })
+    }
+    // Lire solde USDC owner
+    let ownerBal: bigint = 0n
+    try {
+      ownerBal = await publicClient.readContract({
+        address: USDC,
+        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
+        functionName: 'balanceOf',
+        args: [ownerAddr],
+      }) as bigint
+    } catch {}
+    if (ownerBal < toPull) {
+      console.warn('[topup] insufficient USDC balance owner', { owner: ownerAddr, ownerBal: ownerBal.toString(), requested: toPull.toString() })
+      return res.status(400).json({ ok: false, error: 'Owner USDC balance insufficient', code: 'insufficient_owner_usdc', ownerBal: ownerBal.toString(), requested: toPull.toString() })
+    }
+    if (permit) {
+      try {
+        if (BigInt(permit.value) < toPull) {
+          return res.status(400).json({ ok: false, error: 'Permit value lower than requested transfer', code: 'permit_value_too_low', permitValue: permit.value, requested: toPull.toString() })
+        }
+      } catch {}
+    }
+    // --- Fin préflight ---
+  if (permit) {
+      const permitCalldata = encodeFunctionData({
+        abi: [ { name: 'permit', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'deadline', type: 'uint256' }, { name: 'v', type: 'uint8' }, { name: 'r', type: 'bytes32' }, { name: 's', type: 'bytes32' } ], outputs: [] } ] as any,
+        functionName: 'permit',
+        args: [permit.owner, delegatorSA as Address, BigInt(permit.value), BigInt(permit.deadline), permit.v, permit.r, permit.s],
+      }) as `0x${string}`
+      seq.push({ target: USDC as Address, value: 0n, callData: permitCalldata })
+  } else if (auth3009) {
+      const twa = encodeFunctionData({
+        abi: [ { name: 'transferWithAuthorization', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'from', type: 'address' }, { name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'validAfter', type: 'uint256' }, { name: 'validBefore', type: 'uint256' }, { name: 'nonce', type: 'bytes32' }, { name: 'v', type: 'uint8' }, { name: 'r', type: 'bytes32' }, { name: 's', type: 'bytes32' } ], outputs: [] } ] as any,
+        functionName: 'transferWithAuthorization',
+        args: [auth3009.from, delegatorSA as Address, BigInt(auth3009.value), BigInt(auth3009.validAfter), BigInt(auth3009.validBefore), auth3009.nonce, auth3009.v, auth3009.r, auth3009.s],
+      }) as `0x${string}`
+      seq.push({ target: USDC as Address, value: 0n, callData: twa })
+    }
+    // Always finish with transferFrom(ownerEOA -> SA) if using permit; for EIP-3009 direct transfer, maybe skip
+  if (permit) {
+      const transferFrom = encodeFunctionData({
+        abi: [ { name: 'transferFrom', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'from', type: 'address' }, { name: 'to', type: 'address' }, { name: 'value', type: 'uint256' } ], outputs: [ { name: '', type: 'bool' } ] } ] as any,
+        functionName: 'transferFrom',
+        args: [permit.owner as Address, delegatorSA as Address, toPull],
+      }) as `0x${string}`
+      seq.push({ target: USDC as Address, value: 0n, callData: transferFrom })
+    }
+
+    // Pré-simulation de chaque appel pour ressortir un éventuel revert reason avant l'op UserOp
+    const simulated: any[] = []
+    for (const [i, step] of seq.entries()) {
+      try {
+        await publicClient.call({ to: step.target, data: step.callData })
+        simulated.push({ i, ok: true, selector: step.callData.slice(0,10) })
+      } catch (err: any) {
+        let reason: string | undefined
+        try {
+          const decoded = decodeErrorResult({ data: err?.data || err?.cause?.data || '0x', abi: [] })
+          reason = JSON.stringify(decoded)
+        } catch {}
+        return res.status(400).json({ ok: false, error: 'pre-sim revert', code: 'pre_sim_revert', step: i, selector: step.callData.slice(0,10), raw: String(err?.message||err), decoded: reason, simulated })
+      }
+    }
+    const flat = {
+      delegate: signed.delegation.delegate,
+      delegator: signed.delegation.delegator,
+      authority: signed.delegation.authority,
+      caveats: (signed.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+      salt: signed.delegation.salt,
+      signature: signed.signature,
+    }
+  const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
+    // One mode per execution (SingleDefault), each execution array length=1
+    const execGroups = seq.map((x) => [x])
+    const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
+    const permissionContexts = execGroups.map(() => ctx)
+    const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
+    const data = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
+    // gas basics
+    let maxFeePerGas: bigint = 80n * 10n ** 9n
+    let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
+    try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp/2n || 1n } } catch {}
+  console.log('[topup] exec sequence', seq.map((s,i)=>({i,target:s.target,hasData:s.callData!== '0x', selector: s.callData?.slice(0,10)})))
+  console.log('[topup] diagnostics', { owner: ownerAddr, ownerBal: ownerBal.toString(), toPull: toPull.toString(), steps: seq.length })
+  const uoHash = await bundlerClient.sendUserOperation({
+      account: sa,
+      calls: [{ to: env.DelegationManager as Address, data }],
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+    })
+    return res.json({ ok: true, userOperationHash: uoHash })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'topup failed' })
+  }
+})
+
+// Wrap MON -> WMON (deposit) depuis le SA (utilise délégation)
+app.post('/api/wrap', async (req, res) => {
+  try {
+    let { delegatorSA, amount } = req.body || {}
+    if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
+    if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
+    const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+  if (!existsSync(file)) return res.status(404).json({ error: 'No delegation found', code: 'delegation_missing', delegatorSA })
+    const raw = readFileSync(file, 'utf8')
+    const json = JSON.parse(raw)
+    const signed = json.signedDelegation
+    const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+    if (!pk) return res.status(500).json({ error: 'Missing DELEGATE_PRIVATE_KEY' })
+    const eoa = privateKeyToAccount(pk)
+    let env: any
+    try { env = getDeleGatorEnvironment(monadTestnet.id) } catch {}
+    const sa = await toMetaMaskSmartAccount({
+      client: publicClient,
+      implementation: Implementation.Hybrid,
+      deployParams: [eoa.address, [], [], []],
+      deploySalt: '0x',
+      signer: { account: eoa },
+      ...(env ? { environment: env } : {}),
+    })
+    // Amount: si non fourni -> full balance MON du SA
+    let value: bigint
+    if (amount == null) {
+      try { value = await publicClient.getBalance({ address: delegatorSA as Address }) } catch { value = 0n }
+    } else {
+      value = BigInt(String(amount))
+    }
+    if (value === 0n) return res.status(400).json({ error: 'No MON to wrap' })
+    // deposit() payable sans calldata paramètres
+    const exec = [{ target: WMON as Address, value, callData: '0xd0e30db0' as `0x${string}` }]
+    const flat = {
+      delegate: signed.delegation.delegate,
+      delegator: signed.delegation.delegator,
+      authority: signed.delegation.authority,
+      caveats: (signed.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+      salt: signed.delegation.salt,
+      signature: signed.signature,
+    }
+    const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
+    const { calldatas, modes } = encodeExecutionCalldatasWithModes([exec])
+    const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
+    const data = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
+    let maxFeePerGas: bigint = 80n * 10n ** 9n
+    let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
+    try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp/2n || 1n } } catch {}
+    const uoHash = await bundlerClient.sendUserOperation({
+      account: sa,
+      calls: [{ to: env.DelegationManager as Address, data }],
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+    })
+    return res.json({ ok: true, userOperationHash: uoHash })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'wrap failed' })
+  }
+})
+
+// Status consolidé pour UI
+app.get('/api/status/:delegator', async (req, res) => {
+  try {
+    const delegator = (req.params.delegator || '').toLowerCase()
+    if (!delegator.startsWith('0x') || delegator.length !== 42) return res.status(400).json({ error: 'delegator invalide' })
+    const file = join(process.cwd(), 'data', 'delegations', `${delegator}.json`)
+    const exists = existsSync(file)
+    let job: any = null
+    let permit: any = null
+    let auth3009: any = null
+    if (exists) {
+      try {
+        const raw = readFileSync(file, 'utf8')
+        const json = JSON.parse(raw)
+        job = json.job || null
+        permit = json.job?.permit || null
+        auth3009 = json.job?.auth3009 || null
+      } catch {}
+    }
+    // Balances
+    let usdc = 0n, mon = 0n, wmon = 0n
+    try { mon = await publicClient.getBalance({ address: delegator as Address }) } catch {}
+    try {
+      usdc = await publicClient.readContract({
+        address: USDC,
+        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
+        functionName: 'balanceOf',
+        args: [delegator as Address],
+      }) as bigint
+    } catch {}
+    try {
+      wmon = await publicClient.readContract({
+        address: WMON,
+        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
+        functionName: 'balanceOf',
+        args: [delegator as Address],
+      }) as bigint
+    } catch {}
+    const needsTopup = usdc === 0n
+    return res.json({ ok: true, hasDelegation: exists, balances: { usdc: usdc.toString(), mon: mon.toString(), wmon: wmon.toString() }, needsTopup, hasPermitAuth: Boolean(permit || auth3009) })
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'status failed' })
+  }
+})
+
+// List delegations for debugging
+app.get('/api/delegations', async (_req, res) => {
+  try {
+    const dir = join(process.cwd(), 'data', 'delegations')
+    if (!existsSync(dir)) return res.json({ ok: true, delegations: [] })
+    const fs = require('node:fs') as typeof import('node:fs')
+    const files = fs.readdirSync(dir).filter((f: string) => f.endsWith('.json'))
+    return res.json({ ok: true, delegations: files })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'list failed' })
+  }
 })
 
 // Fallback 404 handler (always JSON)
@@ -340,5 +949,6 @@ export function startServer(port = Number(process.env.PORT || 8787)) {
     console.log(`[boot] RPC_URL=${process.env.RPC_URL}`)
     console.log(`[boot] BUNDLER=${process.env.ZERO_DEV_BUNDLER_RPC ? 'set' : 'missing'}`)
     console.log(`[boot] PAYMASTER=${process.env.ZERO_DEV_PAYMASTER_RPC ? 'set' : 'missing'}`)
+  console.log('[boot] endpoints ready: /api/topup /api/wrap /api/unwrap /api/delegations /api/diag /api/status /api/version /api/routes')
   })
 }

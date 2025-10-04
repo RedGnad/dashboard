@@ -86,6 +86,16 @@
 			"type": "shell",
 			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent",
 			"args": []
+		},
+		{
+			"label": "API: Start (persist)",
+			"type": "shell",
+			"command": "npm run start --silent",
+			"isBackground": true,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
 		}
 	]
 }

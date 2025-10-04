@@ -1,5 +1,5 @@
 {
-  "delegatorSA": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+  "delegatorSA": "0x022b39bc36eacf22360f61247487e956812afe5e",
   "signedDelegation": {
     "delegation": {
       "delegate": "0x0000000000000000000000000000000000000a11",
@@ -8,38 +8,42 @@
       "caveats": [
         {
           "enforcer": "0x7F20f61b1f09b08D970938F6fa563634d65c4EeB",
-          "terms": "0xf817257fed379853cDe0fa4F97AB987181B1E5Eafb8e1c3b833f9e67a71c859a132cf783b645e436",
+          "terms": "0xf817257fed379853cDe0fa4F97AB987181B1E5Eafb8e1c3b833f9e67a71c859a132cf783b645e436760AfE86e5de5fa0Ee542fc7B7B713e1c542570134c767db7846f03a292D2999f7e8Eb6fD035f7d0",
           "args": "0x"
         },
         {
           "enforcer": "0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5",
-          "terms": "0x095ea7b338ed1739",
+          "terms": "0x095ea7b338ed17392e1a7d4dd0e30db0d505accf23b872dda9059cbbe3ee160e",
           "args": "0x"
         }
       ],
       "salt": "0x",
       "signature": "0x"
     },
-    "signature": "0x46244322491401ffd08eec2964af7fe4dd066381821e12f708dd4074d2fbcaf72b260731c3ab488a152db5cd9c01f14c86551ccfc9f01c8eee5a96c3c1aea12f1b"
+    "signature": "0x898c4366fb0cd71cc6028e3e43f7d694f8ea549b9f7856b6c2da41d4af32e60e077beecd70cfb413f0e0fbae0a3ee1f482adc14c1ee3880c312c4f2ad10cddbb1b"
   },
   "job": {
+    "createdAtMs": 1759538515963,
+    "unwrapEvery": 1,
     "amountUSDC": "1",
     "slippageBps": 100,
     "intervalSec": 60,
     "durationSec": 86400,
-    "unwrapToMon": false,
+    "unwrapToMon": true,
     "usePaymaster": false,
-    "executions": [
-      {
-        "target": "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea",
-        "value": "0",
-        "callData": "0x095ea7b3000000000000000000000000fb8e1c3b833f9e67a71c859a132cf783b645e43600000000000000000000000000000000000000000000000000000000000f4240"
-      },
-      {
-        "target": "0xfb8e1c3b833f9e67a71c859a132cf783b645e436",
-        "value": "0",
-        "callData": "0x38ed173900000000000000000000000000000000000000000000000000000000000f4240000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000022b39bc36eacf22360f61247487e956812afe5e0000000000000000000000000000000000000000000000000000000068dfee830000000000000000000000000000000000000000000000000000000000000002000000000000000000000000f817257fed379853cde0fa4f97ab987181b1e5ea000000000000000000000000760afe86e5de5fa0ee542fc7b7b713e1c5425701"
-      }
-    ]
+    "ownerEOA": "0x34c767db7846f03a292D2999f7e8Eb6fD035f7d0",
+    "permit": null,
+    "auth3009": {
+      "from": "0x34c767db7846f03a292D2999f7e8Eb6fD035f7d0",
+      "to": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+      "value": "1000000",
+      "validAfter": "1759538511",
+      "validBefore": "1762130511",
+      "nonce": "0xdeb164a1f9441a6f677b85c251d2cc29107b475f4b7c8b69abd15c2416be9508",
+      "v": 28,
+      "r": "0x5bb4071c8641fb010f0d65fe05555f5aedb34da35fb93ddb6226d769a48bb78d",
+      "s": "0x2fe65740776872bcbfc5eac6e6f1d61a227e61994e7594cea0544b7dd3dc1232"
+    },
+    "dailyTopupUSDC": 1
   }
 }

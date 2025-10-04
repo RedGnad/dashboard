@@ -4,9 +4,13 @@ import { createExecution, ExecutionMode } from '@metamask/delegation-toolkit';
 import { DelegationManager } from '@metamask/delegation-toolkit/contracts';
 
 export type DcaParams = {
-  amountUSDC: bigint; // in USDC 6 decimals wei
-  slippageBps: number;
+  amountUSDC: bigint; // in USDC (6 decimals) smallest units
+  slippageBps: number; // basis points for minOut derivation (not currently enforced server-side)
   unwrapToMon: boolean;
+  // Optional guaranteed minimum output for swap (pre-quoted). If omitted, defaults to 0 (unsafe in prod).
+  amountOutMin?: bigint;
+  // Optional amount to unwrap (defaults to amountOutMin when unwrapToMon=true).
+  withdrawAmount?: bigint;
 };
 
 // Minimal ABIs
@@ -33,11 +37,11 @@ const wmonAbi = [
 ];
 
 export function buildExecutions(params: DcaParams & { recipient: Address }) {
-  const { amountUSDC, slippageBps, unwrapToMon, recipient } = params;
+  const { amountUSDC, unwrapToMon, recipient, amountOutMin, withdrawAmount } = params;
 
-  // For simplicity, we set amountOutMin to 0 (not recommended in prod). In prod, quote via a DEX oracles/router.
-  const amountOutMin = 0n;
-  const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 5); // +5 min
+  // If caller did not supply a min-out, fall back to 0 (demo only, not safe in production).
+  const minOut = amountOutMin ?? 0n;
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 30); // generous AA deadline
 
   const approveRouter = createExecution({
     target: USDC,
@@ -51,21 +55,23 @@ export function buildExecutions(params: DcaParams & { recipient: Address }) {
     callData: encodeFunctionData({
       abi: routerAbi as any,
       functionName: 'swapExactTokensForTokens',
-      args: [amountUSDC, amountOutMin, [USDC, WMON], recipient, deadline],
+      args: [amountUSDC, minOut, [USDC, WMON], recipient, deadline],
     }),
   });
 
   const executions = [approveRouter, swap];
 
   if (unwrapToMon) {
-    // unwrap entire received WMON amount is non-trivial without exact amount; for demo, unwrap amountUSDC-equivalent
-    // In production, derive exact out amount from swap event or router return; here we unwrap a placeholder amount
-    const unwrap = createExecution({
-      target: WMON,
-      value: 0n,
-      callData: encodeFunctionData({ abi: wmonAbi as any, functionName: 'withdraw', args: [0n] }),
-    });
-    executions.push(unwrap);
+    // Withdraw only an amount we are confident exists (withdrawAmount or minOut). Avoids revert on insufficient balance.
+    const wad = withdrawAmount ?? minOut;
+    if (wad > 0n) {
+      const unwrap = createExecution({
+        target: WMON,
+        value: 0n,
+        callData: encodeFunctionData({ abi: wmonAbi as any, functionName: 'withdraw', args: [wad] }),
+      });
+      executions.push(unwrap);
+    }
   }
 
   return { executions };

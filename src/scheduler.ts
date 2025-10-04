@@ -1,5 +1,6 @@
 import type { Address } from 'viem'
-import { runOnceForDelegator } from './runner'
+import { runOnceForDelegator, flushTokenForDelegator } from './runner'
+import { WMON } from './constants'
 
 export type JobStatus = {
   delegatorSA: Address
@@ -32,6 +33,23 @@ function schedule(job: InternalJob) {
       if (job._timer) clearInterval(job._timer)
       job._timer = undefined
       console.log('[scheduler] expired', { delegatorSA: job.delegatorSA })
+      // Attempt to sweep WMON → EOA at end of window if job exists on disk and EOA known
+      try {
+        const fs = await import('node:fs')
+        const path = await import('node:path')
+        const file = path.join(process.cwd(), 'data', 'delegations', `${job.delegatorSA}.json`)
+        if (fs.existsSync(file)) {
+          const raw = fs.readFileSync(file, 'utf8')
+          const json = JSON.parse(raw)
+          const eoa = json?.job?.ownerEOA as any
+          if (eoa) {
+            console.log('[scheduler] flushing WMON to EOA at end of cycle…')
+            await flushTokenForDelegator(job.delegatorSA, WMON as any, eoa, 'all')
+          }
+        }
+      } catch (e) {
+        console.warn('[scheduler] end-of-cycle flush failed', e)
+      }
       return
     }
     if (job._running) return
@@ -68,6 +86,14 @@ export function startJob(
     ? { ...existing, intervalSec, active: true, expiresAt }
     : { delegatorSA, intervalSec, active: true, expiresAt, runsDone: 0 }
   jobs[key] = job
+  // Toujours réinitialiser lastRunAt lors d'un nouveau start pour un timer cohérent
+  // Sauf si immediate=true, auquel cas on laisse runOnceForDelegator le mettre à jour
+  if (!opts?.immediate) {
+    job.lastRunAt = Date.now()
+  } else {
+    // Pour immediate=true, on remet à zéro pour que l'exécution immédiate définisse le timing
+    job.lastRunAt = undefined
+  }
   schedule(job)
   // Optional immediate tick on start
   if (opts?.immediate) {
@@ -96,7 +122,10 @@ export function stopJob(delegatorSA: Address): JobStatus | null {
   job.active = false
   if (job._timer) clearInterval(job._timer)
   job._timer = undefined
-  console.log('[scheduler] stop', { delegatorSA })
+  // Réinitialiser le timer : supprimer lastRunAt pour que le prochain start reparte de 0
+  job.lastRunAt = undefined
+  job.lastError = undefined
+  console.log('[scheduler] stop + reset timer', { delegatorSA })
   return publicStatus(job)
 }
 

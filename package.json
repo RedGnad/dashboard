@@ -8,6 +8,10 @@
   "dev": "tsx src/index.ts",
   "dev:api": "tsx watch src/index.ts",
   "start": "tsx src/index.ts",
+  "serve:dist": "npm run build && node dist/index.js",
+  "debug:start": "env | grep -E 'RPC_URL|ZERO_DEV|PIMLICO|DELEGATE|NO_API' || true; node -e 'console.log(\"[preflight] node version\", process.version)'; tsx src/index.ts",
+  "api:start": "bash ./api-start.sh",
+  "api:stop": "bash ./api-stop.sh",
   "dca:once": "tsx src/index.ts --once"
   },
   "dependencies": {

@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { buildDebugBundle, summarizeExecutions } from './utils/debug'
 import { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } from './encoding'
 
-export async function runOnceForDelegator(delegatorSA: Address) {
+export async function runOnceForDelegator(delegatorSA: Address, opts?: { runIndex?: number }) {
   const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
   if (!pk) throw new Error('Missing DELEGATE_PRIVATE_KEY')
 
@@ -38,8 +38,24 @@ export async function runOnceForDelegator(delegatorSA: Address) {
   const amountUSDC = parseUnits(String(json.job?.amountUSDC ?? '1'), 6)
   const slippageBps = Number(json.job?.slippageBps ?? 100)
   const unwrapToMon = Boolean(json.job?.unwrapToMon ?? false)
+  const unwrapEvery = Number(json.job?.unwrapEvery ?? 1)
+  const createdAtMs = Number(json.job?.createdAtMs || Date.now())
+  const durationSec = Number(json.job?.durationSec || (24 * 60 * 60))
+  const cycleEndsAt = createdAtMs + durationSec * 1000
+  const runCounter = Number(json.job?.runCounter || 0)
+  const ownerEOA = (json.job?.ownerEOA || '') as Address
+  const savedPermit = json.job?.permit as
+    | { owner: Address; spender: Address; value: string; deadline: string; v: number; r: `0x${string}`; s: `0x${string}` }
+    | undefined
+  const auth3009 = json.job?.auth3009 as
+    | { from: Address; to: Address; value: string; validAfter: string; validBefore: string; nonce: `0x${string}`; v: number; r: `0x${string}`; s: `0x${string}` }
+    | undefined
+  const dailyTopupUSDC = BigInt((json.job?.dailyTopupUSDC ?? 24) * 1_000_000)
+  const topupUsed: boolean = Boolean(json.job?.topupUsed)
+  let usedTopupThisRun = false
 
   // Pre-check: ensure delegator has enough USDC to avoid simulation revert (TransferHelper: TRANSFER_FROM_FAILED)
+  let delegatorUsdcBal: bigint | null = null
   try {
     const erc20Abi = [
       { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
@@ -50,24 +66,177 @@ export async function runOnceForDelegator(delegatorSA: Address) {
       functionName: 'balanceOf',
       args: [delegatorSA],
     })) as bigint
+    delegatorUsdcBal = bal
     if (bal < amountUSDC) {
       const msg = `Insufficient USDC: have ${bal.toString()}, need ${amountUSDC.toString()}`
       console.warn('[runner] skip execution:', msg)
-      throw new Error(msg)
+      // We'll try permit + transferFrom if we have an owner and permit
+      if (!ownerEOA || !savedPermit) throw new Error(msg)
     }
   } catch (e) {
     // If read fails, proceed (bundler may still simulate); but prefer explicit error
-    if (e instanceof Error && /Insufficient USDC/.test(e.message)) throw e
+    if (e instanceof Error && /Insufficient USDC/.test(e.message)) {
+      // if missing permit info, rethrow; else continue to attempt pull
+      if (!ownerEOA || !savedPermit) throw e
+    }
   }
 
   // Prefer executions passed from the frontend (to match exactExecutionBatch caveat); otherwise build locally.
-  let executions = Array.isArray(json.job?.executions) && json.job.executions.length
+  const wantUnwrapThisRun = unwrapToMon && (unwrapEvery > 1 ? ((runCounter + 1) % unwrapEvery === 0) : true)
+  const usedFrontendExecutions = Array.isArray(json.job?.executions) && json.job.executions.length > 0
+  let executions = usedFrontendExecutions
     ? (json.job.executions as any[]).map((e) => ({
         target: e.target as Address,
         value: typeof e.value === 'string' ? BigInt(e.value) : BigInt(e.value ?? 0),
         callData: e.callData as `0x${string}`,
       }))
-    : buildExecutions({ amountUSDC, slippageBps, unwrapToMon, recipient: delegatorSA }).executions
+    : (await (async () => {
+        // Attempt on-chain quote for minOut to have a safe withdraw amount.
+        let minOut: bigint | undefined = undefined
+        if (wantUnwrapThisRun) {
+          try {
+            const quote = await publicClient.readContract({
+              address: UNISWAP_V2_ROUTER02,
+              abi: [ { name: 'getAmountsOut', type: 'function', stateMutability: 'view', inputs: [ { name: 'amountIn', type: 'uint256' }, { name: 'path', type: 'address[]' } ], outputs: [ { name: 'amounts', type: 'uint256[]' } ] } ] as any,
+              functionName: 'getAmountsOut',
+              args: [amountUSDC, [USDC, WMON]],
+            }) as bigint[]
+            if (Array.isArray(quote) && quote[1] !== undefined) {
+              // Apply slippageBps: minOut = quote * (1 - slippageBps/10_000)
+              const q = quote[1]
+              const slip = BigInt(slippageBps)
+              minOut = q - (q * slip / 10_000n)
+              if (minOut < 0n) minOut = 0n
+            }
+          } catch (e) {
+            console.warn('[runner] getAmountsOut failed, falling back to minOut=0 withdraw skipped', e)
+          }
+        }
+        return buildExecutions({
+          amountUSDC,
+          slippageBps,
+            unwrapToMon: wantUnwrapThisRun,
+          recipient: delegatorSA,
+          amountOutMin: wantUnwrapThisRun ? (minOut ?? 0n) : 0n,
+          withdrawAmount: wantUnwrapThisRun ? (minOut ?? 0n) : undefined,
+        }).executions
+      })())
+
+  // If we reused frontend-provided executions (approve + swap) but need unwrap, append withdraw if missing
+  if (usedFrontendExecutions && wantUnwrapThisRun) {
+    const hasWithdraw = executions.some((ex) => ex.target.toLowerCase() === WMON.toLowerCase() && (ex.callData as string).slice(0, 10) === '0x2e1a7d4d') // WETH9 withdraw selector
+    if (!hasWithdraw) {
+      try {
+        // Quote expected WMON out
+        let minOut: bigint | undefined
+        try {
+          const quote = await publicClient.readContract({
+            address: UNISWAP_V2_ROUTER02,
+            abi: [ { name: 'getAmountsOut', type: 'function', stateMutability: 'view', inputs: [ { name: 'amountIn', type: 'uint256' }, { name: 'path', type: 'address[]' } ], outputs: [ { name: 'amounts', type: 'uint256[]' } ] } ] as any,
+            functionName: 'getAmountsOut',
+            args: [amountUSDC, [USDC, WMON]],
+          }) as bigint[]
+          if (Array.isArray(quote) && quote[1] !== undefined) {
+            const q = quote[1]
+            const slip = BigInt(slippageBps)
+            minOut = q - (q * slip / 10_000n)
+            if (minOut < 0n) minOut = 0n
+          }
+        } catch (e) {
+          console.warn('[runner] quote for append-withdraw failed', e)
+        }
+        if (minOut && minOut > 0n) {
+          const { encodeFunctionData } = await import('viem')
+          const withdrawCalldata = encodeFunctionData({
+            abi: [ { name: 'withdraw', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'wad', type: 'uint256' } ], outputs: [] } ] as any,
+            functionName: 'withdraw',
+            args: [minOut],
+          }) as `0x${string}`
+          executions = [...executions, { target: WMON as Address, value: 0n, callData: withdrawCalldata }]
+          console.log('[runner] appended withdraw for unwrapToMon', { minOut: String(minOut) })
+        } else {
+          console.warn('[runner] unwrap requested but minOut unavailable; skipping withdraw append')
+        }
+      } catch (e) {
+        console.warn('[runner] failed to append withdraw execution', e)
+      }
+    }
+  }
+
+  // If SA USDC is insufficient and we have an offchain auth, prepend top-up (one-time per 24h)
+  if (delegatorUsdcBal !== null && delegatorUsdcBal < amountUSDC && ownerEOA && !topupUsed) {
+    // Check allowance first
+    try {
+      const { encodeFunctionData } = await import('viem')
+      const erc20Abi = [
+        { name: 'allowance', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' }, { name: 'spender', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] },
+      ] as const
+      const allowance = await publicClient.readContract({
+        address: USDC,
+        abi: erc20Abi as any,
+        functionName: 'allowance',
+        args: [ownerEOA, delegatorSA],
+      }) as bigint
+      const need = dailyTopupUSDC // pull fixed daily amount as requested
+      const calls: { target: Address; value: bigint; callData: `0x${string}` }[] = []
+      if (savedPermit && allowance < need) {
+        const permitCalldata = encodeFunctionData({
+          abi: [
+            { name: 'permit', type: 'function', stateMutability: 'nonpayable', inputs: [
+              { name: 'owner', type: 'address' },
+              { name: 'spender', type: 'address' },
+              { name: 'value', type: 'uint256' },
+              { name: 'deadline', type: 'uint256' },
+              { name: 'v', type: 'uint8' },
+              { name: 'r', type: 'bytes32' },
+              { name: 's', type: 'bytes32' },
+            ], outputs: [] },
+          ] as any,
+          functionName: 'permit',
+          args: [savedPermit.owner, delegatorSA, BigInt(savedPermit.value), BigInt(savedPermit.deadline), savedPermit.v, savedPermit.r, savedPermit.s],
+        }) as `0x${string}`
+        calls.push({ target: USDC as Address, value: 0n, callData: permitCalldata })
+      }
+      if (savedPermit) {
+        const transferFromCalldata = encodeFunctionData({
+          abi: [
+            { name: 'transferFrom', type: 'function', stateMutability: 'nonpayable', inputs: [
+              { name: 'owner', type: 'address' },
+              { name: 'to', type: 'address' },
+              { name: 'value', type: 'uint256' },
+            ], outputs: [{ name: '', type: 'bool' }] },
+          ] as any,
+          functionName: 'transferFrom',
+          args: [ownerEOA, delegatorSA, need],
+        }) as `0x${string}`
+        calls.push({ target: USDC as Address, value: 0n, callData: transferFromCalldata })
+      } else if (auth3009) {
+        // EIP-3009 transferWithAuthorization
+        const twa = encodeFunctionData({
+          abi: [
+            { name: 'transferWithAuthorization', type: 'function', stateMutability: 'nonpayable', inputs: [
+              { name: 'from', type: 'address' },
+              { name: 'to', type: 'address' },
+              { name: 'value', type: 'uint256' },
+              { name: 'validAfter', type: 'uint256' },
+              { name: 'validBefore', type: 'uint256' },
+              { name: 'nonce', type: 'bytes32' },
+              { name: 'v', type: 'uint8' },
+              { name: 'r', type: 'bytes32' },
+              { name: 's', type: 'bytes32' },
+            ], outputs: [] },
+          ] as any,
+          functionName: 'transferWithAuthorization',
+          args: [auth3009.from, delegatorSA, BigInt(auth3009.value), BigInt(auth3009.validAfter), BigInt(auth3009.validBefore), auth3009.nonce, auth3009.v, auth3009.r, auth3009.s],
+        }) as `0x${string}`
+        calls.push({ target: USDC as Address, value: 0n, callData: twa })
+      }
+      executions = [...calls, ...executions]
+      usedTopupThisRun = calls.length > 0
+    } catch (e) {
+      console.warn('[runner] permit/transferFrom preparation failed; proceeding without pull', e)
+    }
+  }
   // If first call is USDC.approve and allowance already sufficient, drop the approve to make repeats succeed
   try {
     const sel = (executions?.[0]?.callData as string | undefined)?.slice(0, 10)
@@ -178,6 +347,18 @@ export async function runOnceForDelegator(delegatorSA: Address) {
       ...(usePm ? { paymaster: paymasterClient } : {}),
     })
     console.log('[runner] userOp sent', { userOperationHash: uoHash })
+    // Persist job counters and flags on success
+    try {
+      const updated = { ...json }
+      updated.job = updated.job || {}
+      updated.job.runCounter = (runCounter || 0) + 1
+      if (usedTopupThisRun) {
+        updated.job.topupUsed = true
+        updated.job.topupUsedAt = Date.now()
+      }
+      const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+      try { require('node:fs').writeFileSync(file, JSON.stringify(updated, null, 2)) } catch {}
+    } catch {}
   } catch (err: any) {
     const enriched = new Error(err?.message || 'sendUserOperation failed') as any
     enriched.cause = err?.cause || err?.stack || String(err)
@@ -194,5 +375,66 @@ export async function runOnceForDelegator(delegatorSA: Address) {
     throw enriched
   }
   console.log('Sent DCA userOperationHash', uoHash)
+  return uoHash
+}
+
+export async function flushTokenForDelegator(delegatorSA: Address, token: Address, to: Address, amount: 'all' | bigint) {
+  const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+  if (!pk) throw new Error('Missing DELEGATE_PRIVATE_KEY')
+  const delegateEOA = privateKeyToAccount(pk)
+  const env = getDeleGatorEnvironment(monadTestnet.id)
+  const delegateSA = await toMetaMaskSmartAccount({
+    client: publicClient,
+    implementation: Implementation.Hybrid,
+    deployParams: [delegateEOA.address, [], [], []],
+    deploySalt: '0x',
+    signer: { account: delegateEOA },
+    environment: env as any,
+  })
+  const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+  const json = JSON.parse(readFileSync(file, 'utf-8'))
+  const signed = json.signedDelegation
+  let amt: bigint
+  if (amount === 'all') {
+    try {
+      const erc20Abi = [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as const
+      amt = await publicClient.readContract({ address: token, abi: erc20Abi as any, functionName: 'balanceOf', args: [delegatorSA] }) as bigint
+    } catch { amt = 0n }
+  } else amt = amount
+  const { encodeFunctionData } = await import('viem')
+  const callData = encodeFunctionData({
+    abi: [ { name: 'transfer', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'to', type: 'address' }, { name: 'value', type: 'uint256' } ], outputs: [ { name: '', type: 'bool' } ] } ] as any,
+    functionName: 'transfer',
+    args: [to, amt],
+  }) as `0x${string}`
+  const exec = [{ target: token, value: 0n, callData }]
+  const flat = {
+    delegate: signed.delegation.delegate,
+    delegator: signed.delegation.delegator,
+    authority: signed.delegation.authority,
+    caveats: (signed.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+    salt: signed.delegation.salt,
+    signature: signed.signature,
+  }
+  const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
+  const { calldatas, modes } = encodeExecutionCalldatasWithModes([exec])
+  const DM_REDEEM_ABI = [
+    { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [
+      { name: '_permissionContexts', type: 'bytes[]' },
+      { name: '_modes', type: 'bytes32[]' },
+      { name: '_executionCallDatas', type: 'bytes[]' },
+    ], outputs: [] },
+  ] as const
+  const data = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
+  // gas
+  let maxFeePerGas: bigint = 80n * 10n ** 9n
+  let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
+  try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp / 2n || 1n } } catch {}
+  const uoHash = await bundlerClient.sendUserOperation({
+    account: delegateSA,
+    calls: [{ to: env.DelegationManager as Address, data }],
+    maxFeePerGas,
+    maxPriorityFeePerGas,
+  })
   return uoHash
 }
