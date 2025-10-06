@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { buildDebugBundle, summarizeExecutions } from './utils/debug'
 import { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } from './encoding'
 import { appendRunEvent } from './utils/history'
+import { appendAudit, newRunId } from './audit'
 
 export async function runOnceForDelegator(delegatorSA: Address, opts?: { runIndex?: number }) {
   const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
@@ -468,6 +469,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
     if (willInject) {
       console.log('[runner] injecting paymaster for DCA op')
     }
+    const runId = newRunId()
     uoHash = await bundlerClient.sendUserOperation({
       account: delegateSA,
       calls: [{ to: env.DelegationManager as Address, data: calldata }],
@@ -488,6 +490,14 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
         strategy: 'dca-basic',
         gas: { maxFeePerGas: String(maxFeePerGas), maxPriorityFeePerGas: String(maxPriorityFeePerGas) },
       })
+      // Also append audit entries for the delegation consumed (struct hash recompute now)
+      try {
+        const d = signed.delegation
+        const domainCfg = { name: process.env.DELEGATION_DOMAIN_NAME || 'Delegation', version: process.env.DELEGATION_DOMAIN_VERSION || '1', chainId: monadTestnet.id, verifyingContract: (process.env.DELEGATION_MANAGER_ADDRESS || (getDeleGatorEnvironment(monadTestnet.id) as any).DelegationManager) }
+        const { computeCanonicalDelegationHashes } = await import('./eip712')
+        const h = computeCanonicalDelegationHashes({ delegator: d.delegator, delegate: d.delegate, authority: d.authority, caveats: d.caveats||[], salt: d.salt }, domainCfg as any)
+        appendAudit({ ts: Date.now(), action: 'execute', delegator: delegatorSA, delegate: d.delegate, role: 'core', structHash: h.structHash, digest: h.digest, domainSeparator: h.domainSeparator, caveatsRoot: h.caveatsHash, salt: d.salt, warnings: [], userOperationHash: uoHash, runId })
+      } catch {}
     } catch {}
     // Persist job counters and flags on success
     try {

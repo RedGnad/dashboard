@@ -1,4 +1,6 @@
 import express from 'express'
+import { createRequire } from 'module'
+const require = createRequire(import.meta.url)
 import cors from 'cors'
 import 'dotenv/config'
 import { writeFileSync, mkdirSync, existsSync, statSync, readFileSync } from 'node:fs'
@@ -14,8 +16,10 @@ import { USDC, UNISWAP_V2_ROUTER02, WMON, ENTRY_POINT_V07 } from './constants'
 import { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } from './encoding'
 import { buildLimitCaveats } from './caveat-builders'
 import { computeDelegationHashes, computeWarnings } from './hashing'
-import { computeCanonicalDelegationHashes } from './eip712'
-import { appendAudit, hasStructHash, readAuditTail } from './audit'
+import { computeCanonicalDelegationHashes, typehashes } from './eip712'
+import { appendAudit, hasStructHash, readAuditTail, newRunId, readAuditStream, auditStatus } from './audit'
+import { computeDelegatorCoverage, computeGlobalCoverage } from './coverage'
+import { startUserOpResolver } from './userop-resolver'
 import { Address, encodeFunctionData as viemEncodeFunctionData } from 'viem'
 import { readRunHistory, summarizeRunHistory } from './utils/history'
 // --- Simple in-memory auth (personal_sign) state ---
@@ -220,6 +224,92 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }))
 app.get('/api/delegations/audit', (req, res) => {
   const n = Math.min(Number(req.query.n ?? 200), 1000)
   return res.json({ ok: true, entries: readAuditTail(n) })
+})
+// Cursor stream: /api/delegations/audit/stream?cursor=0&limit=200 -> { entries, nextCursor, eof, total }
+app.get('/api/delegations/audit/stream', (req, res) => {
+  try {
+    const cursor = Number(req.query.cursor ?? 0)
+    const limit = Math.min(Number(req.query.limit ?? 200), 1000)
+    const data = readAuditStream(cursor, limit)
+    return res.json({ ok: true, ...data })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'stream_failed' })
+  }
+})
+// Audit status (for polling ingestion heads)
+app.get('/api/delegations/audit/status', (_req, res) => {
+  try { return res.json(auditStatus()) } catch (e: any) { return res.status(500).json({ ok: false, error: e?.message || 'status_failed' }) }
+})
+// Proof endpoint: returns finalRollingHash and lightweight recomputation meta (size & last line)
+app.get('/api/delegations/audit/proof', (_req, res) => {
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    let finalRollingHash: string | null = null
+    let lines = 0
+    let lastActionId: string | null = null
+    let lastTs: number | null = null
+    if (fs.existsSync(file)) {
+      const raw = fs.readFileSync(file, 'utf8').trim()
+      if (raw) {
+        const arr = raw.split('\n')
+        lines = arr.length
+        for (let i = arr.length - 1; i >= 0; i--) {
+          const l = arr[i]
+          if (!l) continue
+            try {
+              const j = JSON.parse(l)
+              finalRollingHash = j.rollingHash || null
+              lastActionId = j.actionId || null
+              lastTs = j.ts || null
+              break
+            } catch {}
+        }
+      }
+    }
+    return res.json({ ok: true, schemaVersion: 1, lines, finalRollingHash, lastActionId, lastTs })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'proof_failed' })
+  }
+})
+// Coverage per delegator
+app.get('/api/delegations/coverage/:addr', (req, res) => {
+  try {
+    const addr = String(req.params.addr || '').toLowerCase()
+    if (!/^0x[0-9a-f]{40}$/.test(addr)) return res.status(400).json({ ok: false, error: 'invalid_address' })
+    const stats = computeDelegatorCoverage(addr)
+    return res.json({ ok: true, stats })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'coverage_failed' })
+  }
+})
+// Global coverage
+app.get('/api/delegations/coverage', (_req, res) => {
+  try {
+    const stats = computeGlobalCoverage()
+    return res.json({ ok: true, stats })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'coverage_global_failed' })
+  }
+})
+// Domain metadata (typehashes + configured domain separator components) for external indexers
+app.get('/api/delegations/domain-meta', async (_req, res) => {
+  try {
+    const domain = {
+      name: process.env.DELEGATION_DOMAIN_NAME || 'Delegation',
+      version: process.env.DELEGATION_DOMAIN_VERSION || '1',
+      chainId: monadTestnet.id,
+      verifyingContract: (process.env.DELEGATION_MANAGER_ADDRESS || (getDeleGatorEnvironment(monadTestnet.id) as any).DelegationManager),
+    }
+    // Sanity: ensure typehashes object shape
+    const shape = Object.keys(typehashes || {})
+    console.log('[domain-meta] resolved', { shape })
+    return res.json({ ok: true, domain, typehashes })
+  } catch (e: any) {
+    console.error('[domain-meta] error', e)
+    return res.status(500).json({ ok: false, error: 'domain_meta_failed:' + (e?.message || e) })
+  }
 })
 // Mapping structHash -> runs + audit entries
 app.get('/api/delegations/map/:structHash', async (req, res) => {
@@ -1050,7 +1140,7 @@ app.post('/api/send-mon', async (req, res) => {
         const h = computeCanonicalDelegationHashes({ delegator: d.delegator, delegate: d.delegate, authority: d.authority, caveats: d.caveats||[], salt: d.salt }, domainCfg as any)
         const { appendRunEvent } = await import('./utils/history')
         appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: '0', amountOutToken: wad.toString(), unwrap: false, userOperationHash: uoHash, strategy: 'withdraw-native', structHashes: [h.structHash] })
-        appendAudit({ ts: Date.now(), action: 'execute', delegator: delegatorSA, delegate: d.delegate, role: 'value', structHash: h.structHash, digest: h.digest, domainSeparator: h.domainSeparator, caveatsRoot: h.caveatsHash, salt: d.salt, warnings: [] })
+  appendAudit({ ts: Date.now(), action: 'execute', delegator: delegatorSA, delegate: d.delegate, role: 'value', structHash: h.structHash, digest: h.digest, domainSeparator: h.domainSeparator, caveatsRoot: h.caveatsHash, salt: d.salt, warnings: [], userOperationHash: uoHash, runId: newRunId() })
       } catch {}
       return res.json({ ok: true, userOperationHash: uoHash, transferred: wad.toString(), mode: 'native-scope', detected: nativeDetect })
     }
@@ -1136,8 +1226,9 @@ app.post('/api/send-mon', async (req, res) => {
       const hVal = computeCanonicalDelegationHashes({ delegator: valD.delegator, delegate: valD.delegate, authority: valD.authority, caveats: valD.caveats||[], salt: valD.salt }, domainCfg as any)
       const { appendRunEvent } = await import('./utils/history')
       appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: '0', amountOutToken: wad.toString(), unwrap: true, userOperationHash: uoHash, strategy: 'withdraw-fallback', structHashes: [hCore.structHash, hVal.structHash] })
-      appendAudit({ ts: Date.now(), action: 'execute', delegator: delegatorSA, delegate: coreD.delegate, role: 'core+value', structHash: hCore.structHash, digest: hCore.digest, domainSeparator: hCore.domainSeparator, caveatsRoot: hCore.caveatsHash, salt: coreD.salt, warnings: [] })
-      appendAudit({ ts: Date.now(), action: 'execute', delegator: delegatorSA, delegate: valD.delegate, role: 'core+value', structHash: hVal.structHash, digest: hVal.digest, domainSeparator: hVal.domainSeparator, caveatsRoot: hVal.caveatsHash, salt: valD.salt, warnings: [] })
+  const runId = newRunId()
+  appendAudit({ ts: Date.now(), action: 'execute', delegator: delegatorSA, delegate: coreD.delegate, role: 'core+value', structHash: hCore.structHash, digest: hCore.digest, domainSeparator: hCore.domainSeparator, caveatsRoot: hCore.caveatsHash, salt: coreD.salt, warnings: [], userOperationHash: uoHash, runId })
+  appendAudit({ ts: Date.now(), action: 'execute', delegator: delegatorSA, delegate: valD.delegate, role: 'core+value', structHash: hVal.structHash, digest: hVal.digest, domainSeparator: hVal.domainSeparator, caveatsRoot: hVal.caveatsHash, salt: valD.salt, warnings: [], userOperationHash: uoHash, runId })
     } catch {}
     return res.json({ ok: true, userOperationHash: uoHash, withdrawn: wad.toString(), mode: 'fallback-wmon' })
   } catch (e: any) {
@@ -1926,5 +2017,7 @@ export function startServer(port = Number(process.env.PORT || 8787)) {
     console.log(`[boot] BUNDLER=${process.env.ZERO_DEV_BUNDLER_RPC ? 'set' : 'missing'}`)
     console.log(`[boot] PAYMASTER=${process.env.ZERO_DEV_PAYMASTER_RPC ? 'set' : 'missing'}`)
     console.log('[boot] endpoints ready: /api/topup /api/wrap /api/unwrap /api/delegations /api/diag /api/status /api/version /api/routes /api/paymaster/status /api/paymaster/test')
+    // Start userOperation resolver loop
+    try { startUserOpResolver() } catch (e: any) { console.warn('[boot] failed to start userOp resolver', e?.message || e) }
   })
 }
