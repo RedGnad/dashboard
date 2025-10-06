@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import AiConsole from "./AiConsole";
 import {
   useAccount,
   useConnect,
@@ -1863,6 +1864,8 @@ export default function App() {
           )}
         </div>
       )}
+      {/* AI Console (historique décisions) */}
+      <AiConsole apiBase={apiBase} />
     </div>
   );
 }
