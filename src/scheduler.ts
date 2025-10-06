@@ -1,6 +1,7 @@
 import type { Address } from 'viem'
-import { runOnceForDelegator, flushTokenForDelegator } from './runner'
-import { WMON } from './constants'
+import { runOnceForDelegator } from './runner'
+// Suppression du flush WMON direct: on déclenche maintenant un retrait MON natif via la logique /api/send-mon
+// pour bénéficier du mode scope natif ou fallback WMON automatiquement.
 
 export type JobStatus = {
   delegatorSA: Address
@@ -33,7 +34,7 @@ function schedule(job: InternalJob) {
       if (job._timer) clearInterval(job._timer)
       job._timer = undefined
       console.log('[scheduler] expired', { delegatorSA: job.delegatorSA })
-      // Attempt to sweep WMON → EOA at end of window if job exists on disk and EOA known
+      // Retrait automatique MON natif (ou fallback) à la fin du cycle si ownerEOA connu
       try {
         const fs = await import('node:fs')
         const path = await import('node:path')
@@ -43,8 +44,129 @@ function schedule(job: InternalJob) {
           const json = JSON.parse(raw)
           const eoa = json?.job?.ownerEOA as any
           if (eoa) {
-            console.log('[scheduler] flushing WMON to EOA at end of cycle…')
-            await flushTokenForDelegator(job.delegatorSA, WMON as any, eoa, 'all')
+            console.log('[scheduler] end-of-cycle: attempting native MON withdrawal…')
+            try {
+              // Appel interne: réutiliser le code déjà existant (import dynamique de server helpers non nécessaire)
+              const mod = await import('./server') // pour accéder à sendUserOpWithOptionalPaymaster si requis plus tard
+              // On réimplémente localement le petit bout nécessaire (évite endpoint HTTP interne):
+              const { publicClient, monadTestnet, bundlerClient, paymasterClient } = await import('./clients')
+              const { Implementation, toMetaMaskSmartAccount, getDeleGatorEnvironment } = await import('@metamask/delegation-toolkit')
+              const { privateKeyToAccount } = await import('viem/accounts')
+              const { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } = await import('./encoding')
+              const { WMON } = await import('./constants')
+              const { detectNativeValueScope } = await import('./server')
+              const { Address, encodeFunctionData } = await import('viem')
+              const valueFile = path.join(process.cwd(), 'data', 'delegations', `${job.delegatorSA.toLowerCase()}__value.json`)
+              if (!fs.existsSync(valueFile)) throw new Error('value_delegation_missing')
+              const coreFile = path.join(process.cwd(), 'data', 'delegations', `${job.delegatorSA.toLowerCase()}.json`)
+              if (!fs.existsSync(coreFile)) throw new Error('core_delegation_missing')
+              const core = JSON.parse(fs.readFileSync(coreFile, 'utf8'))
+              const valueDel = JSON.parse(fs.readFileSync(valueFile, 'utf8'))
+              const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+              if (!pk) throw new Error('Missing DELEGATE_PRIVATE_KEY')
+              const eoaAcc = privateKeyToAccount(pk)
+              const env = getDeleGatorEnvironment(monadTestnet.id)
+              const delegateSA = await toMetaMaskSmartAccount({
+                client: publicClient,
+                implementation: Implementation.Hybrid,
+                deployParams: [eoaAcc.address, [], [], []],
+                deploySalt: '0x',
+                signer: { account: eoaAcc },
+                environment: env as any,
+              })
+              // Détection scope natif
+              const caveats = valueDel?.signedDelegation?.delegation?.caveats || []
+              const nativeDetect = detectNativeValueScope(caveats as any)
+              let calls: { to: string; data: `0x${string}` }[] = []
+              if (nativeDetect.hasNativeScope) {
+                // Un seul contexte: value delegation -> transfert natif (callData vide) vers EOA
+                let bal = 0n
+                try { bal = await publicClient.getBalance({ address: job.delegatorSA as Address }) } catch {}
+                if (bal > 0n) {
+                  const flatValue = {
+                    delegate: valueDel.signedDelegation.delegation.delegate,
+                    delegator: valueDel.signedDelegation.delegation.delegator,
+                    authority: valueDel.signedDelegation.delegation.authority,
+                    caveats: (valueDel.signedDelegation.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+                    salt: valueDel.signedDelegation.delegation.salt,
+                    signature: valueDel.signedDelegation.signature,
+                  }
+                  const [ctx] = encodePermissionContextsFromDelegations([[flatValue as any]])
+                  const execGroups = [[{ target: eoa as Address, value: bal, callData: '0x' as `0x${string}` }]]
+                  const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
+                  const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
+                  const dmData = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
+                  calls = [{ to: env.DelegationManager as Address, data: dmData }]
+                } else {
+                  console.log('[scheduler] no native MON to flush at end-of-cycle')
+                }
+              } else {
+                // Fallback: withdraw WMON puis transfert natif (2 contextes)
+                let wbal = 0n
+                try {
+                  wbal = await publicClient.readContract({
+                    address: WMON as Address,
+                    abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] } ] as any,
+                    functionName: 'balanceOf',
+                    args: [job.delegatorSA as Address],
+                  }) as bigint
+                } catch {}
+                if (wbal > 0n) {
+                  const flatCore = {
+                    delegate: core.signedDelegation.delegation.delegate,
+                    delegator: core.signedDelegation.delegation.delegator,
+                    authority: core.signedDelegation.delegation.authority,
+                    caveats: (core.signedDelegation.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+                    salt: core.signedDelegation.delegation.salt,
+                    signature: core.signedDelegation.signature,
+                  }
+                  const flatValue = {
+                    delegate: valueDel.signedDelegation.delegation.delegate,
+                    delegator: valueDel.signedDelegation.delegation.delegator,
+                    authority: valueDel.signedDelegation.delegation.authority,
+                    caveats: (valueDel.signedDelegation.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+                    salt: valueDel.signedDelegation.delegation.salt,
+                    signature: valueDel.signedDelegation.signature,
+                  }
+                  const withdrawData = encodeFunctionData({
+                    abi: [ { name: 'withdraw', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'wad', type: 'uint256' } ], outputs: [] } ] as any,
+                    functionName: 'withdraw',
+                    args: [wbal],
+                  }) as `0x${string}`
+                  const execWithdraw = { target: WMON as Address, value: 0n, callData: withdrawData }
+                  const execValue = { target: eoa as Address, value: wbal, callData: '0x' as `0x${string}` }
+                  const ctxArr = encodePermissionContextsFromDelegations([[flatCore as any], [flatValue as any]])
+                  if (Array.isArray(ctxArr) && ctxArr.length === 2) {
+                    const execGroups = [[execWithdraw], [execValue]]
+                    const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
+                    const permissionContexts = [ctxArr[0], ctxArr[1]]
+                    const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
+                    const dmData = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
+                    calls = [{ to: env.DelegationManager as Address, data: dmData }]
+                  }
+                } else {
+                  console.log('[scheduler] no WMON to fallback-withdraw at end-of-cycle')
+                }
+              }
+              if (calls.length) {
+                let maxFeePerGas = await publicClient.getGasPrice().catch(() => 80n * 10n ** 9n)
+                if (maxFeePerGas < 80n * 10n ** 9n) maxFeePerGas = 80n * 10n ** 9n
+                const maxPriorityFeePerGas = maxFeePerGas / 2n
+                const wantPm = !!process.env.USE_PAYMASTER && ['true','1','yes','on','enabled'].includes(process.env.USE_PAYMASTER.toLowerCase())
+                const willInject = wantPm && (process.env.ZERO_DEV_PAYMASTER_RPC || process.env.PIMLICO_PAYMASTER_RPC)
+                const uoHash = await (await import('./clients')).bundlerClient.sendUserOperation({
+                  account: delegateSA,
+                  calls,
+                  maxFeePerGas,
+                  maxPriorityFeePerGas,
+                  ...(willInject ? { paymaster: (await import('./clients')).paymasterClient } : {}),
+                })
+                console.log('[scheduler] end-of-cycle withdrawal userOp', { userOperationHash: uoHash })
+                try { (await import('./utils/history')).appendRunEvent({ ts: Date.now(), delegator: job.delegatorSA, amountInUSDC: '0', amountOutToken: '0', strategy: nativeDetect.hasNativeScope ? 'auto-withdraw-native' : 'auto-withdraw-fallback', userOperationHash: uoHash }) } catch {}
+              }
+            } catch (inner) {
+              console.warn('[scheduler] end-of-cycle native withdraw failed', inner)
+            }
           }
         }
       } catch (e) {

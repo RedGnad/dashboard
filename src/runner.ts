@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildDebugBundle, summarizeExecutions } from './utils/debug'
 import { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } from './encoding'
+import { appendRunEvent } from './utils/history'
 
 export async function runOnceForDelegator(delegatorSA: Address, opts?: { runIndex?: number }) {
   const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
@@ -39,6 +40,69 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
   }
 
   const amountUSDC = parseUnits(String(json.job?.amountUSDC ?? '1'), 6)
+  // --- Enforcements (off-chain logical limits) ---
+  // Chaque condition de skip enregistre un événement dans l'historique avec skipped=true et skipReason
+  // afin de permettre des analyses (AI / monitoring) sans casser le flux principal.
+  // Si des caveats on-chain (timeWindow/dailyCap) sont détectés (enforcers placeholders), on log et on N'EFFECTUE PAS
+  // l'enforcement off-chain (évite double filtrage). On laisse la validation on-chain faire foi.
+  let onChainLimits = false
+  try {
+    const caveats = json?.signedDelegation?.delegation?.caveats || []
+    const { ENFORCERS } = await import('./enforcers')
+    const OFFCHAIN_KEYS: { type: 'timeWindow' | 'dailyCap' | 'maxRuns'; detected: boolean }[] = [
+      { type: 'timeWindow', detected: false },
+      { type: 'dailyCap', detected: false },
+      { type: 'maxRuns', detected: false },
+    ]
+    for (const c of caveats) {
+      const enf = (c?.enforcer || '').toLowerCase()
+      if (enf === ENFORCERS.TimestampEnforcer) OFFCHAIN_KEYS.find(k=>k.type==='timeWindow')!.detected = true
+      if (enf === ENFORCERS.ERC20PeriodTransferEnforcer) OFFCHAIN_KEYS.find(k=>k.type==='dailyCap')!.detected = true
+      if (enf === ENFORCERS.LimitedCallsEnforcer) OFFCHAIN_KEYS.find(k=>k.type==='maxRuns')!.detected = true
+    }
+    onChainLimits = OFFCHAIN_KEYS.some(k=>k.detected)
+    if (onChainLimits) {
+      console.log('[runner] on-chain limit caveats detected', OFFCHAIN_KEYS)
+    }
+  } catch {}
+  const now = new Date()
+  const hour = now.getUTCHours()
+  const tw = json.job?.timeWindow as { startHour: number; endHour: number } | undefined
+  if (!onChainLimits && tw) {
+    const { startHour, endHour } = tw
+    const within = startHour < endHour ? (hour >= startHour && hour < endHour) : (hour >= startHour || hour < endHour)
+    if (!within) {
+      console.log('[runner] skip: outside_time_window', { hourUTC: hour, startHour, endHour })
+      try { appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: amountUSDC.toString(), skipped: true, skipReason: 'outside_time_window', strategy: 'dca-basic' }) } catch {}
+      return '0x' as any
+    }
+  }
+  if (!onChainLimits && typeof json.job?.maxRuns === 'number' && json.job.maxRuns > 0) {
+    const current = Number(json.job?.runCounter || 0)
+    if (current >= json.job.maxRuns) {
+      console.log('[runner] skip: max_runs_reached', { current, max: json.job.maxRuns })
+      try { appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: amountUSDC.toString(), skipped: true, skipReason: 'max_runs_reached', strategy: 'dca-basic' }) } catch {}
+      return '0x' as any
+    }
+  }
+  if (!onChainLimits && typeof json.job?.dailyCapUSDC === 'number') {
+    const cap = BigInt(Math.floor(json.job.dailyCapUSDC * 1_000_000))
+    const today = new Date().toISOString().slice(0,10)
+    const usedDate = json.job._dailyCapDate
+    let used = BigInt(json.job._dailyCapUsed || 0)
+    if (usedDate !== today) {
+      used = 0n
+      json.job._dailyCapDate = today
+      json.job._dailyCapUsed = '0'
+    }
+    if (used + amountUSDC > cap) {
+      console.log('[runner] skip: daily_cap_exceeded', { used: used.toString(), cap: cap.toString(), attempt: amountUSDC.toString() })
+      try { appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: amountUSDC.toString(), skipped: true, skipReason: 'daily_cap_exceeded', strategy: 'dca-basic' }) } catch {}
+      // persist updated date reset if it happened
+      try { require('node:fs').writeFileSync(file, JSON.stringify(json, null, 2)) } catch {}
+      return '0x' as any
+    }
+  }
   const slippageBps = Number(json.job?.slippageBps ?? 100)
   const unwrapToMon = Boolean(json.job?.unwrapToMon ?? false)
   const unwrapEvery = Number(json.job?.unwrapEvery ?? 1)
@@ -370,11 +434,36 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       ...(willInject ? { paymaster: paymasterClient } : {}),
     })
     console.log('[runner] userOp sent', { userOperationHash: uoHash })
+    // Append history event (amountOutToken unknown at submission time)
+    try {
+      appendRunEvent({
+        ts: Date.now(),
+        delegator: delegatorSA,
+        amountInUSDC: amountUSDC.toString(),
+        amountOutToken: '0',
+        unwrap: wantUnwrapThisRun,
+        userOperationHash: uoHash,
+        strategy: 'dca-basic',
+        gas: { maxFeePerGas: String(maxFeePerGas), maxPriorityFeePerGas: String(maxPriorityFeePerGas) },
+      })
+    } catch {}
     // Persist job counters and flags on success
     try {
       const updated = { ...json }
       updated.job = updated.job || {}
       updated.job.runCounter = (runCounter || 0) + 1
+      // increment daily cap usage tracking if configured
+      if (typeof updated.job.dailyCapUSDC === 'number') {
+        const today = new Date().toISOString().slice(0,10)
+        if (updated.job._dailyCapDate !== today) {
+          updated.job._dailyCapDate = today
+          updated.job._dailyCapUsed = '0'
+        }
+        try {
+          const prev = BigInt(updated.job._dailyCapUsed || '0')
+          updated.job._dailyCapUsed = (prev + amountUSDC).toString()
+        } catch {}
+      }
       if (usedTopupThisRun) {
         updated.job.topupUsed = true
         updated.job.topupUsedAt = Date.now()
