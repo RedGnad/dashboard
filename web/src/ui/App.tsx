@@ -227,14 +227,19 @@ export default function App() {
         scope: { type: "nativeTokenTransferAmount", maxAmount } as any,
       });
       const signature = await smart.signDelegation({ delegation });
-      const post = await fetch(`${apiBase || ""}/api/delegations?role=value`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          delegatorSA: delegatorSa,
-          signedDelegation: { delegation, signature },
-        }),
-      });
+      // Utilise désormais le flux immuable submit (l'endpoint legacy a été supprimé)
+      const post = await fetch(
+        `${apiBase || ""}/api/delegations/submit?role=value`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            delegatorSA: delegatorSa,
+            signedDelegation: { delegation, signature },
+            role: "value",
+          }),
+        }
+      );
       const bodyTxt = await post.text();
       let body: any = {};
       try {
@@ -879,13 +884,14 @@ export default function App() {
           });
           const signature = await smart.signDelegation({ delegation });
           const post = await fetch(
-            `${apiBase || ""}/api/delegations?role=value`,
+            `${apiBase || ""}/api/delegations/submit?role=value`,
             {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
                 delegatorSA: delegatorSa,
                 signedDelegation: { delegation, signature },
+                role: "value",
               }),
             }
           );
@@ -1305,6 +1311,151 @@ export default function App() {
     } catch (e) {
       console.warn("[debug] loadDelegationDebug failed", e);
     }
+  }
+
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<
+    "idle" | "needed" | "signing" | "verifying" | "ready" | "error"
+  >("idle");
+  const [authError, setAuthError] = useState<string>("");
+
+  // Attempt restore session
+  useEffect(() => {
+    const stored = localStorage.getItem("dcaAuthToken");
+    if (stored) {
+      (async () => {
+        try {
+          const r = await fetch(`${apiBase || ""}/api/auth/me`, {
+            headers: { Authorization: `Bearer ${stored}` },
+          });
+          const t = await r.text();
+          let j: any = {};
+          try {
+            j = t ? JSON.parse(t) : {};
+          } catch {}
+          if (r.ok && j?.ok) {
+            setAuthToken(stored);
+            setAuthStatus("ready");
+          } else {
+            localStorage.removeItem("dcaAuthToken");
+            setAuthStatus("needed");
+          }
+        } catch {
+          setAuthStatus("needed");
+        }
+      })();
+    } else {
+      setAuthStatus("needed");
+    }
+  }, [apiBase]);
+
+  async function beginAuth() {
+    if (!address || !window?.ethereum) {
+      setAuthError("Wallet non connectée");
+      return;
+    }
+    try {
+      setAuthError("");
+      setAuthStatus("signing");
+      // Fetch nonce + message
+      const nonceResp = await fetch(
+        `${apiBase || ""}/api/auth/nonce?address=${address}`
+      );
+      const txt = await nonceResp.text();
+      let nr: any = {};
+      try {
+        nr = txt ? JSON.parse(txt) : {};
+      } catch {}
+      if (!nonceResp.ok || !nr?.ok)
+        throw new Error(nr?.error || "nonce_failed");
+      const message: string = nr.message;
+      // personal_sign via provider (raw utf-8) - wagmi's walletClient.signMessage is fine
+      let signature: string;
+      if ((window as any).ethereum?.request) {
+        signature = await (window as any).ethereum.request({
+          method: "personal_sign",
+          params: [message, address],
+        });
+      } else {
+        throw new Error("Provider manquant");
+      }
+      setAuthStatus("verifying");
+      const verResp = await fetch(`${apiBase || ""}/api/auth/verify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address, signature }),
+      });
+      const vtxt = await verResp.text();
+      let vr: any = {};
+      try {
+        vr = vtxt ? JSON.parse(vtxt) : {};
+      } catch {}
+      if (!verResp.ok || !vr?.ok) throw new Error(vr?.error || "verify_failed");
+      localStorage.setItem("dcaAuthToken", vr.token);
+      setAuthToken(vr.token);
+      setAuthStatus("ready");
+    } catch (e: any) {
+      setAuthError(e?.message || "auth_failed");
+      setAuthStatus("error");
+    }
+  }
+
+  // If wallet not connected -> existing flow handles connect button.
+  // If connected but auth not ready, gate the rest of UI.
+  if (isConnected && authStatus !== "ready") {
+    return (
+      <div
+        style={{
+          maxWidth: 480,
+          margin: "3rem auto",
+          fontFamily: "Inter, system-ui, sans-serif",
+        }}
+      >
+        <h1>Monad Delegatoor</h1>
+        <p style={{ fontSize: 14 }}>
+          Authentification requise (signature hors chaîne) avant d'accéder à
+          l'interface.
+        </p>
+        <div
+          style={{
+            fontSize: 12,
+            color: "#666",
+            lineHeight: 1.4,
+            whiteSpace: "pre-wrap",
+            marginBottom: 12,
+          }}
+        >
+          Cette signature ne dépense rien; elle prouve simplement que vous
+          contrôlez l'EOA et initialise une session valable 24h.
+        </div>
+        {authError && (
+          <div style={{ color: "#b00", fontSize: 12, marginBottom: 8 }}>
+            Erreur: {authError}
+          </div>
+        )}
+        <button
+          disabled={authStatus === "signing" || authStatus === "verifying"}
+          onClick={beginAuth}
+        >
+          {authStatus === "signing"
+            ? "Signer…"
+            : authStatus === "verifying"
+            ? "Vérification…"
+            : "Signer pour entrer"}
+        </button>
+        <div style={{ marginTop: 12 }}>
+          <button
+            onClick={() => {
+              localStorage.removeItem("dcaAuthToken");
+              setAuthToken(null);
+              setAuthStatus("needed");
+            }}
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

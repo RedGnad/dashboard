@@ -230,6 +230,48 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
     }
   }
 
+  // --- Whitelist Validation (only if executions came from front) ---
+  if (usedFrontendExecutions) {
+    try {
+      const ALLOWED_TARGETS = new Set([
+        USDC.toLowerCase(),
+        UNISWAP_V2_ROUTER02.toLowerCase(),
+        WMON.toLowerCase(),
+        delegatorSA.toLowerCase(), // direct recipient transfers
+      ])
+      const ALLOWED_SELECTORS = new Set([
+        '0x095ea7b3', // approve
+        '0x23b872dd', // transferFrom
+        '0xa9059cbb', // transfer (not strictly needed if using transferFrom, kept for safety)
+        '0x2e1a7d4d', // withdraw (WETH/WMON)
+        '0x7ff36ab5', // swapExactETHForTokens (example, may not be used)
+        '0x38ed1739', // swapExactTokensForTokens
+        '0x18cbafe5', // swapExactTokensForETH
+        '0x414bf389', // swapTokensForExactTokens
+        '0x4bb278f3', // swapTokensForExactETH
+      ])
+      const violations: any[] = []
+      for (const [i, ex] of executions.entries()) {
+        const tgt = (ex.target || '').toLowerCase()
+        if (!ALLOWED_TARGETS.has(tgt)) {
+          violations.push({ i, reason: 'target_not_whitelisted', target: ex.target })
+          continue
+        }
+        const selector = (ex.callData as string)?.slice(0, 10)
+        if (ex.callData && ex.callData !== '0x' && !ALLOWED_SELECTORS.has(selector)) {
+          violations.push({ i, reason: 'selector_not_whitelisted', selector })
+        }
+      }
+      if (violations.length > 0) {
+        console.warn('[runner] frontend executions rejected due to whitelist violations', violations)
+        try { appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: amountUSDC.toString(), skipped: true, skipReason: 'whitelist_violation', strategy: 'dca-basic' }) } catch {}
+        return '0x' as any
+      }
+    } catch (e) {
+      console.warn('[runner] whitelist validation failed (soft pass)', e)
+    }
+  }
+
   // If SA USDC is insufficient and we have an offchain auth, prepend top-up (one-time per 24h)
   if (delegatorUsdcBal !== null && delegatorUsdcBal < amountUSDC && ownerEOA && !topupUsed) {
     // Check allowance first

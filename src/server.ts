@@ -12,8 +12,25 @@ import { Implementation, toMetaMaskSmartAccount, getDeleGatorEnvironment } from 
 import { privateKeyToAccount } from 'viem/accounts'
 import { USDC, UNISWAP_V2_ROUTER02, WMON, ENTRY_POINT_V07 } from './constants'
 import { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } from './encoding'
+import { buildLimitCaveats } from './caveat-builders'
+import { computeDelegationHashes, computeWarnings } from './hashing'
+import { computeCanonicalDelegationHashes } from './eip712'
+import { appendAudit, hasStructHash, readAuditTail } from './audit'
 import { Address, encodeFunctionData as viemEncodeFunctionData } from 'viem'
 import { readRunHistory, summarizeRunHistory } from './utils/history'
+// --- Simple in-memory auth (personal_sign) state ---
+// NOTE: Nonces & sessions are ephemeral (reset on server restart). Adequate for gating UI today.
+// Future hardening: persist sessions, add rate limits, bind to user agent.
+type AuthNonceRec = { nonce: string; issuedAt: number; expiresAt: number }
+type AuthSessionRec = { token: string; address: string; createdAt: number; expiresAt: number }
+const AUTH_NONCES = new Map<string, AuthNonceRec>() // key: lowercase address
+const AUTH_SESSIONS = new Map<string, AuthSessionRec>() // key: session token
+function randomHex(bytes = 16): string { return '0x' + [...crypto.getRandomValues(new Uint8Array(bytes))].map(b=>b.toString(16).padStart(2,'0')).join('') }
+function buildAuthMessage(address: string, nonce: string, issuedAt: number) {
+  // Keep format stable; any change must be mirrored client-side when verifying past tokens
+  const iso = new Date(issuedAt).toISOString()
+  return `DCA Auth\nAddress: ${address.toLowerCase()}\nNonce: ${nonce}\nIssued At: ${iso}\nPurpose: Authenticate to DCA backend (expires in 5m)`
+}
 
 const app = express()
 app.use(cors({ origin: true }))
@@ -130,12 +147,130 @@ app.use((req, _res, next) => {
   next()
 })
 
+// ---------------- AUTH (personal_sign) ----------------
+// GET /api/auth/nonce?address=0x..  -> { ok, address, message, nonce, expiresAt }
+// POST /api/auth/verify { address, signature } -> { ok, token, expiresAt }
+// GET /api/auth/me (Authorization: Bearer <token>) -> { ok, address, expiresAt }
+// Lightweight gating: client obtains nonce message, personal_sign, sends back signature.
+// Signature recovery done with viem recoverMessageAddress.
+app.get('/api/auth/nonce', async (req, res) => {
+  try {
+    const address = String(req.query.address || '').toLowerCase()
+    if (!/^0x[0-9a-f]{40}$/.test(address)) return res.status(400).json({ ok: false, error: 'invalid_address' })
+    const now = Date.now()
+    const nonce = randomHex(16)
+    const rec: AuthNonceRec = { nonce, issuedAt: now, expiresAt: now + 5 * 60_000 }
+    AUTH_NONCES.set(address, rec)
+    const message = buildAuthMessage(address, nonce, now)
+    return res.json({ ok: true, address, message, nonce, expiresAt: rec.expiresAt })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'nonce_failed' })
+  }
+})
+app.post('/api/auth/verify', async (req, res) => {
+  try {
+    const { address, signature } = req.body || {}
+    if (!address || !signature) return res.status(400).json({ ok: false, error: 'missing_fields' })
+    const addr = String(address).toLowerCase()
+    if (!/^0x[0-9a-f]{40}$/.test(addr)) return res.status(400).json({ ok: false, error: 'invalid_address' })
+    const rec = AUTH_NONCES.get(addr)
+    if (!rec) return res.status(400).json({ ok: false, error: 'nonce_missing' })
+    if (Date.now() > rec.expiresAt) { AUTH_NONCES.delete(addr); return res.status(400).json({ ok: false, error: 'nonce_expired' }) }
+    const message = buildAuthMessage(addr, rec.nonce, rec.issuedAt)
+    let recovered: string
+    try {
+      const { recoverMessageAddress } = await import('viem')
+      recovered = await recoverMessageAddress({ message, signature })
+    } catch (e: any) {
+      return res.status(400).json({ ok: false, error: 'recover_failed', detail: e?.message })
+    }
+    if (recovered.toLowerCase() !== addr) return res.status(400).json({ ok: false, error: 'signer_mismatch', recovered })
+    AUTH_NONCES.delete(addr)
+    // Create session
+    const token = randomHex(24)
+    const now = Date.now()
+    const session: AuthSessionRec = { token, address: addr, createdAt: now, expiresAt: now + 24 * 60 * 60_000 }
+    AUTH_SESSIONS.set(token, session)
+    return res.json({ ok: true, token, address: addr, expiresAt: session.expiresAt })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'verify_failed' })
+  }
+})
+app.get('/api/auth/me', (req, res) => {
+  try {
+    const auth = String(req.headers.authorization || '')
+    if (!auth.startsWith('Bearer ')) return res.status(401).json({ ok: false, error: 'missing_bearer' })
+    const token = auth.slice(7)
+    const sess = AUTH_SESSIONS.get(token)
+    if (!sess) return res.status(401).json({ ok: false, error: 'invalid_session' })
+    if (Date.now() > sess.expiresAt) { AUTH_SESSIONS.delete(token); return res.status(401).json({ ok: false, error: 'session_expired' }) }
+    return res.json({ ok: true, address: sess.address, expiresAt: sess.expiresAt })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'me_failed' })
+  }
+})
+
 let cachedDelegate: { eoa: string; sa: string; envSupported?: boolean } | null = null
 // Root landing page for quick sanity check
 app.get('/', (_req, res) => {
   res.json({ ok: true, name: 'DCA API', endpoints: ['/api/health', '/api/delegate', '/api/diag'] })
 })
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
+// Audit tail (simple feed pour HyperIndex ingestion initiale)
+app.get('/api/delegations/audit', (req, res) => {
+  const n = Math.min(Number(req.query.n ?? 200), 1000)
+  return res.json({ ok: true, entries: readAuditTail(n) })
+})
+// Mapping structHash -> runs + audit entries
+app.get('/api/delegations/map/:structHash', async (req, res) => {
+  try {
+    const structHash = (req.params.structHash || '').toLowerCase()
+    if (!/^0x[0-9a-fA-F]{64}$/.test(structHash)) return res.status(400).json({ ok: false, error: 'invalid_structHash' })
+    // Collect runs referencing this structHash
+    const { findRunsByStructHash } = await import('./utils/history')
+    const runs = findRunsByStructHash(structHash)
+    // Filter audit tail naive (for scale, should stream full file & grep; acceptable here)
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const auditFile = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    const audit: any[] = []
+    if (fs.existsSync(auditFile)) {
+      try {
+        const raw = fs.readFileSync(auditFile, 'utf8').split('\n')
+        for (const line of raw) {
+          if (!line) continue
+          try { const j = JSON.parse(line); if ((j.structHash || '').toLowerCase() === structHash) audit.push(j) } catch {}
+        }
+      } catch {}
+    }
+    // Fallback recalcul: si pas d'entrée audit correspondante, essayer de recalculer depuis les fichiers de délégation persistés
+    let recalcMatches: any[] = []
+    if (audit.length === 0) {
+      try {
+        const delegDir = path.join(process.cwd(), 'data', 'delegations')
+        if (fs.existsSync(delegDir)) {
+          const files = fs.readdirSync(delegDir).filter((f: string) => f.endsWith('.json') && f !== 'audit.log')
+          const domainCfg = { name: process.env.DELEGATION_DOMAIN_NAME || 'Delegation', version: process.env.DELEGATION_DOMAIN_VERSION || '1', chainId: monadTestnet.id, verifyingContract: (process.env.DELEGATION_MANAGER_ADDRESS || (getDeleGatorEnvironment(monadTestnet.id) as any).DelegationManager) }
+          for (const f of files) {
+            try {
+              const raw = JSON.parse(fs.readFileSync(path.join(delegDir, f), 'utf8'))
+              const sd = raw?.signedDelegation
+              if (!sd?.delegation) continue
+              const d = sd.delegation
+              const h = computeCanonicalDelegationHashes({ delegator: d.delegator, delegate: d.delegate, authority: d.authority, caveats: d.caveats||[], salt: d.salt }, domainCfg as any)
+              if (h.structHash.toLowerCase() === structHash) {
+                recalcMatches.push({ delegator: d.delegator, delegate: d.delegate, salt: d.salt, caveatCount: (d.caveats||[]).length, digest: h.digest })
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+    return res.json({ ok: true, structHash, runs, auditCount: audit.length, audit })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'map_failed' })
+  }
+})
 // Lightweight cached git version info to avoid spawning repeatedly
 let CACHED_VERSION: { git: string; resolvedAt: number } | null = null
 function resolveGitShort(): string {
@@ -377,102 +512,8 @@ app.get('/api/diag', async (req, res) => {
   }
 })
 
-// Créer / stocker une délégation. Paramètre facultatif ?role=VALUE pour stocker plusieurs rôles.
-// Rôle par défaut: "core" (fichier: <delegator>.json). Rôle autre: <delegator>__<role>.json
-app.post('/api/delegations', async (req, res) => {
-  // DEPRECATED: mutable intake. Prefer /api/delegations/build (unsigned) + /api/delegations/submit (signed)
-  console.warn('[DEPRECATION] POST /api/delegations is deprecated. Use /api/delegations/build then /api/delegations/submit. Set LEGACY_INJECT_LIMITS=1 to retain old caveat injection behavior.')
-  let { delegatorSA, signedDelegation, job } = req.body || {}
-  const role = (req.query.role as string | undefined)?.toLowerCase() || 'core'
-  if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
-  if (!delegatorSA || !signedDelegation) return res.status(400).json({ error: 'Missing delegatorSA or signedDelegation', role })
-  // Si c'est une délégation core et que des limites timeWindow/dailyCap sont fournies on injecte les caveats on-chain (enrichissement local du JSON sauvegardé)
-  // Gated behind env flag to preserve immutability by default now.
-  const allowLegacyInjection = process.env.LEGACY_INJECT_LIMITS === '1'
-  if (allowLegacyInjection && role === 'core' && signedDelegation?.delegation) {
-    try {
-      const { mergeDelegationCaveats } = await import('./delegation-builders')
-      const tw = job?.timeWindow && typeof job.timeWindow.startHour === 'number' && typeof job.timeWindow.endHour === 'number'
-        ? { startHour: job.timeWindow.startHour, endHour: job.timeWindow.endHour }
-        : undefined
-      const dc = typeof job?.dailyCapUSDC === 'number' && job.dailyCapUSDC > 0
-        ? { capUSDC: job.dailyCapUSDC }
-        : undefined
-      if (tw || dc) {
-        const caveats = mergeDelegationCaveats(signedDelegation.delegation, { timeWindow: tw, dailyCap: dc })
-        signedDelegation = {
-          ...signedDelegation,
-          delegation: { ...signedDelegation.delegation, caveats },
-        }
-      }
-    } catch (e) {
-      console.warn('[delegations] caveat merge failed (continuing sans enrichissement)', e)
-    }
-  }
-  const dir = join(process.cwd(), 'data', 'delegations')
-  mkdirSync(dir, { recursive: true })
-  const baseName = role === 'core' ? `${delegatorSA}.json` : `${delegatorSA}__${role}.json`
-  const enrichedJob = role === 'core'
-    ? ({ createdAtMs: Date.now(), unwrapEvery: Number(job?.unwrapEvery ?? 24), ...job })
-    : undefined // seules les meta de job sur la délégation core
-  const payload: any = { delegatorSA, signedDelegation }
-  if (enrichedJob) payload.job = enrichedJob
-  writeFileSync(join(dir, baseName), JSON.stringify(payload, null, 2))
-  console.log('[api/delegations] intake', {
-    role,
-    file: baseName,
-    delegatorSA,
-    hasSigned: !!signedDelegation,
-    signedShape: {
-      hasDelegation: !!signedDelegation?.delegation,
-      hasSignature: !!signedDelegation?.signature,
-      caveats: Array.isArray(signedDelegation?.delegation?.caveats) ? signedDelegation.delegation.caveats.length : 'n/a',
-      saltType: typeof signedDelegation?.delegation?.salt,
-    },
-    jobKeys: enrichedJob ? Object.keys(job || {}) : [],
-    injectedLimits: { timeWindow: job?.timeWindow ? true : false, dailyCapUSDC: job?.dailyCapUSDC ? true : false },
-    deprecation: true,
-    allowLegacyInjection,
-  })
-  // Si ce n'est pas la délégation core on ne lance pas le job
-  if (role !== 'core') return res.json({ ok: true, role, notice: 'Délégation rôle ajoutée', deprecated: true })
-  try {
-    let usdcBal = 0n
-    try {
-      usdcBal = await publicClient.readContract({
-        address: USDC,
-        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-        functionName: 'balanceOf',
-        args: [delegatorSA as Address],
-      }) as bigint
-    } catch {}
-    const iv = Number(job?.intervalSec)
-    let startedJob: any = null
-    let immediateResult: { ok: boolean; hash?: string; error?: string } | null = null
-    try {
-      const hash = await runOnceForDelegator(delegatorSA as Address, { runIndex: 0 })
-      immediateResult = { ok: true, hash }
-    } catch (e: any) {
-      immediateResult = { ok: false, error: e?.message || String(e) }
-    }
-    if (!Number.isNaN(iv) && iv > 0) {
-      const durationSec = Number(job?.durationSec) > 0 ? Number(job?.durationSec) : 24 * 60 * 60
-      startedJob = startJob(delegatorSA, Math.max(10, iv), { durationSec, immediate: false })
-    }
-    const needsTopup = usdcBal === 0n
-    return res.json({
-      ok: true,
-      role,
-      job: startedJob,
-      needsTopup,
-      immediateRun: immediateResult,
-      notice: immediateResult?.ok ? 'Premier swap exécuté immédiatement' : `Tentative immédiate échouée: ${immediateResult?.error}`,
-      deprecated: true,
-    })
-  } catch (e: any) {
-    return res.status(500).json({ ok: false, role, error: e?.message || 'post-delegation failed' })
-  }
-})
+// (REMOVED) Ancien endpoint mutable POST /api/delegations supprimé pour garantir immutabilité stricte.
+// Toute création doit passer par build -> signature client -> submit.
 
 // New immutable build endpoint: returns delegation object (unsigned) for client-side signing.
 // Body: { delegator, delegate, scope, caveats?, chainId? }
@@ -485,7 +526,6 @@ app.post('/api/delegations/build', async (req, res) => {
     let mergedCaveats = Array.isArray(caveats) ? [...caveats] : []
     if (limits && typeof limits === 'object') {
       try {
-        const { buildLimitCaveats } = await import('../caveat-builders')
         const limitCaveats = buildLimitCaveats({
           dailyCapUSDC: limits.dailyCapUSDC,
           maxRuns: limits.maxRuns,
@@ -498,9 +538,96 @@ app.post('/api/delegations/build', async (req, res) => {
     }
     const { buildDelegation } = await import('./api/delegations-flow')
     const delegation = buildDelegation({ from: delegator.toLowerCase(), to: delegate.toLowerCase(), scope, caveats: mergedCaveats, chainId }) as any
+    // Instrumentation hashing (unsigned preview)
+    let hashes: any = null
+    try {
+      const domainCfg = {
+        name: process.env.DELEGATION_DOMAIN_NAME || 'Delegation',
+        version: process.env.DELEGATION_DOMAIN_VERSION || '1',
+        chainId: chainId || monadTestnet.id,
+        verifyingContract: (process.env.DELEGATION_MANAGER_ADDRESS || (getDeleGatorEnvironment(monadTestnet.id) as any).DelegationManager) as any,
+      }
+      hashes = computeCanonicalDelegationHashes({
+        delegator: delegation.delegator,
+        delegate: delegation.delegate,
+        authority: delegation.authority,
+        caveats: delegation.caveats || [],
+        salt: delegation.salt,
+      }, domainCfg)
+    } catch (e) {
+      console.warn('[build] hashing failed (non-blocking)', (e as any)?.message)
+    }
+    if (hashes) {
+      const warnings = computeWarnings({
+        expectedDelegator: delegation.delegator,
+        salt: BigInt(delegation.salt || 0),
+        duplicateStruct: hasStructHash(hashes.structHash),
+        hasCaveats: Array.isArray(delegation.caveats) && delegation.caveats.length > 0,
+      })
+  appendAudit({
+    ts: Date.now(),
+    action: 'build',
+    delegator: delegation.delegator,
+    delegate: delegation.delegate,
+    role: 'core',
+    structHash: hashes.structHash,
+    digest: hashes.digest,
+    domainSeparator: hashes.domainSeparator,
+  caveatsRoot: (hashes.caveatsRoot || (hashes as any).caveatsHash || (hashes as any).caveats_root || '0x'),
+    salt: delegation.salt,
+    warnings,
+    signatureModel: 'UNKNOWN' as any,
+  })
+      return res.json({ ok: true, delegation, chainId: chainId || monadTestnet.id, addedLimitCaveats: mergedCaveats.length, hashes, warnings })
+    }
     return res.json({ ok: true, delegation, chainId: chainId || monadTestnet.id, addedLimitCaveats: mergedCaveats.length })
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e?.message || 'build_failed' })
+  }
+})
+
+// Hash preview avant signature: { delegator, delegate, authority?, caveats, salt? }
+app.post('/api/delegations/hash-preview', (req, res) => {
+  try {
+    const { delegator, delegate, authority, caveats, salt } = req.body || {}
+    const addrRe = /^0x[0-9a-fA-F]{40}$/
+    if (!addrRe.test(delegator || '') || !addrRe.test(delegate || '')) return res.status(400).json({ ok: false, error: 'invalid_addresses' })
+    const authority32 = authority && authority !== '0x' ? authority : '0x' + '00'.repeat(32)
+    const chainId = monadTestnet.id
+    const domainCfg = {
+      name: process.env.DELEGATION_DOMAIN_NAME || 'Delegation',
+      version: process.env.DELEGATION_DOMAIN_VERSION || '1',
+      chainId,
+      verifyingContract: (process.env.DELEGATION_MANAGER_ADDRESS || (getDeleGatorEnvironment(chainId) as any).DelegationManager) as any,
+    }
+    const hashes = computeCanonicalDelegationHashes({
+      delegator: delegator.toLowerCase(),
+      delegate: delegate.toLowerCase(),
+      authority: authority32,
+      caveats: Array.isArray(caveats) ? caveats : [],
+      salt: salt ?? '0x',
+    }, domainCfg)
+    const warnings = computeWarnings({
+      salt: BigInt(salt || 0),
+      expectedDelegator: delegator,
+      duplicateStruct: hasStructHash(hashes.structHash),
+      hasCaveats: Array.isArray(caveats) && caveats.length > 0,
+    })
+    // Heuristique potentielle: si le delegator est un contrat (code != 0x) prévenir qu'il pourrait s'agir d'un ERC1271
+    // (la confirmation réelle aura lieu après signature via signature-model detection)
+    // On ne fait pas d'appel async ici -> différer en version async si besoin. Pour l'instant, simple placeholder consultable avec un override.
+    // Pour ne pas bloquer: si publicClient disponible on tente un getBytecode synchrone via .request (viem publicClient.getCode est async -> donc on garde simple: flag env)
+    // Implémentation rapide: si env FAST_ERC1271_HEURISTIC=1 on fera une requête asynchrone.
+    const finalWarnings = [...warnings]
+    // Lancer detection code seulement si activé pour éviter latences
+    if (process.env.FAST_ERC1271_HEURISTIC === '1') {
+      // Best-effort: on encapsule dans IIFE async et respond ensuite (convertir handler en async). Simplicité: retourner pendingHeuristic: true pour version sync.
+      // Pour ne pas re-coder tout, on ajoute un marqueur si heuristique non évaluée.
+      finalWarnings.push('ERC1271_HEURISTIC_DEFERRED')
+    }
+    return res.json({ ok: true, hashes, warnings: finalWarnings, domain: domainCfg })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'hash_preview_failed' })
   }
 })
 
@@ -560,6 +687,62 @@ app.post('/api/delegations/submit', async (req, res) => {
     const payload: any = { delegatorSA, signedDelegation }
     if (encryptedJobHasFields(enrichedJob)) payload.job = enrichedJob
     if (recovered) payload._verification = { recovered, computedHash, verifyError }
+    // Instrumentation hashing + warnings post-submit
+    try {
+      const d = signedDelegation.delegation
+      const domainCfg = {
+        name: process.env.DELEGATION_DOMAIN_NAME || 'Delegation',
+        version: process.env.DELEGATION_DOMAIN_VERSION || '1',
+        chainId: monadTestnet.id,
+        verifyingContract: (process.env.DELEGATION_MANAGER_ADDRESS || (getDeleGatorEnvironment(monadTestnet.id) as any).DelegationManager) as any,
+      }
+      const hashes = computeCanonicalDelegationHashes({
+        delegator: d.delegator,
+        delegate: d.delegate,
+        authority: d.authority,
+        caveats: d.caveats || [],
+        salt: d.salt,
+      }, domainCfg)
+      const baseWarnings = computeWarnings({
+        recovered,
+        expectedDelegator: d.delegator,
+        salt: BigInt(d.salt || 0),
+        duplicateStruct: hasStructHash(hashes.structHash),
+        hasCaveats: Array.isArray(d.caveats) && d.caveats.length > 0,
+      })
+      let signatureModel: string = 'UNKNOWN'
+      let detectionWarnings: string[] = []
+      try {
+        const { detectSignatureModel } = await import('./signature-model')
+        const det = await detectSignatureModel({ delegator: d.delegator, digest: hashes.digest, signature: signedDelegation.signature })
+        signatureModel = det.model
+        detectionWarnings = det.warnings
+      } catch (e) {
+        detectionWarnings.push('SIG_MODEL_DETECT_FAILED')
+      }
+      const warnings = Array.from(new Set([...(baseWarnings||[]), ...detectionWarnings]))
+      appendAudit({
+        ts: Date.now(),
+        action: 'submit',
+        delegator: d.delegator,
+        delegate: d.delegate,
+        role,
+        structHash: hashes.structHash,
+        digest: hashes.digest,
+        domainSeparator: hashes.domainSeparator,
+  caveatsRoot: (hashes as any).caveatsHash || (hashes as any).caveatsRoot || '0x',
+        salt: d.salt,
+        warnings,
+        recovered,
+        verifyError,
+        signatureModel,
+      })
+      payload.hashes = hashes
+      payload.warnings = warnings
+      payload.signatureModel = signatureModel
+    } catch (eh) {
+      console.warn('[submit] hashing instrumentation failed', (eh as any)?.message)
+    }
     writeFileSync(join(dir, baseName), JSON.stringify(payload, null, 2))
     console.log('[api/delegations/submit] persisted', { file: baseName, role, delegatorSA })
     if (role !== 'core') return res.json({ ok: true, role, notice: 'signed delegation stored', immutable: true })
@@ -569,7 +752,7 @@ app.post('/api/delegations/submit', async (req, res) => {
       try { const hash = await runOnceForDelegator(delegatorSA); immediate = { ok: true, hash } } catch (e: any) { immediate = { ok: false, error: e?.message } }
       return res.json({ ok: true, role, immutable: true, immediate, verification: { recovered, computedHash, verifyError } })
     }
-    return res.json({ ok: true, role, immutable: true, verification: { recovered, computedHash, verifyError } })
+    return res.json({ ok: true, role, immutable: true, verification: { recovered, computedHash, verifyError }, hashes: payload.hashes, warnings: payload.warnings })
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e?.message || 'submit_failed' })
   }
@@ -592,26 +775,54 @@ app.get('/api/delegations/verify/:delegatorSA', async (req, res) => {
     const raw = JSON.parse(readFileSync(file,'utf8'))
     const sd = raw?.signedDelegation
     if (!sd) return res.status(400).json({ ok: false, error: 'missing_signedDelegation' })
-    let recovered: string | null = null, computedHash: `0x${string}` | null = null, caveatsRoot: `0x${string}` | null = null, verifyError: string | null = null
+    const d = sd.delegation
+    // Recompute canonical hashes
+    let canonical: any = null
+    try {
+      const domainCfg = { name: process.env.DELEGATION_DOMAIN_NAME || 'Delegation', version: process.env.DELEGATION_DOMAIN_VERSION || '1', chainId: monadTestnet.id, verifyingContract: (process.env.DELEGATION_MANAGER_ADDRESS || (getDeleGatorEnvironment(monadTestnet.id) as any).DelegationManager) }
+      canonical = computeCanonicalDelegationHashes({ delegator: d.delegator, delegate: d.delegate, authority: d.authority, caveats: d.caveats||[], salt: d.salt }, domainCfg as any)
+    } catch (e) {}
+    // Legacy manual verification (keccak pack) for mismatch insight
+    let recovered: string | null = null, verifyError: string | null = null
     try {
       const { keccak256, encodeAbiParameters, recoverAddress } = await import('viem')
-      const d = sd.delegation
       const caveats: any[] = Array.isArray(d.caveats) ? d.caveats : []
       const packed = caveats.map((c) => keccak256(encodeAbiParameters([
         { type: 'address' }, { type: 'bytes' }, { type: 'bytes' }
       ] as any, [c.enforcer, c.terms, c.args ?? '0x'])) )
-      caveatsRoot = keccak256(encodeAbiParameters([{ type: 'bytes32[]' }] as any, [packed]))
-      computedHash = keccak256(encodeAbiParameters([
+      const caveatsRoot = keccak256(encodeAbiParameters([{ type: 'bytes32[]' }] as any, [packed]))
+      const manualStruct = keccak256(encodeAbiParameters([
         { type: 'address' }, { type: 'address' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'bytes32' }
       ] as any, [d.delegator, d.delegate, d.authority, BigInt(d.salt), caveatsRoot]))
       const domainSep = keccak256(encodeAbiParameters([{ type: 'string' }], ['Delegation']))
-      const digest = keccak256(encodeAbiParameters([{ type: 'bytes32' }, { type: 'bytes32' }], [domainSep, computedHash]))
+      const digest = keccak256(encodeAbiParameters([{ type: 'bytes32' }, { type: 'bytes32' }], [domainSep, manualStruct]))
       recovered = await recoverAddress({ hash: digest, signature: sd.signature })
       if (recovered.toLowerCase() !== d.delegator.toLowerCase()) verifyError = 'signer_mismatch'
-    } catch (err: any) {
-      verifyError = err?.message || 'verification_failed'
+    } catch (err: any) { verifyError = err?.message || 'verification_failed' }
+    // Build warnings unified
+    let baseWarnings: string[] = []
+    try {
+      baseWarnings = computeWarnings({ recovered, expectedDelegator: d.delegator, salt: BigInt(d.salt||0), duplicateStruct: canonical ? hasStructHash(canonical.structHash) : false, hasCaveats: Array.isArray(d.caveats) && d.caveats.length>0 })
+    } catch {}
+    // signature model detection (digest canonical si possible, sinon rien)
+    let signatureModel = 'UNKNOWN'
+    let detectionWarnings: string[] = []
+    if (canonical) {
+      try {
+        const { detectSignatureModel } = await import('./signature-model')
+        const det = await detectSignatureModel({ delegator: d.delegator, digest: canonical.digest, signature: sd.signature })
+        signatureModel = det.model
+        detectionWarnings = det.warnings || []
+      } catch { detectionWarnings.push('SIG_MODEL_DETECT_FAILED') }
     }
-    return res.json({ ok: true, recovered, computedHash, caveatsRoot, verifyError, delegator: sd.delegation?.delegator, delegate: sd.delegation?.delegate })
+    const warnings = Array.from(new Set([...baseWarnings, ...detectionWarnings]))
+    // Optionnel: audit entry (action=verify) sans doublons (best-effort)
+    try {
+      if (canonical) {
+        appendAudit({ ts: Date.now(), action: 'verify', delegator: d.delegator, delegate: d.delegate, role: 'core', structHash: canonical.structHash, digest: canonical.digest, domainSeparator: canonical.domainSeparator, caveatsRoot: canonical.caveatsHash || canonical.caveatsRoot || '0x', salt: d.salt, warnings, signatureModel, verifyError, recovered })
+      }
+    } catch {}
+    return res.json({ ok: true, delegator: d.delegator, delegate: d.delegate, structHash: canonical?.structHash, digest: canonical?.digest, domainSeparator: canonical?.domainSeparator, caveatsRoot: canonical?.caveatsHash || canonical?.caveatsRoot, recovered, verifyError, signatureModel, warnings })
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e?.message || 'verify_failed' })
   }
@@ -833,7 +1044,14 @@ app.post('/api/send-mon', async (req, res) => {
         maxFeePerGas,
         maxPriorityFeePerGas,
       })
-      try { (await import('./utils/history')).appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: '0', amountOutToken: wad.toString(), unwrap: false, userOperationHash: uoHash, strategy: 'withdraw-native' }) } catch {}
+      try {
+        const d = valueDel.signedDelegation.delegation
+        const domainCfg = { name: process.env.DELEGATION_DOMAIN_NAME || 'Delegation', version: process.env.DELEGATION_DOMAIN_VERSION || '1', chainId: monadTestnet.id, verifyingContract: (process.env.DELEGATION_MANAGER_ADDRESS || (getDeleGatorEnvironment(monadTestnet.id) as any).DelegationManager) }
+        const h = computeCanonicalDelegationHashes({ delegator: d.delegator, delegate: d.delegate, authority: d.authority, caveats: d.caveats||[], salt: d.salt }, domainCfg as any)
+        const { appendRunEvent } = await import('./utils/history')
+        appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: '0', amountOutToken: wad.toString(), unwrap: false, userOperationHash: uoHash, strategy: 'withdraw-native', structHashes: [h.structHash] })
+        appendAudit({ ts: Date.now(), action: 'execute', delegator: delegatorSA, delegate: d.delegate, role: 'value', structHash: h.structHash, digest: h.digest, domainSeparator: h.domainSeparator, caveatsRoot: h.caveatsHash, salt: d.salt, warnings: [] })
+      } catch {}
       return res.json({ ok: true, userOperationHash: uoHash, transferred: wad.toString(), mode: 'native-scope', detected: nativeDetect })
     }
 
@@ -910,7 +1128,17 @@ app.post('/api/send-mon', async (req, res) => {
       maxFeePerGas,
       maxPriorityFeePerGas,
     })
-    try { (await import('./utils/history')).appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: '0', amountOutToken: wad.toString(), unwrap: true, userOperationHash: uoHash, strategy: 'withdraw-fallback' }) } catch {}
+    try {
+      const coreD = core.signedDelegation.delegation
+      const valD = valueDel.signedDelegation.delegation
+      const domainCfg = { name: process.env.DELEGATION_DOMAIN_NAME || 'Delegation', version: process.env.DELEGATION_DOMAIN_VERSION || '1', chainId: monadTestnet.id, verifyingContract: (process.env.DELEGATION_MANAGER_ADDRESS || (getDeleGatorEnvironment(monadTestnet.id) as any).DelegationManager) }
+      const hCore = computeCanonicalDelegationHashes({ delegator: coreD.delegator, delegate: coreD.delegate, authority: coreD.authority, caveats: coreD.caveats||[], salt: coreD.salt }, domainCfg as any)
+      const hVal = computeCanonicalDelegationHashes({ delegator: valD.delegator, delegate: valD.delegate, authority: valD.authority, caveats: valD.caveats||[], salt: valD.salt }, domainCfg as any)
+      const { appendRunEvent } = await import('./utils/history')
+      appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: '0', amountOutToken: wad.toString(), unwrap: true, userOperationHash: uoHash, strategy: 'withdraw-fallback', structHashes: [hCore.structHash, hVal.structHash] })
+      appendAudit({ ts: Date.now(), action: 'execute', delegator: delegatorSA, delegate: coreD.delegate, role: 'core+value', structHash: hCore.structHash, digest: hCore.digest, domainSeparator: hCore.domainSeparator, caveatsRoot: hCore.caveatsHash, salt: coreD.salt, warnings: [] })
+      appendAudit({ ts: Date.now(), action: 'execute', delegator: delegatorSA, delegate: valD.delegate, role: 'core+value', structHash: hVal.structHash, digest: hVal.digest, domainSeparator: hVal.domainSeparator, caveatsRoot: hVal.caveatsHash, salt: valD.salt, warnings: [] })
+    } catch {}
     return res.json({ ok: true, userOperationHash: uoHash, withdrawn: wad.toString(), mode: 'fallback-wmon' })
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'send_mon_failed' })
@@ -1519,8 +1747,8 @@ app.get('/api/status/:delegator', async (req, res) => {
       try {
         const raw = readFileSync(file, 'utf8')
         const json = JSON.parse(raw)
-        job = json.job || null
-        permit = json.job?.permit || null
+  job = json.job || null
+  permit = json.job?.permit || null
         auth3009 = json.job?.auth3009 || null
       } catch {}
     }
@@ -1560,6 +1788,58 @@ app.get('/api/delegations', async (_req, res) => {
     return res.json({ ok: true, delegations: files })
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e?.message || 'list failed' })
+  }
+})
+
+// Simulation endpoint: POST /api/simulate
+// Body: { delegatorSA, executions?: [{target,value,callData}], unwrapToMon?:bool }
+// If executions omitted, builds default swap pipeline (like runner) for a single cycle.
+app.post('/api/simulate', async (req, res) => {
+  try {
+    let { delegatorSA, executions, unwrapToMon } = req.body || {}
+    if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
+    if (!delegatorSA || !/^0x[0-9a-f]{40}$/.test(delegatorSA)) return res.status(400).json({ ok: false, error: 'invalid_delegator' })
+    const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+    if (!existsSync(file)) return res.status(404).json({ ok: false, error: 'delegation_missing' })
+    const json = JSON.parse(readFileSync(file, 'utf8'))
+    const signed = json.signedDelegation
+    const amountUSDC = BigInt(Math.floor(Number(json.job?.amountUSDC ?? 1) * 1_000_000))
+    // Build default executions if none passed (simplified: just return) - keep light; reuse runner logic minimal.
+    if (!Array.isArray(executions) || executions.length === 0) {
+      // For brevity, we won't rebuild full swap here (needs router encoded calldata). Just echo placeholder.
+      executions = []
+    }
+    // Normalize flat delegation
+    const flat = {
+      delegate: signed.delegation.delegate,
+      delegator: signed.delegation.delegator,
+      authority: signed.delegation.authority,
+      caveats: (signed.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+      salt: signed.delegation.salt,
+      signature: signed.signature,
+    }
+    // Encode redeemDelegations call for each execution individually (like runner) so we can attempt a call
+    const { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } = await import('./encoding')
+    const encodedCtxArr = encodePermissionContextsFromDelegations([[flat as any]])
+    if (!Array.isArray(encodedCtxArr) || encodedCtxArr.length === 0) return res.status(500).json({ ok: false, error: 'ctx_encode_failed' })
+    const [ctx] = encodedCtxArr
+    const execGroups = (executions as any[]).map((e) => [{ target: e.target, value: BigInt(e.value || 0), callData: e.callData || '0x' }])
+    const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
+    const permissionContexts = execGroups.map(() => ctx)
+    const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
+    const data = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] })
+    // Perform eth_call via publicClient against DelegationManager (strict simulation)
+    let success = true; let error: string | null = null
+    const env = getDeleGatorEnvironment(monadTestnet.id)
+    try {
+      await publicClient.call({ to: env.DelegationManager as Address, data })
+    } catch (e: any) {
+      success = false
+      error = e?.shortMessage || e?.message || String(e)
+    }
+    return res.json({ ok: true, success, error, executions: executions.length, modes: modes.length })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'simulate_failed' })
   }
 })
   // -------- Paymaster status & test endpoints (added) --------

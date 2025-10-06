@@ -12,6 +12,7 @@ export type DcaRunEvent = {
   skipped?: boolean
   skipReason?: string
   gas?: { maxFeePerGas?: string; maxPriorityFeePerGas?: string }
+  structHashes?: string[] // une ou plusieurs délégations consommées
 }
 
 const HISTORY_DIR = join(process.cwd(), 'data', 'history')
@@ -66,4 +67,25 @@ export function summarizeRunHistory(delegator: string) {
     totalOutToken: totalOut.toString(),
     lastTs: events.at(-1)?.ts || null,
   }
+}
+
+// Retourne toutes les exécutions (tous délégateurs) contenant un structHash donné
+export function findRunsByStructHash(targetStructHash: string): DcaRunEvent[] {
+  const fs = require('node:fs') as typeof import('node:fs')
+  const out: DcaRunEvent[] = []
+  try {
+    if (!fs.existsSync(HISTORY_DIR)) return []
+    const files = fs.readdirSync(HISTORY_DIR).filter((f: string) => f.endsWith('.json'))
+    for (const f of files) {
+      try {
+        const arr = JSON.parse(fs.readFileSync(join(HISTORY_DIR, f), 'utf8')) as DcaRunEvent[]
+        for (const ev of arr) {
+          if (ev.structHashes && ev.structHashes.some((h) => h.toLowerCase() === targetStructHash.toLowerCase())) {
+            out.push(ev)
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+  return out
 }
