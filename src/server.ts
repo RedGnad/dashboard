@@ -234,19 +234,25 @@ app.get('/api/diag', async (req, res) => {
   }
 })
 
+// Créer / stocker une délégation. Paramètre facultatif ?role=VALUE pour stocker plusieurs rôles.
+// Rôle par défaut: "core" (fichier: <delegator>.json). Rôle autre: <delegator>__<role>.json
 app.post('/api/delegations', async (req, res) => {
   let { delegatorSA, signedDelegation, job } = req.body || {}
+  const role = (req.query.role as string | undefined)?.toLowerCase() || 'core'
   if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
-  if (!delegatorSA || !signedDelegation) return res.status(400).json({ error: 'Missing delegatorSA or signedDelegation' })
+  if (!delegatorSA || !signedDelegation) return res.status(400).json({ error: 'Missing delegatorSA or signedDelegation', role })
   const dir = join(process.cwd(), 'data', 'delegations')
   mkdirSync(dir, { recursive: true })
-  const enrichedJob = {
-    createdAtMs: Date.now(),
-    unwrapEvery: Number(job?.unwrapEvery ?? 24),
-    ...job,
-  }
-  writeFileSync(join(dir, `${delegatorSA}.json`), JSON.stringify({ delegatorSA, signedDelegation, job: enrichedJob }, null, 2))
+  const baseName = role === 'core' ? `${delegatorSA}.json` : `${delegatorSA}__${role}.json`
+  const enrichedJob = role === 'core'
+    ? ({ createdAtMs: Date.now(), unwrapEvery: Number(job?.unwrapEvery ?? 24), ...job })
+    : undefined // seules les meta de job sur la délégation core
+  const payload: any = { delegatorSA, signedDelegation }
+  if (enrichedJob) payload.job = enrichedJob
+  writeFileSync(join(dir, baseName), JSON.stringify(payload, null, 2))
   console.log('[api/delegations] intake', {
+    role,
+    file: baseName,
     delegatorSA,
     hasSigned: !!signedDelegation,
     signedShape: {
@@ -255,10 +261,11 @@ app.post('/api/delegations', async (req, res) => {
       caveats: Array.isArray(signedDelegation?.delegation?.caveats) ? signedDelegation.delegation.caveats.length : 'n/a',
       saltType: typeof signedDelegation?.delegation?.salt,
     },
-    jobKeys: Object.keys(job || {}),
+    jobKeys: enrichedJob ? Object.keys(job || {}) : [],
   })
+  // Si ce n'est pas la délégation core on ne lance pas le job
+  if (role !== 'core') return res.json({ ok: true, role, notice: 'Délégation rôle ajoutée' })
   try {
-    // Ne plus exécuter immédiatement: on vérifie d'abord le solde USDC pour indiquer si top-up nécessaire
     let usdcBal = 0n
     try {
       usdcBal = await publicClient.readContract({
@@ -271,7 +278,6 @@ app.post('/api/delegations', async (req, res) => {
     const iv = Number(job?.intervalSec)
     let startedJob: any = null
     let immediateResult: { ok: boolean; hash?: string; error?: string } | null = null
-    // Lancer l'exécution immédiate AVANT d'initialiser l'intervalle pour ne pas décaler le prochain tick
     try {
       const hash = await runOnceForDelegator(delegatorSA as Address, { runIndex: 0 })
       immediateResult = { ok: true, hash }
@@ -285,15 +291,14 @@ app.post('/api/delegations', async (req, res) => {
     const needsTopup = usdcBal === 0n
     return res.json({
       ok: true,
+      role,
       job: startedJob,
       needsTopup,
       immediateRun: immediateResult,
-      notice: immediateResult?.ok
-        ? 'Premier swap exécuté immédiatement'
-        : `Tentative immédiate échouée: ${immediateResult?.error}`,
+      notice: immediateResult?.ok ? 'Premier swap exécuté immédiatement' : `Tentative immédiate échouée: ${immediateResult?.error}`,
     })
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || 'post-delegation failed' })
+    return res.status(500).json({ ok: false, role, error: e?.message || 'post-delegation failed' })
   }
 })
 
@@ -306,21 +311,223 @@ app.get('/api/delegations/:delegatorSA', async (req, res) => {
       return res.status(400).json({ error: 'Invalid delegatorSA' })
     }
     const dir = join(process.cwd(), 'data', 'delegations')
-    const file = join(dir, `${delegatorSA}.json`)
-    const exists = existsSync(file)
-    const out: any = { ok: true, exists }
-    if (exists) {
-      try {
-        const st = statSync(file)
-        out.updatedAt = st.mtimeMs
-        const raw = readFileSync(file, 'utf8')
-        const json = JSON.parse(raw)
-        if (json?.job) out.job = json.job
-      } catch {}
+    const roles: string[] = []
+    let coreJson: any = null
+    let coreFileName: string | null = null
+    const matchedFiles: string[] = []
+    let allFiles: string[] = []
+    let renameAttempt = false
+    let renameError: string | null = null
+    try {
+      const files = require('node:fs').readdirSync(dir)
+      allFiles = files
+      for (const f of files) {
+        const fl = f.toLowerCase()
+        if (!fl.startsWith(delegatorSA)) continue
+        if (fl === `${delegatorSA}.json`) {
+          roles.push('core')
+          coreFileName = f // preserve original case
+          matchedFiles.push(f)
+        } else if (/__([a-z0-9_-]+)\.json$/.test(fl)) {
+          const m = fl.match(/__([a-z0-9_-]+)\.json$/)
+          if (m?.[1]) roles.push(m[1])
+          matchedFiles.push(f)
+        }
+      }
+      // Backward compatibility: if no lowercase core file but a single file matches case-insensitively, pick it
+      if (!coreFileName) {
+        const legacy = files?.find((f: string) => f.toLowerCase() === `${delegatorSA}.json`)
+        if (legacy) {
+          coreFileName = legacy
+          if (!roles.includes('core')) roles.push('core')
+          if (!matchedFiles.includes(legacy)) matchedFiles.push(legacy)
+        }
+      }
+      // Optionally normalize filename to lowercase for future (rename once)
+      if (coreFileName && coreFileName !== `${delegatorSA}.json`) {
+        try {
+          const from = join(dir, coreFileName)
+          const to = join(dir, `${delegatorSA}.json`)
+          renameAttempt = true
+          require('node:fs').renameSync(from, to)
+          coreFileName = `${delegatorSA}.json`
+          console.log('[delegations] normalized filename to lowercase', { delegatorSA })
+        } catch (e: any) {
+          renameAttempt = true
+            renameError = e?.message || String(e)
+        }
+      }
+    } catch (e) {
+      // ignore directory read errors
     }
+    const out: any = { ok: true, roles, exists: roles.includes('core') }
+    if (roles.includes('core') && coreFileName) {
+      try {
+        const raw = readFileSync(join(dir, coreFileName), 'utf8')
+        coreJson = JSON.parse(raw)
+        if (coreJson?.job) out.job = coreJson.job
+      } catch (e) {
+        out.coreReadError = String((e as any)?.message || e)
+      }
+    }
+    // Truncate allFiles if large
+    const truncatedAll = allFiles.slice(0, 50)
+    out.debug = { coreFileName, fileCount: roles.length, matchedFiles, allFiles: truncatedAll, allFilesTruncated: allFiles.length > truncatedAll.length, renameAttempt, renameError }
     return res.json(out)
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'check failed' })
+  }
+})
+
+// Retrait MON natif amélioré:
+// 1) Si la value delegation possède le caveat nativeTokenTransferAmount => transfert direct du solde (ou partiel si amount) en un seul contexte.
+// 2) Sinon fallback historique: withdraw WMON via core + transfert natif via value (2 contextes).
+app.post('/api/send-mon', async (req, res) => {
+  try {
+    let { delegatorSA, amount } = req.body || {}
+    if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
+    if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
+    const dir = join(process.cwd(), 'data', 'delegations')
+    const coreFile = join(dir, `${delegatorSA}.json`)
+    const valueFile = join(dir, `${delegatorSA}__value.json`)
+    if (!existsSync(coreFile)) return res.status(404).json({ error: 'core_delegation_missing', stage: 'read_core_file' })
+    if (!existsSync(valueFile)) return res.status(404).json({ error: 'value_delegation_missing', stage: 'read_value_file' })
+    const core = JSON.parse(readFileSync(coreFile, 'utf8'))
+    const valueDel = JSON.parse(readFileSync(valueFile, 'utf8'))
+    const ownerEOA = core?.job?.ownerEOA as string | undefined
+    if (!ownerEOA) return res.status(400).json({ error: 'ownerEOA_missing', stage: 'owner_eoa' })
+
+    // Détection scope natif: présence d'un caveat avec terms contenant 'nativeTokenTransferAmount'
+    let hasNativeScope = false
+    try {
+      const caveats = valueDel?.signedDelegation?.delegation?.caveats || []
+      hasNativeScope = caveats.some((c: any) => typeof c?.terms === 'string' && c.terms.includes('nativeTokenTransferAmount'))
+    } catch {}
+
+    if (hasNativeScope) {
+      // Chemin direct: un seul contexte (value) et une exécution value -> ownerEOA avec callData vide
+      let nativeBal = 0n
+      try { nativeBal = await publicClient.getBalance({ address: delegatorSA as Address }) } catch {}
+      if (nativeBal === 0n) return res.status(400).json({ error: 'no_mon_balance', mode: 'native-scope' })
+      let wad: bigint
+      if (amount != null) {
+        try { wad = BigInt(String(amount)) } catch { wad = nativeBal }
+        if (wad <= 0n || wad > nativeBal) wad = nativeBal
+      } else wad = nativeBal
+      const flatValue = {
+        delegate: valueDel.signedDelegation.delegation.delegate,
+        delegator: valueDel.signedDelegation.delegation.delegator,
+        authority: valueDel.signedDelegation.delegation.authority,
+        caveats: (valueDel.signedDelegation.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+        salt: valueDel.signedDelegation.delegation.salt,
+        signature: valueDel.signedDelegation.signature,
+      }
+      const { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } = await import('./encoding')
+      const [ctx] = encodePermissionContextsFromDelegations([[flatValue as any]])
+      const execGroups = [[{ target: ownerEOA as Address, value: wad, callData: '0x' as `0x${string}` }]]
+      const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
+      const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
+      const dmData = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
+      const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+      if (!pk) return res.status(500).json({ error: 'Missing DELEGATE_PRIVATE_KEY' })
+      const eoa = privateKeyToAccount(pk)
+      const env = getDeleGatorEnvironment(monadTestnet.id)
+      const delegateSA = await toMetaMaskSmartAccount({
+        client: publicClient,
+        implementation: Implementation.Hybrid,
+        deployParams: [eoa.address, [], [], []],
+        deploySalt: '0x',
+        signer: { account: eoa },
+        environment: env as any,
+      })
+      let maxFeePerGas = await publicClient.getGasPrice().catch(() => 80n * 10n ** 9n)
+      if (maxFeePerGas < 80n * 10n ** 9n) maxFeePerGas = 80n * 10n ** 9n
+      const maxPriorityFeePerGas = maxFeePerGas / 2n
+      const uoHash = await bundlerClient.sendUserOperation({
+        account: delegateSA,
+        calls: [{ to: env.DelegationManager as Address, data: dmData }],
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+      })
+      return res.json({ ok: true, userOperationHash: uoHash, transferred: wad.toString(), mode: 'native-scope' })
+    }
+
+    // Fallback historique (WMON withdraw + transfert) si pas de caveat natif
+    // Lire balance WMON pour withdraw
+    let wbal = 0n
+    try {
+      wbal = await publicClient.readContract({
+        address: WMON as Address,
+        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] } ] as any,
+        functionName: 'balanceOf',
+        args: [delegatorSA as Address],
+      }) as bigint
+    } catch {}
+    if (wbal === 0n) return res.status(400).json({ error: 'no_wmon_balance', stage: 'balance_check', wmonBalance: '0', mode: 'fallback-wmon' })
+    let wad: bigint
+    if (amount != null) {
+      try { wad = BigInt(String(amount)) } catch { wad = wbal }
+      if (wad <= 0n || wad > wbal) wad = wbal
+    } else wad = wbal
+    const { encodeFunctionData } = await import('viem')
+    const withdrawData = encodeFunctionData({
+      abi: [ { name: 'withdraw', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'wad', type: 'uint256' } ], outputs: [] } ] as any,
+      functionName: 'withdraw',
+      args: [wad],
+    }) as `0x${string}`
+    const execWithdraw = { target: WMON as Address, value: 0n, callData: withdrawData }
+    const execValue = { target: ownerEOA as Address, value: wad, callData: '0x' as `0x${string}` }
+    // Encodage multi-contexte: [[coreDelegationChain],[valueDelegationChain]]
+    const flatCore = {
+      delegate: core.signedDelegation.delegation.delegate,
+      delegator: core.signedDelegation.delegation.delegator,
+      authority: core.signedDelegation.delegation.authority,
+      caveats: (core.signedDelegation.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+      salt: core.signedDelegation.delegation.salt,
+      signature: core.signedDelegation.signature,
+    }
+    const flatValue = {
+      delegate: valueDel.signedDelegation.delegation.delegate,
+      delegator: valueDel.signedDelegation.delegation.delegator,
+      authority: valueDel.signedDelegation.delegation.authority,
+      caveats: (valueDel.signedDelegation.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+      salt: valueDel.signedDelegation.delegation.salt,
+      signature: valueDel.signedDelegation.signature,
+    }
+    const { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } = await import('./encoding')
+    const ctxArr = encodePermissionContextsFromDelegations([[flatCore as any], [flatValue as any]])
+  if (!Array.isArray(ctxArr) || ctxArr.length !== 2) return res.status(500).json({ error: 'ctx_encode_failed', stage: 'encode_contexts' })
+    // 2 groupes: withdraw (ctx0), value transfer (ctx1)
+    const execGroups = [[execWithdraw], [execValue]]
+    const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
+    // permissionContexts ordre = context index correspondant
+    const permissionContexts = [ctxArr[0], ctxArr[1]]
+    const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
+    const dmData = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
+    const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+    if (!pk) return res.status(500).json({ error: 'Missing DELEGATE_PRIVATE_KEY' })
+    const eoa = privateKeyToAccount(pk)
+    const env = getDeleGatorEnvironment(monadTestnet.id)
+    const delegateSA = await toMetaMaskSmartAccount({
+      client: publicClient,
+      implementation: Implementation.Hybrid,
+      deployParams: [eoa.address, [], [], []],
+      deploySalt: '0x',
+      signer: { account: eoa },
+      environment: env as any,
+    })
+    let maxFeePerGas = await publicClient.getGasPrice().catch(() => 80n * 10n ** 9n)
+    if (maxFeePerGas < 80n * 10n ** 9n) maxFeePerGas = 80n * 10n ** 9n
+    const maxPriorityFeePerGas = maxFeePerGas / 2n
+    const uoHash = await bundlerClient.sendUserOperation({
+      account: delegateSA,
+      calls: [{ to: env.DelegationManager as Address, data: dmData }],
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+    })
+    return res.json({ ok: true, userOperationHash: uoHash, withdrawn: wad.toString(), mode: 'fallback-wmon' })
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'send_mon_failed' })
   }
 })
 

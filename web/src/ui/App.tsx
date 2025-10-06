@@ -79,6 +79,9 @@ export default function App() {
   const [topupStatus, setTopupStatus] = useState<string>("");
   const [topupAmount, setTopupAmount] = useState("1"); // Montant de top-up configurable
   const DAILY_TOPUP_USDC = 1n; // 1 USDC per 24h (legacy, remplacé par topupAmount)
+  // Track presence of native value delegation
+  const [hasValueDelegation, setHasValueDelegation] = useState(false);
+  const createValueDelegationNativeRef = useRef<() => Promise<void>>();
   const [saPanel, setSaPanel] = useState<{
     eoa?: string;
     delegator?: {
@@ -192,6 +195,70 @@ export default function App() {
       setSaPanel({ error: e?.message || String(e) });
     }
   }
+
+  // Création / upgrade value delegation (native token scope)
+  async function createValueDelegationNative() {
+    if (!address || !publicClient || !walletClient) return;
+    if (!saPanel.delegator?.address) return;
+    setBusy(true);
+    setMsg((m) => (m ? m + "\n" : "") + "Création délégation value native…");
+    try {
+      const infoRes = await fetch(`${apiBase || ""}/api/delegate`);
+      const infoTxt = await infoRes.text();
+      let info: any = {};
+      try {
+        info = infoTxt ? JSON.parse(infoTxt) : {};
+      } catch {}
+      if (!infoRes.ok) throw new Error(info?.error || "delegate_info_failed");
+      const env = getDeleGatorEnvironment(10143);
+      const smart = await toMetaMaskSmartAccount({
+        client: publicClient,
+        implementation: Implementation.Hybrid,
+        deployParams: [address as Address, [], [], []],
+        deploySalt: "0x",
+        signer: { walletClient: walletClient as any },
+        environment: env as any,
+      });
+      const delegatorSa = smart.address;
+      const maxAmount: bigint = 10_000_000n * 10n ** 18n; // 10M MON
+      const delegation = createOpenDelegation({
+        environment: env as any,
+        from: delegatorSa as Address,
+        scope: { type: "nativeTokenTransferAmount", maxAmount } as any,
+      });
+      const signature = await smart.signDelegation({ delegation });
+      const post = await fetch(`${apiBase || ""}/api/delegations?role=value`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          delegatorSA: delegatorSa,
+          signedDelegation: { delegation, signature },
+        }),
+      });
+      const bodyTxt = await post.text();
+      let body: any = {};
+      try {
+        body = bodyTxt ? JSON.parse(bodyTxt) : {};
+      } catch {}
+      if (!post.ok || !body?.ok)
+        throw new Error(body?.error || "value_post_failed");
+      setHasValueDelegation(true);
+      setMsg(
+        (m) =>
+          (m ? m + "\n" : "") +
+          `Délégation value native créée (plafond 10M MON).`
+      );
+    } catch (e: any) {
+      setMsg(
+        (m) =>
+          (m ? m + "\n" : "") +
+          `Création value native échouée: ${e?.message || e}`
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  createValueDelegationNativeRef.current = createValueDelegationNative;
 
   useEffect(() => {
     if (isConnected) {
@@ -741,16 +808,110 @@ export default function App() {
         setHasDelegation(false);
         return;
       }
-      // Check if delegation exists for this SA
       try {
         const r0 = await fetch(
           `${apiBase || ""}/api/delegations/${delegatorSa}`
         );
         const t0 = await r0.text();
         const j0 = t0 ? JSON.parse(t0) : {};
-        setHasDelegation(Boolean(j0?.exists));
-      } catch {}
+        const has =
+          typeof j0.exists === "boolean"
+            ? j0.exists
+            : Array.isArray(j0.roles) && j0.roles.includes("core");
+        if (!has) {
+          // fallback /api/status
+          try {
+            const s = await fetch(
+              `${apiBase || ""}/api/status/${delegatorSa}`
+            ).then((r) => r.json());
+            if (s?.hasDelegation) {
+              setHasDelegation(true);
+            } else {
+              setHasDelegation(false);
+            }
+          } catch (e) {
+            console.warn("[refreshJobStatus] status fallback failed", e);
+            setHasDelegation(false);
+          }
+        } else {
+          setHasDelegation(true);
+        }
+      } catch (e) {
+        console.warn("[refreshJobStatus] primary fetch failed", e);
+      }
       const r = await fetch(`${apiBase || ""}/api/jobs`);
+
+      // Création / Upgrade de la value delegation avec scope natif (nativeTokenTransferAmount)
+      // Pas de paramètre d'entrée: on fixe un plafond très large pour couvrir la plupart des usages.
+      async function createValueDelegationNative() {
+        if (!address || !publicClient || !walletClient) return;
+        if (!saPanel.delegator?.address) return;
+        setBusy(true);
+        setMsg(
+          (m) => (m ? m + "\n" : "") + "Création délégation value native…"
+        );
+        try {
+          // Récup info delegate (pour vérifier env supporté)
+          const infoRes = await fetch(`${apiBase || ""}/api/delegate`);
+          const infoTxt = await infoRes.text();
+          let info: any = {};
+          try {
+            info = infoTxt ? JSON.parse(infoTxt) : {};
+          } catch {}
+          if (!infoRes.ok)
+            throw new Error(info?.error || "delegate_info_failed");
+          const env = getDeleGatorEnvironment(10143);
+          const smart = await toMetaMaskSmartAccount({
+            client: publicClient,
+            implementation: Implementation.Hybrid,
+            deployParams: [address as Address, [], [], []],
+            deploySalt: "0x",
+            signer: { walletClient: walletClient as any },
+            environment: env as any,
+          });
+          const delegatorSa = smart.address;
+          // maxAmount très large (10 millions MON) pour éviter de devoir re-signer souvent
+          const maxAmount: bigint = 10_000_000n * 10n ** 18n; // 10M MON
+          const delegation = createOpenDelegation({
+            environment: env as any,
+            from: delegatorSa as Address,
+            scope: { type: "nativeTokenTransferAmount", maxAmount } as any,
+          });
+          const signature = await smart.signDelegation({ delegation });
+          const post = await fetch(
+            `${apiBase || ""}/api/delegations?role=value`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                delegatorSA: delegatorSa,
+                signedDelegation: { delegation, signature },
+              }),
+            }
+          );
+          const bodyTxt = await post.text();
+          let body: any = {};
+          try {
+            body = bodyTxt ? JSON.parse(bodyTxt) : {};
+          } catch {}
+          if (!post.ok || !body?.ok)
+            throw new Error(body?.error || "value_post_failed");
+          setHasValueDelegation(true);
+          setMsg(
+            (m) =>
+              (m ? m + "\n" : "") +
+              `Délégation value native créée (plafond 10M MON).`
+          );
+        } catch (e: any) {
+          setMsg(
+            (m) =>
+              (m ? m + "\n" : "") +
+              `Création value native échouée: ${e?.message || e}`
+          );
+        } finally {
+          setBusy(false);
+        }
+      }
       const t = await r.text();
       const j = t ? JSON.parse(t) : {};
       const found = Array.isArray(j?.jobs)
@@ -758,8 +919,8 @@ export default function App() {
         : null;
       setJob(found || null);
       jobRef.current = found || null;
-    } catch {
-      // ignore transient errors
+    } catch (e) {
+      console.warn("[refreshJobStatus] outer error", e);
     }
   }
 
@@ -957,27 +1118,34 @@ export default function App() {
     }
   }
 
-  async function withdrawNativeMon() {
+  async function sendMonNative() {
     if (!saPanel.delegator?.address) return;
     try {
       setBusy(true);
-      const r = await fetch(`${apiBase || ""}/api/withdraw-native`, {
+      const r = await fetch(`${apiBase || ""}/api/send-mon`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ delegatorSA: saPanel.delegator.address }),
       });
       const t = await r.text();
       const j = t ? JSON.parse(t) : {};
-      if (!j?.ok)
-        setMsg(`Withdraw native MON échoué: ${j?.error || "inconnu"}`);
-      else
-        setMsg(
-          `Withdraw native MON userOperationHash: ${
-            j.userOperationHash
-          } (amount: ${(Number(j.wad) / 1e18).toFixed(6)} MON)`
-        );
+      if (!j?.ok) {
+        if (j?.error === "value_delegation_missing") {
+          setMsg(
+            "Délégation 'value' manquante: créez /api/delegations?role=value avant."
+          );
+        } else if (j?.error === "core_delegation_missing") {
+          setMsg("Délégation core absente.");
+        } else if (j?.error === "no_wmon_balance") {
+          setMsg("Aucun WMON à retirer (faire un swap d'abord).");
+        } else {
+          setMsg(`Retrait MON natif échoué: ${j?.error || "inconnu"}`);
+        }
+      } else {
+        setMsg(`Retrait MON natif userOp: ${j.userOperationHash}`);
+      }
     } catch (e: any) {
-      setMsg(`Withdraw native MON échoué: ${e?.message || e}`);
+      setMsg(`Retrait MON natif échoué: ${e?.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -1000,6 +1168,7 @@ export default function App() {
         return;
       }
       const value = BigInt(Math.floor(topupAmountNum * 1_000_000)); // USDC a 6 décimales
+      // Lire le solde USDC de l'EOA
       let bal: bigint = 0n;
       try {
         bal = (await publicClient.readContract({
@@ -1015,7 +1184,7 @@ export default function App() {
           ] as any,
           functionName: "balanceOf",
           args: [address as Address],
-        })) as bigint;
+        })) as unknown as bigint;
       } catch {}
       if (bal < value) {
         setMsg(
@@ -1025,6 +1194,7 @@ export default function App() {
         );
         return;
       }
+      // Transfert direct depuis l'EOA vers le Smart Account
       const tx = await (walletClient as any).writeContract({
         address: USDC,
         abi: [
@@ -1075,6 +1245,33 @@ export default function App() {
     };
   }, [apiBase]);
 
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [delegationDebug, setDelegationDebug] = useState<any>(null);
+  const [delegationsList, setDelegationsList] = useState<any>(null);
+  const [statusDebug, setStatusDebug] = useState<any>(null);
+
+  async function loadDelegationDebug(force = false) {
+    if (!saPanel.delegator?.address) return;
+    try {
+      const base = saPanel.delegator.address.toLowerCase();
+      const d = await fetch(`${apiBase || ""}/api/delegations/${base}`)
+        .then((r) => r.json())
+        .catch(() => null);
+      const l = await fetch(`${apiBase || ""}/api/delegations`)
+        .then((r) => r.json())
+        .catch(() => null);
+      const s = await fetch(`${apiBase || ""}/api/status/${base}`)
+        .then((r) => r.json())
+        .catch(() => null);
+      setDelegationDebug(d);
+      setDelegationsList(l);
+      setStatusDebug(s);
+      if (force) console.log("[debug] delegation", d, l, s);
+    } catch (e) {
+      console.warn("[debug] loadDelegationDebug failed", e);
+    }
+  }
+
   return (
     <div
       style={{
@@ -1084,6 +1281,48 @@ export default function App() {
       }}
     >
       <h1>Monad Delegatoor</h1>
+      <button
+        style={{ position: "absolute", top: 8, right: 8, fontSize: 10 }}
+        onClick={() => {
+          setDebugOpen((o) => !o);
+          if (!debugOpen) loadDelegationDebug(true);
+        }}
+      >
+        {debugOpen ? "Close Debug" : "Debug"}
+      </button>
+      {debugOpen && (
+        <div
+          style={{
+            background: "#111",
+            color: "#eee",
+            padding: 12,
+            borderRadius: 6,
+            fontSize: 11,
+            maxHeight: 300,
+            overflow: "auto",
+          }}
+        >
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              style={{ fontSize: 10 }}
+              onClick={() => loadDelegationDebug(true)}
+            >
+              Reload
+            </button>
+          </div>
+          <pre style={{ whiteSpace: "pre-wrap" }}>
+            {JSON.stringify(
+              {
+                delegation: delegationDebug,
+                list: delegationsList,
+                status: statusDebug,
+              },
+              null,
+              2
+            )}
+          </pre>
+        </div>
+      )}
       {backendVersion && (
         <div style={{ fontSize: 12, color: "#666" }}>
           backend git: {backendVersion}
@@ -1218,9 +1457,26 @@ export default function App() {
               />{" "}
               Unwrap to MON
             </label>
-            <button onClick={createAndPostDelegation} disabled={busy}>
-              {busy ? "Working…" : "Create Delegation"}
-            </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={createAndPostDelegation} disabled={busy}>
+                {busy ? "Working…" : "Create Core Delegation"}
+              </button>
+              <button
+                onClick={createValueDelegationNative}
+                disabled={
+                  busy || !saPanel.delegator?.address || hasValueDelegation
+                }
+                title={
+                  hasValueDelegation
+                    ? "Value delegation (native) déjà existante"
+                    : "Crée et signe la value delegation avec scope natif"
+                }
+              >
+                {hasValueDelegation
+                  ? "Value Delegation OK"
+                  : "Create Value Delegation (native)"}
+              </button>
+            </div>
             {/* DCA job controls */}
             <div
               style={{
@@ -1307,12 +1563,20 @@ export default function App() {
                   Send WMON → EOA
                 </button>
                 <button
-                  onClick={withdrawNativeMon}
+                  onClick={sendMonNative}
                   disabled={
-                    busy || !saPanel.delegator?.address || !hasDelegation
+                    busy ||
+                    !saPanel.delegator?.address ||
+                    !hasDelegation ||
+                    !hasValueDelegation
+                  }
+                  title={
+                    !hasValueDelegation
+                      ? "Créer d'abord la value delegation (native)"
+                      : "Envoie tout le solde MON natif vers l'EOA"
                   }
                 >
-                  Withdraw MON → EOA
+                  Retirer MON (natif) → EOA
                 </button>
                 {/* Bouton MON supprimé (flush natif désactivé) */}
                 <button
