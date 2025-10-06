@@ -1151,6 +1151,41 @@ export default function App() {
     }
   }
 
+  // Retrait du solde natif MON du delegate SA vers son EOA contrôleur
+  async function sendDelegateMonNative() {
+    try {
+      setBusy(true);
+      const r = await fetch(`${apiBase || ""}/api/delegate/withdraw-mon`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const t = await r.text();
+      const j = t ? JSON.parse(t) : {};
+      if (!j?.ok) {
+        if (j?.error === "no_mon_balance_delegate") {
+          setMsg("Delegate SA: aucun MON natif à retirer.");
+        } else if (j?.error === "Missing DELEGATE_PRIVATE_KEY") {
+          setMsg(
+            "Backend: DELEGATE_PRIVATE_KEY manquant pour retrait delegate."
+          );
+        } else if (r.status === 404) {
+          setMsg(
+            "Endpoint retrait delegate introuvable (redémarrer backend?)."
+          );
+        } else {
+          setMsg(`Retrait delegate MON échoué: ${j?.error || "inconnu"}`);
+        }
+      } else {
+        setMsg(`Delegate MON retrait userOp: ${j.userOperationHash}`);
+      }
+    } catch (e: any) {
+      setMsg(`Retrait delegate MON échoué: ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Fallback direct USDC top-up from EOA to Smart Account
   async function directTopupUsdc() {
     if (
@@ -1577,6 +1612,13 @@ export default function App() {
                   }
                 >
                   Retirer MON (natif) → EOA
+                </button>
+                <button
+                  onClick={sendDelegateMonNative}
+                  disabled={busy || !hasValueDelegation}
+                  title="Retire le solde natif MON du delegate smart account vers son EOA"
+                >
+                  Retirer MON delegate SA → delegate EOA
                 </button>
                 {/* Bouton MON supprimé (flush natif désactivé) */}
                 <button

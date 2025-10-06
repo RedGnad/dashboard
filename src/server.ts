@@ -3,16 +3,16 @@ import cors from 'cors'
 import 'dotenv/config'
 import { writeFileSync, mkdirSync, existsSync, statSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { publicClient, monadTestnet, bundlerClient } from './clients'
+import { publicClient, monadTestnet, bundlerClient, paymasterClient } from './clients'
 import { startJob, stopJob, runNow, getJobs } from './scheduler'
 import { decodeErrorResult } from 'viem'
 import { runOnceForDelegator } from './runner'
 import { buildDebugBundle } from './utils/debug'
 import { Implementation, toMetaMaskSmartAccount, getDeleGatorEnvironment } from '@metamask/delegation-toolkit'
 import { privateKeyToAccount } from 'viem/accounts'
-import { USDC, UNISWAP_V2_ROUTER02, WMON } from './constants'
+import { USDC, UNISWAP_V2_ROUTER02, WMON, ENTRY_POINT_V07 } from './constants'
 import { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } from './encoding'
-import { Address, encodeFunctionData } from 'viem'
+import { Address, encodeFunctionData as viemEncodeFunctionData } from 'viem'
 
 const app = express()
 app.use(cors({ origin: true }))
@@ -37,6 +37,85 @@ const _error = console.error.bind(console)
 console.error = (...args: any[]) => {
   pushLog('[err]', args)
   _error(...args)
+}
+// Paymaster usage flag (accept broader truthy variants)
+function parseUsePaymasterFlag(v?: string): boolean {
+  if (!v) return false
+  return ['true','1','yes','on','enabled'].includes(v.toLowerCase())
+}
+const RAW_USE_PAYMASTER = process.env.USE_PAYMASTER
+const USE_PAYMASTER = parseUsePaymasterFlag(RAW_USE_PAYMASTER)
+
+// --- Native value delegation detection helpers ---
+// Some delegation-toolkit builds encode the native token transfer scope via specific enforcer contract(s)
+// instead of a textual marker like 'nativeTokenTransferAmount'. We maintain a small allow-list here so we
+// can robustly detect the scope even if 'terms' is only a packed uint256 maxAmount.
+// If needed this list can be extended at runtime via env NAT_NATIVE_ENFORCERS (comma-separated addresses).
+const DEFAULT_NATIVE_ENFORCERS = [
+  // Observed in current value delegation JSON (maxAmount encoded in terms)
+  '0xf71af580b9c3078fbc2bbf16fbb8eed82b330320'.toLowerCase(),
+]
+function resolveNativeEnforcers(): Set<string> {
+  const extra = (process.env.NAT_NATIVE_ENFORCERS || '')
+    .split(',')
+    .map((a) => a.trim().toLowerCase())
+    .filter((a) => /^0x[0-9a-f]{40}$/.test(a))
+  return new Set([...DEFAULT_NATIVE_ENFORCERS, ...extra])
+}
+const NATIVE_ENFORCERS = resolveNativeEnforcers()
+
+type DetectedNativeScope = { hasNativeScope: boolean; maxAmount?: string; enforcer?: string }
+function detectNativeValueScope(caveats: any[]): DetectedNativeScope {
+  if (!Array.isArray(caveats)) return { hasNativeScope: false }
+  // Heuristic order:
+  // 1. Legacy textual marker
+  for (const c of caveats) {
+    const terms = typeof c?.terms === 'string' ? c.terms : ''
+    if (terms.includes('nativeTokenTransferAmount')) {
+      return { hasNativeScope: true, enforcer: (c?.enforcer || '').toLowerCase() || undefined }
+    }
+  }
+  // 2. Enforcer allow-list + numeric terms (uint256)
+  for (const c of caveats) {
+    const enf = (c?.enforcer || '').toLowerCase()
+    if (NATIVE_ENFORCERS.has(enf)) {
+      let maxAmount: string | undefined
+      const terms = typeof c?.terms === 'string' ? c.terms : ''
+      if (/^0x[0-9a-fA-F]{64}$/.test(terms)) {
+        try { maxAmount = BigInt(terms).toString() } catch {}
+      }
+      return { hasNativeScope: true, maxAmount, enforcer: enf }
+    }
+  }
+  return { hasNativeScope: false }
+}
+
+async function sendUserOpWithOptionalPaymaster(params: any) {
+  // inject paymaster client only if enabled & rpc configured
+  const pmRpc = process.env.ZERO_DEV_PAYMASTER_RPC || process.env.PIMLICO_PAYMASTER_RPC
+  const pmSet = !!pmRpc
+  const wantPm = USE_PAYMASTER || parseUsePaymasterFlag(params?.usePaymasterOverride)
+  const willInject = wantPm && pmSet
+  if (!willInject && wantPm) {
+    console.log('[paymaster] skipped injection', {
+      rawEnv: RAW_USE_PAYMASTER,
+      wantPm,
+      pmSet,
+      reason: pmSet ? 'explicitly_disabled' : 'no_paymaster_rpc',
+    })
+  }
+  if (willInject) {
+    console.log('[paymaster] injecting sponsorship', {
+      sender: params?.account?.address,
+      calls: Array.isArray(params?.calls) ? params.calls.length : 0,
+      pmRpc: pmRpc ? 'set' : 'missing',
+    })
+  }
+  const augmented = {
+    ...params,
+    ...(willInject ? { paymaster: paymasterClient } : {}),
+  }
+  return bundlerClient.sendUserOperation(augmented)
 }
 // Simple request logger
 app.use((req, _res, next) => {
@@ -379,6 +458,35 @@ app.get('/api/delegations/:delegatorSA', async (req, res) => {
   }
 })
 
+// Debug: expose caveat scope detection & balances
+app.get('/api/delegations/scopes/:delegatorSA', async (req, res) => {
+  try {
+    const delegatorSA = (req.params.delegatorSA || '').toLowerCase()
+    if (!delegatorSA.startsWith('0x') || delegatorSA.length !== 42) return res.status(400).json({ ok: false, error: 'invalid_address' })
+    const dir = join(process.cwd(), 'data', 'delegations')
+    const valueFile = join(dir, `${delegatorSA}__value.json`)
+    if (!existsSync(valueFile)) return res.json({ ok: true, delegatorSA, hasValue: false })
+    let raw: any
+    try { raw = JSON.parse(readFileSync(valueFile, 'utf8')) } catch (e: any) { return res.status(500).json({ ok: false, error: 'parse_failed', detail: e?.message }) }
+    const caveats = raw?.signedDelegation?.delegation?.caveats || []
+    const detection = detectNativeValueScope(caveats)
+    let monBal = '0'
+    let wmonBal = '0'
+    try { monBal = (await publicClient.getBalance({ address: delegatorSA as Address })).toString() } catch {}
+    try {
+      wmonBal = (await publicClient.readContract({
+        address: WMON as Address,
+        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
+        functionName: 'balanceOf',
+        args: [delegatorSA as Address],
+      }) as bigint).toString()
+    } catch {}
+    return res.json({ ok: true, delegatorSA, hasValue: true, caveatCount: caveats.length, detection, balances: { mon: monBal, wmon: wmonBal }, caveats })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'scopes_failed' })
+  }
+})
+
 // Retrait MON natif amélioré:
 // 1) Si la value delegation possède le caveat nativeTokenTransferAmount => transfert direct du solde (ou partiel si amount) en un seul contexte.
 // 2) Sinon fallback historique: withdraw WMON via core + transfert natif via value (2 contextes).
@@ -397,12 +505,13 @@ app.post('/api/send-mon', async (req, res) => {
     const ownerEOA = core?.job?.ownerEOA as string | undefined
     if (!ownerEOA) return res.status(400).json({ error: 'ownerEOA_missing', stage: 'owner_eoa' })
 
-    // Détection scope natif: présence d'un caveat avec terms contenant 'nativeTokenTransferAmount'
-    let hasNativeScope = false
+    // Détection scope natif: via helper (legacy textual + enforcer allow-list heuristics)
+    let nativeDetect: DetectedNativeScope = { hasNativeScope: false }
     try {
       const caveats = valueDel?.signedDelegation?.delegation?.caveats || []
-      hasNativeScope = caveats.some((c: any) => typeof c?.terms === 'string' && c.terms.includes('nativeTokenTransferAmount'))
+      nativeDetect = detectNativeValueScope(caveats)
     } catch {}
+    const hasNativeScope = nativeDetect.hasNativeScope
 
     if (hasNativeScope) {
       // Chemin direct: un seul contexte (value) et une exécution value -> ownerEOA avec callData vide
@@ -427,7 +536,7 @@ app.post('/api/send-mon', async (req, res) => {
       const execGroups = [[{ target: ownerEOA as Address, value: wad, callData: '0x' as `0x${string}` }]]
       const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
       const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
-      const dmData = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
+  const dmData = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
       const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
       if (!pk) return res.status(500).json({ error: 'Missing DELEGATE_PRIVATE_KEY' })
       const eoa = privateKeyToAccount(pk)
@@ -443,13 +552,13 @@ app.post('/api/send-mon', async (req, res) => {
       let maxFeePerGas = await publicClient.getGasPrice().catch(() => 80n * 10n ** 9n)
       if (maxFeePerGas < 80n * 10n ** 9n) maxFeePerGas = 80n * 10n ** 9n
       const maxPriorityFeePerGas = maxFeePerGas / 2n
-      const uoHash = await bundlerClient.sendUserOperation({
+      const uoHash = await sendUserOpWithOptionalPaymaster({
         account: delegateSA,
         calls: [{ to: env.DelegationManager as Address, data: dmData }],
         maxFeePerGas,
         maxPriorityFeePerGas,
       })
-      return res.json({ ok: true, userOperationHash: uoHash, transferred: wad.toString(), mode: 'native-scope' })
+      return res.json({ ok: true, userOperationHash: uoHash, transferred: wad.toString(), mode: 'native-scope', detected: nativeDetect })
     }
 
     // Fallback historique (WMON withdraw + transfert) si pas de caveat natif
@@ -503,7 +612,7 @@ app.post('/api/send-mon', async (req, res) => {
     // permissionContexts ordre = context index correspondant
     const permissionContexts = [ctxArr[0], ctxArr[1]]
     const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
-    const dmData = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
+  const dmData = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
     const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
     if (!pk) return res.status(500).json({ error: 'Missing DELEGATE_PRIVATE_KEY' })
     const eoa = privateKeyToAccount(pk)
@@ -519,7 +628,7 @@ app.post('/api/send-mon', async (req, res) => {
     let maxFeePerGas = await publicClient.getGasPrice().catch(() => 80n * 10n ** 9n)
     if (maxFeePerGas < 80n * 10n ** 9n) maxFeePerGas = 80n * 10n ** 9n
     const maxPriorityFeePerGas = maxFeePerGas / 2n
-    const uoHash = await bundlerClient.sendUserOperation({
+    const uoHash = await sendUserOpWithOptionalPaymaster({
       account: delegateSA,
       calls: [{ to: env.DelegationManager as Address, data: dmData }],
       maxFeePerGas,
@@ -672,7 +781,7 @@ app.post('/api/unwrap', async (req, res) => {
       if (wad === 0n && bal > 0n) wad = bal // ensure non-zero if balance positive
     }
     if (wad === 0n) return res.status(400).json({ error: 'No WMON to unwrap' })
-    const callData = encodeFunctionData({
+  const callData = viemEncodeFunctionData({
       abi: [{ name: 'withdraw', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'wad', type: 'uint256' }], outputs: [] }] as any,
       functionName: 'withdraw',
       args: [wad],
@@ -689,11 +798,11 @@ app.post('/api/unwrap', async (req, res) => {
     const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
     const { calldatas, modes } = encodeExecutionCalldatasWithModes([exec])
     const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
-    const data = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
+  const data = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
     let maxFeePerGas: bigint = 80n * 10n ** 9n
     let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
     try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp/2n || 1n } } catch {}
-    const uoHash = await bundlerClient.sendUserOperation({
+    const uoHash = await sendUserOpWithOptionalPaymaster({
       account: sa,
       calls: [{ to: env.DelegationManager as Address, data }],
       maxFeePerGas,
@@ -780,12 +889,12 @@ app.post('/api/withdraw-native', async (req, res) => {
     const permissionContexts = execGroups.map(() => ctx)
     const { encodeFunctionData: encFD } = await import('viem')
     const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
-    const dmCalldata = encFD({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
+  const dmCalldata = encFD({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
     // Gas params basic
     let maxFeePerGas = await publicClient.getGasPrice().catch(() => 80n * 10n ** 9n)
     if (maxFeePerGas < 80n * 10n ** 9n) maxFeePerGas = 80n * 10n ** 9n
     const maxPriorityFeePerGas = maxFeePerGas / 2n
-    const uoHash = await bundlerClient.sendUserOperation({
+    const uoHash = await sendUserOpWithOptionalPaymaster({
       account: delegateSA,
       calls: [{ to: env.DelegationManager as any, data: dmCalldata }],
       maxFeePerGas,
@@ -794,6 +903,47 @@ app.post('/api/withdraw-native', async (req, res) => {
     return res.json({ ok: true, userOperationHash: uoHash, wad: String(wad) })
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'withdraw_native_failed' })
+  }
+})
+
+// Withdraw native MON from DELEGATE smart account (its own native balance) to its underlying EOA
+app.post('/api/delegate/withdraw-mon', async (_req, res) => {
+  try {
+    const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+    if (!pk) return res.status(500).json({ error: 'Missing DELEGATE_PRIVATE_KEY' })
+    const eoa = privateKeyToAccount(pk)
+    const env = getDeleGatorEnvironment(monadTestnet.id)
+    const delegateSA = await toMetaMaskSmartAccount({
+      client: publicClient,
+      implementation: Implementation.Hybrid,
+      deployParams: [eoa.address, [], [], []],
+      deploySalt: '0x',
+      signer: { account: eoa },
+      environment: env as any,
+    })
+    // Lire balance native du delegate SA
+    let bal = 0n
+    try { bal = await publicClient.getBalance({ address: delegateSA.address as Address }) } catch {}
+    if (bal === 0n) return res.status(400).json({ ok: false, error: 'no_mon_balance_delegate' })
+    // Construire exécution simple: delegateSA -> EOA value = full balance (sauf garder 0.0000001 MON ? on prend tout pour simplicité)
+    const value = bal
+    const execGroups = [[{ target: eoa.address as Address, value, callData: '0x' as `0x${string}` }]]
+    const { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } = await import('./encoding')
+    // Pas de délégation ici: le delegateSA est contrôlé directement par sa clé → on envoie un userOp direct (pas redeemDelegations)
+    // Donc on peut utiliser sendUserOpWithOptionalPaymaster directement avec calls = simple value transfer using account abstraction call batching
+    // viem AA client supporte calls value
+    let maxFeePerGas = await publicClient.getGasPrice().catch(() => 80n * 10n ** 9n)
+    if (maxFeePerGas < 80n * 10n ** 9n) maxFeePerGas = 80n * 10n ** 9n
+    const maxPriorityFeePerGas = maxFeePerGas / 2n
+    const uoHash = await sendUserOpWithOptionalPaymaster({
+      account: delegateSA,
+      calls: [{ to: eoa.address as Address, data: '0x', value }],
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+    })
+    return res.json({ ok: true, userOperationHash: uoHash, transferred: value.toString() })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'delegate_withdraw_failed' })
   }
 })
 
@@ -841,7 +991,7 @@ app.post('/api/flush', async (req, res) => {
         amt = BigInt(String(amount || 0))
       }
       // Use transferFrom(from=SA,to=EOA) since original delegation already allowed selector 23b872dd
-      const callData = encodeFunctionData({
+  const callData = viemEncodeFunctionData({
         abi: [ { name: 'transferFrom', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'from', type: 'address' }, { name: 'to', type: 'address' }, { name: 'value', type: 'uint256' } ], outputs: [ { name: '', type: 'bool' } ] } ] as any,
         functionName: 'transferFrom',
         args: [delegatorSA as Address, to as Address, amt],
@@ -865,12 +1015,12 @@ app.post('/api/flush', async (req, res) => {
         { name: '_executionCallDatas', type: 'bytes[]' },
       ], outputs: [] },
     ] as const
-    const data = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
+  const data = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
     // gas
     let maxFeePerGas: bigint = 80n * 10n ** 9n
     let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
     try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp/2n || 1n } } catch {}
-    const uoHash = await bundlerClient.sendUserOperation({
+    const uoHash = await sendUserOpWithOptionalPaymaster({
       account: sa,
       calls: [{ to: env.DelegationManager as Address, data }],
       maxFeePerGas,
@@ -1005,7 +1155,7 @@ app.post('/api/topup', async (req, res) => {
     try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp/2n || 1n } } catch {}
   console.log('[topup] exec sequence', seq.map((s,i)=>({i,target:s.target,hasData:s.callData!== '0x', selector: s.callData?.slice(0,10)})))
   console.log('[topup] diagnostics', { owner: ownerAddr, ownerBal: ownerBal.toString(), toPull: toPull.toString(), steps: seq.length })
-  const uoHash = await bundlerClient.sendUserOperation({
+  const uoHash = await sendUserOpWithOptionalPaymaster({
       account: sa,
       calls: [{ to: env.DelegationManager as Address, data }],
       maxFeePerGas,
@@ -1062,11 +1212,11 @@ app.post('/api/wrap', async (req, res) => {
     const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
     const { calldatas, modes } = encodeExecutionCalldatasWithModes([exec])
     const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
-    const data = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
+  const data = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
     let maxFeePerGas: bigint = 80n * 10n ** 9n
     let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
     try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp/2n || 1n } } catch {}
-    const uoHash = await bundlerClient.sendUserOperation({
+    const uoHash = await sendUserOpWithOptionalPaymaster({
       account: sa,
       calls: [{ to: env.DelegationManager as Address, data }],
       maxFeePerGas,
@@ -1135,8 +1285,70 @@ app.get('/api/delegations', async (_req, res) => {
     return res.status(500).json({ ok: false, error: e?.message || 'list failed' })
   }
 })
+  // -------- Paymaster status & test endpoints (added) --------
+  const ENTRY_POINT_ABI_MIN = [
+    { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] },
+  ] as const
 
-// Fallback 404 handler (always JSON)
+  app.get('/api/paymaster/status', async (_req, res) => {
+    try {
+      const pmRpc = process.env.ZERO_DEV_PAYMASTER_RPC || process.env.PIMLICO_PAYMASTER_RPC || null
+      const configured = !!pmRpc
+      const useFlag = USE_PAYMASTER
+      let entryPointBalance: string | null = null
+      const pmAddress = process.env.PAYMASTER_ADDRESS // optional (verifying paymaster contract address)
+      if (pmAddress && pmAddress.startsWith('0x') && pmAddress.length === 42) {
+        try {
+          const bal = await publicClient.readContract({
+            address: ENTRY_POINT_V07,
+            abi: ENTRY_POINT_ABI_MIN as any,
+            functionName: 'balanceOf',
+            args: [pmAddress as Address],
+          }) as bigint
+          entryPointBalance = bal.toString()
+        } catch (e: any) {
+          entryPointBalance = 'error:' + (e?.message || 'failed')
+        }
+      }
+  return res.json({ ok: true, configured, useFlag, rawUseFlag: RAW_USE_PAYMASTER ?? null, pmRpc: configured ? 'set' : 'missing', pmAddress: pmAddress || null, entryPointBalance })
+    } catch (e: any) {
+      return res.status(500).json({ ok: false, error: e?.message || 'status_failed' })
+    }
+  })
+
+  app.post('/api/paymaster/test', async (_req, res) => {
+    try {
+      const pmRpc = process.env.ZERO_DEV_PAYMASTER_RPC || process.env.PIMLICO_PAYMASTER_RPC
+      if (!pmRpc) return res.status(400).json({ ok: false, error: 'paymaster_rpc_missing' })
+      if (!USE_PAYMASTER) return res.status(400).json({ ok: false, error: 'use_paymaster_false' })
+      const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+      if (!pk) return res.status(500).json({ ok: false, error: 'missing_delegate_key' })
+      const eoa = privateKeyToAccount(pk)
+      const env = getDeleGatorEnvironment(monadTestnet.id)
+      const delegateSA = await toMetaMaskSmartAccount({
+        client: publicClient,
+        implementation: Implementation.Hybrid,
+        deployParams: [eoa.address, [], [], []],
+        deploySalt: '0x',
+        signer: { account: eoa },
+        environment: env as any,
+      })
+      let maxFeePerGas = await publicClient.getGasPrice().catch(() => 80n * 10n ** 9n)
+      if (maxFeePerGas < 80n * 10n ** 9n) maxFeePerGas = 80n * 10n ** 9n
+      const maxPriorityFeePerGas = maxFeePerGas / 2n
+      const uoHash = await sendUserOpWithOptionalPaymaster({
+        account: delegateSA,
+        calls: [{ to: delegateSA.address as Address, data: '0x' }],
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+      })
+      return res.json({ ok: true, userOperationHash: uoHash, paymaster: true })
+    } catch (e: any) {
+      return res.status(500).json({ ok: false, error: e?.message || 'test_failed' })
+    }
+  })
+
+// Fallback 404 handler (always JSON) - keep LAST before error handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found', path: req.path })
 })
@@ -1156,6 +1368,6 @@ export function startServer(port = Number(process.env.PORT || 8787)) {
     console.log(`[boot] RPC_URL=${process.env.RPC_URL}`)
     console.log(`[boot] BUNDLER=${process.env.ZERO_DEV_BUNDLER_RPC ? 'set' : 'missing'}`)
     console.log(`[boot] PAYMASTER=${process.env.ZERO_DEV_PAYMASTER_RPC ? 'set' : 'missing'}`)
-  console.log('[boot] endpoints ready: /api/topup /api/wrap /api/unwrap /api/delegations /api/diag /api/status /api/version /api/routes')
+    console.log('[boot] endpoints ready: /api/topup /api/wrap /api/unwrap /api/delegations /api/diag /api/status /api/version /api/routes /api/paymaster/status /api/paymaster/test')
   })
 }

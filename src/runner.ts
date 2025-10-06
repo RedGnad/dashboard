@@ -4,6 +4,9 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { Implementation, toMetaMaskSmartAccount, ExecutionMode, getDeleGatorEnvironment } from '@metamask/delegation-toolkit'
 import { DelegationManager } from '@metamask/delegation-toolkit/contracts'
 import { publicClient, bundlerClient, paymasterClient, monadTestnet } from './clients'
+import { Address as AddressType } from 'viem'
+// Reuse helper from server for consistent paymaster injection (light duplicate parse to avoid circular import)
+function parseUsePaymasterFlag(v?: string): boolean { return !!v && ['true','1','yes','on','enabled'].includes(v.toLowerCase()) }
 import { buildExecutions } from './dca'
 import { USDC, UNISWAP_V2_ROUTER02, WMON } from './constants'
 import { readFileSync } from 'node:fs'
@@ -326,12 +329,25 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
   if (maxFeePerGas < MIN_GAS) maxFeePerGas = MIN_GAS
   if (maxPriorityFeePerGas === 0n) maxPriorityFeePerGas = maxFeePerGas / 2n
   // Default paymaster OFF to avoid external policy reverts during debugging; can be enabled via env or job.usePaymaster
-  let usePm = (process.env.USE_PAYMASTER ?? 'false').toLowerCase() === 'true'
-  if (typeof json.job?.usePaymaster === 'boolean') usePm = json.job.usePaymaster
+  let usePm = parseUsePaymasterFlag(process.env.USE_PAYMASTER)
+  const jobFlagPresent = typeof json.job?.usePaymaster === 'boolean'
+  if (jobFlagPresent) usePm = json.job.usePaymaster
+  const forceOverride = parseUsePaymasterFlag(process.env.FORCE_USE_PAYMASTER)
+  if (forceOverride) {
+    usePm = true
+  } else if (!jobFlagPresent && usePm) {
+    // env true, no per-job flag: already true
+  } else if (usePm === false && parseUsePaymasterFlag(process.env.USE_PAYMASTER) && process.env.OVERRIDE_JOB_PAYMASTER === '1') {
+    // allow optional override when job explicitly set false but we want global
+    console.log('[runner] overriding job.usePaymaster=false due to OVERRIDE_JOB_PAYMASTER=1')
+    usePm = true
+  }
   console.log('[runner] sending userOp', {
     bundlerSet: !!process.env.ZERO_DEV_BUNDLER_RPC,
     paymasterSet: !!process.env.ZERO_DEV_PAYMASTER_RPC,
-    usePm,
+  usePm,
+  jobFlagPresent,
+  forceOverride,
     delegateSA: delegateSA.address,
     dm: env.DelegationManager,
   maxFeePerGas: String(maxFeePerGas),
@@ -339,12 +355,19 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
   })
   let uoHash: `0x${string}`
   try {
+    if (usePm && !(process.env.ZERO_DEV_PAYMASTER_RPC || process.env.PIMLICO_PAYMASTER_RPC)) {
+      console.warn('[runner] paymaster wanted but no PAYMASTER RPC set, proceeding unsponsored')
+    }
+    const willInject = usePm && (process.env.ZERO_DEV_PAYMASTER_RPC || process.env.PIMLICO_PAYMASTER_RPC)
+    if (willInject) {
+      console.log('[runner] injecting paymaster for DCA op')
+    }
     uoHash = await bundlerClient.sendUserOperation({
       account: delegateSA,
-  calls: [{ to: env.DelegationManager as Address, data: calldata }],
+      calls: [{ to: env.DelegationManager as Address, data: calldata }],
       maxFeePerGas,
       maxPriorityFeePerGas,
-      ...(usePm ? { paymaster: paymasterClient } : {}),
+      ...(willInject ? { paymaster: paymasterClient } : {}),
     })
     console.log('[runner] userOp sent', { userOperationHash: uoHash })
     // Persist job counters and flags on success
