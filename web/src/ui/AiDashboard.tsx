@@ -1,4 +1,160 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import ProofPackPanel from "./ProofPackPanel";
+// HyperIndex panel component (Phase 1 integration)
+const HyperIndexPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
+  const [head, setHead] = useState<any>(null);
+  const [meta, setMeta] = useState<any>(null);
+  const [rehashOk, setRehashOk] = useState<boolean | null>(null);
+  const [rehashError, setRehashError] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    try {
+      setLoading(true);
+      const feat = await fetch(`${apiBase}/api/hyperindex/features/head`)
+        .then((r) => r.json())
+        .catch(() => ({}));
+      const metaR = await fetch(`${apiBase}/api/hyperindex/_meta`)
+        .then((r) => r.json())
+        .catch(() => ({}));
+      if (feat?.ok) setHead(feat.features || null);
+      if (metaR?.ok) setMeta(metaR);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function verifyRehash() {
+    if (!head) {
+      setRehashOk(null);
+      return;
+    }
+    try {
+      setRehashError("");
+      const serLines: string[] = [];
+      serLines.push(`schemaVersion=${head.schemaVersion}`);
+      serLines.push(`asOfTs=${head.asOfTs}`);
+      for (const w of head.windowSpecs || [])
+        serLines.push(`window:${w.label}:${w.fromTs}:${w.toTs}`);
+      const metricKeys = Object.keys(head.metrics || {}).sort();
+      for (const k of metricKeys)
+        serLines.push(
+          `m:${k}=${
+            head.metrics[k] === null || head.metrics[k] === undefined
+              ? "null"
+              : String(head.metrics[k])
+          }`
+        );
+      // lightweight keccak via dynamic import (js-sha3)
+      let kf: any;
+      try {
+        kf = (await import("js-sha3")).keccak256;
+      } catch {}
+      if (!kf) {
+        setRehashError("js-sha3 non disponible");
+        setRehashOk(false);
+        return;
+      }
+      const localHash = "0x" + kf(serLines.join("\n"));
+      setRehashOk(
+        String(localHash).toLowerCase() ===
+          String(head.featureHash).toLowerCase()
+      );
+    } catch (e: any) {
+      setRehashError(e?.message || "rehash_failed");
+      setRehashOk(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        border: "1px solid #ddd",
+        borderRadius: 8,
+        padding: 10,
+        background: "#fafefe",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            color: "#555",
+          }}
+        >
+          HyperIndex Snapshot
+        </div>
+        <button onClick={load} disabled={loading} style={{ fontSize: 11 }}>
+          {loading ? "…" : "Refresh"}
+        </button>
+      </div>
+      {!head && (
+        <div style={{ marginTop: 6, fontSize: 11, color: "#666" }}>
+          Aucune feature (ingestion vide).
+        </div>
+      )}
+      {head && (
+        <div style={{ marginTop: 6 }}>
+          <div style={{ fontSize: 11 }}>
+            featureHash: <code>{String(head.featureHash).slice(0, 22)}…</code>
+          </div>
+          <div
+            style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}
+          >
+            {Object.keys(head.metrics || {})
+              .slice(0, 10)
+              .map((k) => (
+                <div
+                  key={k}
+                  style={{
+                    fontSize: 10,
+                    background: "#1d1d1d",
+                    color: "#fff",
+                    padding: "3px 5px",
+                    borderRadius: 4,
+                  }}
+                >
+                  {k}:{String(head.metrics[k])}
+                </div>
+              ))}
+          </div>
+          <button onClick={verifyRehash} style={{ marginTop: 8, fontSize: 11 }}>
+            Re-hash local
+          </button>
+          {rehashOk !== null && (
+            <div
+              style={{
+                fontSize: 11,
+                marginTop: 4,
+                color: rehashOk ? "#0a5" : "#c22",
+              }}
+            >
+              Rehash {rehashOk ? "OK (match)" : "Mismatch"}{" "}
+              {rehashError && " - " + rehashError}
+            </div>
+          )}
+        </div>
+      )}
+      {meta && meta.eventsProcessed !== undefined && (
+        <div style={{ marginTop: 8, fontSize: 11, color: "#444" }}>
+          Events: {meta.eventsProcessed} • Types:{" "}
+          {meta.types && Object.keys(meta.types).length}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface LatestDecisionResponse {
   ok: boolean;
@@ -58,6 +214,20 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
   const [streamLines, setStreamLines] = useState<StreamLine[]>([]);
   const [connected, setConnected] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  const [replayStatus, setReplayStatus] = useState<null | {
+    mode: string;
+    pass: boolean;
+    at: number;
+    rollingHash?: string;
+  }>(null);
+  const [replayLoading, setReplayLoading] = useState(false);
+  const [anchorStatus, setAnchorStatus] = useState<null | {
+    ts: number;
+    rollingHash: string;
+  }>(null);
+  const [exportBlobUrl, setExportBlobUrl] = useState<string | null>(null);
+  const [guardrailHead, setGuardrailHead] = useState<any>(null);
+  const [guardrailLoadAt, setGuardrailLoadAt] = useState<number>(0);
   const esRef = useRef<EventSource | null>(null);
   const pollRef = useRef<number | null>(null);
 
@@ -69,6 +239,16 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
         const res = await fetch(base + "/api/strategy/decision/latest");
         const js: LatestDecisionResponse = await res.json();
         if (!cancelled) setLatest(js);
+        // Load guardrails head (stagger every fetch)
+        try {
+          const gh = await fetch(base + "/api/strategy/guardrails/head")
+            .then((r) => r.json())
+            .catch(() => null);
+          if (!cancelled && gh?.ok) {
+            setGuardrailHead(gh);
+            setGuardrailLoadAt(Date.now());
+          }
+        } catch {}
       } catch (e: any) {
         if (!cancelled)
           setErrors((p) => [...p, e?.message || "latest_fetch_error"]);
@@ -129,6 +309,62 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
   const verificationPass = latest?.verification?.pass;
   const decision = latest?.decision as any;
 
+  async function triggerReplay(mode: string) {
+    if (replayLoading) return;
+    setReplayLoading(true);
+    try {
+      const q = new URL(base + "/api/strategy/decision/replay");
+      q.searchParams.set("mode", mode);
+      const res = await fetch(q.toString());
+      const js = await res.json();
+      if (!js.ok) throw new Error(js.error || "replay_failed");
+      setReplayStatus({
+        mode,
+        pass: !!js.pass,
+        at: Date.now(),
+        rollingHash: js.rollingHash,
+      });
+    } catch (e: any) {
+      setErrors((p) => [...p, e?.message || "replay_error"]);
+    } finally {
+      setReplayLoading(false);
+    }
+  }
+
+  async function triggerAnchor() {
+    try {
+      const res = await fetch(base + "/api/audit/anchor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: "dashboard" }),
+      });
+      const js = await res.json();
+      if (!js.ok) throw new Error(js.error || "anchor_failed");
+      setAnchorStatus({
+        ts: js.anchored.ts,
+        rollingHash: js.anchored.rollingHash,
+      });
+    } catch (e: any) {
+      setErrors((p) => [...p, e?.message || "anchor_error"]);
+    }
+  }
+
+  async function exportSnapshot() {
+    try {
+      const res = await fetch(base + "/api/strategy/decision/export/latest");
+      if (!res.ok) throw new Error("export_http_" + res.status);
+      const text = await res.text();
+      const blob = new Blob([text], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      setExportBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+    } catch (e: any) {
+      setErrors((p) => [...p, e?.message || "export_error"]);
+    }
+  }
+
   return (
     <div
       style={{
@@ -161,6 +397,82 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
           gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
         }}
       >
+        <div
+          style={{
+            border: "1px solid #ddd",
+            borderRadius: 8,
+            padding: 10,
+            background: "#fafefe",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              color: "#555",
+            }}
+          >
+            Replay (Determinism)
+          </div>
+          <div
+            style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}
+          >
+            <button
+              disabled={replayLoading}
+              onClick={() => triggerReplay("strict")}
+            >
+              {replayLoading ? "…" : "Strict"}
+            </button>
+            <button
+              disabled={replayLoading}
+              onClick={() => triggerReplay("strict-snapshot")}
+            >
+              {replayLoading ? "…" : "Strict Snapshot"}
+            </button>
+            <button
+              disabled={replayLoading}
+              onClick={() => triggerReplay("basic")}
+            >
+              {replayLoading ? "…" : "Basic"}
+            </button>
+          </div>
+          {replayStatus && (
+            <div style={{ marginTop: 8, fontSize: 11 }}>
+              <strong>{replayStatus.mode}</strong>: {badge(replayStatus.pass)}
+              <div style={{ color: "#555" }}>
+                à {new Date(replayStatus.at).toLocaleTimeString()} (rh:{" "}
+                {replayStatus.rollingHash?.slice(0, 10)}…)
+              </div>
+            </div>
+          )}
+          {!replayStatus && (
+            <div style={{ marginTop: 8, fontSize: 11, color: "#666" }}>
+              Lancez un replay strict pour prouver la reproductibilité.
+            </div>
+          )}
+          <div
+            style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}
+          >
+            <button onClick={triggerAnchor}>Anchor now</button>
+            <button onClick={exportSnapshot}>Export snapshot</button>
+            {exportBlobUrl && (
+              <a
+                href={exportBlobUrl}
+                download="decision-snapshot.json"
+                style={{ fontSize: 11, textDecoration: "underline" }}
+              >
+                Download
+              </a>
+            )}
+          </div>
+          {anchorStatus && (
+            <div style={{ marginTop: 6, fontSize: 10, color: "#044" }}>
+              Anchored {new Date(anchorStatus.ts).toLocaleTimeString()} (rh{" "}
+              {anchorStatus.rollingHash.slice(0, 12)}…)
+            </div>
+          )}
+        </div>
         <div
           style={{
             border: "1px solid #ddd",
@@ -290,6 +602,73 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
               color: "#555",
             }}
           >
+            Guardrails
+          </div>
+          {guardrailHead ? (
+            <div style={{ marginTop: 4, fontSize: 11 }}>
+              <div>
+                Status:{" "}
+                {guardrailHead.evaluation?.blocked ? (
+                  <span style={{ color: "#b00" }}>BLOCKED</span>
+                ) : (
+                  <span style={{ color: "#090" }}>clear</span>
+                )}
+              </div>
+              {guardrailHead.evaluation?.reason && (
+                <div>
+                  Reason: <code>{guardrailHead.evaluation.reason}</code>
+                </div>
+              )}
+              {guardrailHead.evaluation?.warnings?.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  Warnings:
+                  <ul style={{ margin: 0, paddingLeft: 16 }}>
+                    {guardrailHead.evaluation.warnings
+                      .slice(0, 6)
+                      .map((w: string) => (
+                        <li key={w}>{w}</li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+              <div style={{ marginTop: 4, color: "#555" }}>
+                FeatureAge:{" "}
+                {guardrailHead.evaluation?.info?.featureAgeMs != null
+                  ? Math.round(
+                      guardrailHead.evaluation.info.featureAgeMs / 1000
+                    ) + "s"
+                  : "—"}
+              </div>
+              <div style={{ marginTop: 2, color: "#555" }}>
+                Vol Drift:{" "}
+                {guardrailHead.evaluation?.info?.volatilityDrift != null
+                  ? guardrailHead.evaluation.info.volatilityDrift.toFixed(3)
+                  : "—"}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 10 }}>
+                Updated {new Date(guardrailLoadAt).toLocaleTimeString()}
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 4, fontSize: 11 }}>Loading…</div>
+          )}
+        </div>
+        <div
+          style={{
+            border: "1px solid #ddd",
+            borderRadius: 8,
+            padding: 10,
+            background: "#fafefe",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              color: "#555",
+            }}
+          >
             Recent Stream (last 50)
           </div>
           <div
@@ -317,6 +696,8 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
             {!streamLines.length && <div>Waiting…</div>}
           </div>
         </div>
+        <HyperIndexPanel apiBase={base} />
+        <ProofPackPanel apiBase={base} />
       </div>
       {!!errors.length && (
         <div style={{ marginTop: 10, fontSize: 11, color: "#b00" }}>
