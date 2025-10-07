@@ -16,6 +16,8 @@ type AiDecisionEntry = {
   strategyEngineVersion?: string;
   rollingHash?: string;
   prevEntryHash?: string;
+  featureHash?: string;
+  featureSchemaVersion?: number | null;
 };
 
 interface HistoryResponse {
@@ -215,6 +217,11 @@ export const AiConsole: React.FC<{ apiBase?: string; auto?: boolean }> = ({
               >
                 Rolling Hash
               </th>
+              <th
+                style={{ padding: "4px 6px", borderBottom: "1px solid #ddd" }}
+              >
+                Feature Hash
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -252,12 +259,23 @@ export const AiConsole: React.FC<{ apiBase?: string; auto?: boolean }> = ({
                 >
                   {e.rollingHash?.slice(0, 18)}…
                 </td>
+                <td
+                  style={{
+                    padding: "3px 6px",
+                    fontFamily: "monospace",
+                    maxWidth: 130,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {e.featureHash ? e.featureHash.slice(0, 18) + "…" : "—"}
+                </td>
               </tr>
             ))}
             {!entries.length && !loading && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   style={{ padding: 8, textAlign: "center", color: "#666" }}
                 >
                   Aucune décision encore
@@ -268,8 +286,8 @@ export const AiConsole: React.FC<{ apiBase?: string; auto?: boolean }> = ({
         </table>
       </div>
       <div style={{ marginTop: 8, fontSize: 11, color: "#777" }}>
-        Auto-refresh 15s • Données source: /api/strategy/history • Intégrité via
-        rollingHash
+        Auto-refresh 15s • Source: /api/strategy/history • Hashs: rationale &
+        features pour traçabilité
       </div>
     </div>
   );

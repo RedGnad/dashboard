@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { keccak256 } from 'viem'
 
-export type AuditAction = 'build' | 'submit' | 'execute' | 'verify' | 'userop_settled'
+export type AuditAction = 'build' | 'submit' | 'execute' | 'verify' | 'userop_settled' | 'ai_decision'
 
 export interface DelegationAuditEntryV1 {
   schemaVersion: 1
@@ -31,6 +31,30 @@ export interface DelegationAuditEntryV1 {
   // --- Integrity chain fields (appended Phase7) ---
   prevEntryHash?: string    // keccak256(JSON string of previous full line w/ chain fields) or '0x' for first
   rollingHash?: string      // if first line: lineHash. else keccak256(prevRollingHash || lineHash) (see implementation)
+  // --- AI / Strategy enrichment (optional) ---
+  aiRationaleHash?: string
+  aiRiskScore?: number
+  aiConfidence?: number
+  strategyEngineVersion?: string
+  aiActionType?: string
+  // Feature hashing (strategy context fingerprint)
+  featureHash?: string
+  featureSchemaVersion?: number
+  // Link an execution back to its originating ai_decision (rollingHash of the decision line)
+  decisionRollingHash?: string
+  // Explicit guardrail reason when an execution is blocked (instead of inferring from warnings)
+  guardrailReason?: string
+  // Deterministic model provenance
+  modelHash?: string
+  inferenceProvider?: string
+  // Canonical serialized features (pre-hash) and pared-down inference subset for replay
+  featuresCanonical?: string
+  inferenceFeatures?: Record<string, any>
+  featureHashV2?: string
+  rawScore?: number
+  logitZ?: number
+  mappingVersion?: string
+  weightsUsedHash?: string
 }
 
 const DIR = join(process.cwd(), 'data', 'delegations')
@@ -77,6 +101,25 @@ export function buildAuditEntry(base: Partial<DelegationAuditEntryV1>): Delegati
     // Chain fields filled later in appendAudit
     prevEntryHash: base.prevEntryHash,
     rollingHash: base.rollingHash,
+    // AI optional fields (pass-through if provided)
+    aiRationaleHash: base.aiRationaleHash,
+    aiRiskScore: base.aiRiskScore,
+    aiConfidence: base.aiConfidence,
+    strategyEngineVersion: base.strategyEngineVersion,
+    aiActionType: base.aiActionType,
+    featureHash: base.featureHash,
+    featureSchemaVersion: base.featureSchemaVersion,
+    decisionRollingHash: base.decisionRollingHash,
+    guardrailReason: base.guardrailReason,
+    modelHash: base.modelHash,
+    inferenceProvider: base.inferenceProvider,
+    featuresCanonical: base.featuresCanonical,
+    inferenceFeatures: base.inferenceFeatures,
+    featureHashV2: base.featureHashV2,
+    rawScore: base.rawScore,
+    logitZ: base.logitZ,
+    mappingVersion: base.mappingVersion,
+    weightsUsedHash: base.weightsUsedHash,
   }
 }
 
@@ -119,7 +162,38 @@ export function appendAudit(entry: Partial<DelegationAuditEntryV1>) {
     const interimStr = JSON.stringify(interim)
     const lineHash = keccak256(stringToHexSafe(interimStr))
     const rollingHash = (!_lastRollingHash || _lastRollingHash === '0x') ? lineHash : keccak256(concatHex(_lastRollingHash, lineHash))
-    const finalObj = { ...interim, rollingHash }
+  // Preserve AI fields if present on base (interim already has them if provided in entry)
+  const finalObj: any = { ...interim, rollingHash }
+  if (base.aiRationaleHash !== undefined) finalObj.aiRationaleHash = base.aiRationaleHash
+  if (base.aiRiskScore !== undefined) finalObj.aiRiskScore = base.aiRiskScore
+  if (base.aiConfidence !== undefined) finalObj.aiConfidence = base.aiConfidence
+  if (base.strategyEngineVersion !== undefined) finalObj.strategyEngineVersion = base.strategyEngineVersion
+  if (base.aiActionType !== undefined) finalObj.aiActionType = base.aiActionType
+  if (base.featureHash !== undefined) finalObj.featureHash = base.featureHash
+  if (base.featureSchemaVersion !== undefined) finalObj.featureSchemaVersion = base.featureSchemaVersion
+  if (base.decisionRollingHash !== undefined) finalObj.decisionRollingHash = base.decisionRollingHash
+  if (base.guardrailReason !== undefined) finalObj.guardrailReason = base.guardrailReason
+  if (base.modelHash !== undefined) finalObj.modelHash = base.modelHash
+  if (base.inferenceProvider !== undefined) finalObj.inferenceProvider = base.inferenceProvider
+  if (base.featuresCanonical !== undefined) finalObj.featuresCanonical = base.featuresCanonical
+  if (base.inferenceFeatures !== undefined) finalObj.inferenceFeatures = base.inferenceFeatures
+  if (base.featureHashV2 !== undefined) finalObj.featureHashV2 = base.featureHashV2
+  if (base.rawScore !== undefined) finalObj.rawScore = base.rawScore
+  if (base.logitZ !== undefined) finalObj.logitZ = base.logitZ
+  if (base.mappingVersion !== undefined) finalObj.mappingVersion = base.mappingVersion
+  if (base.weightsUsedHash !== undefined) finalObj.weightsUsedHash = base.weightsUsedHash
+    try {
+      // Debug one-line log (avoid huge noise): show action + presence of AI fields
+      const dbg = {
+        action: finalObj.action,
+        aiRationaleHash: !!finalObj.aiRationaleHash,
+        aiRiskScore: finalObj.aiRiskScore,
+        aiConfidence: finalObj.aiConfidence,
+        aiActionType: finalObj.aiActionType,
+        strategyEngineVersion: finalObj.strategyEngineVersion,
+      }
+      console.log('[audit-append]', dbg)
+    } catch {}
     appendFileSync(FILE, JSON.stringify(finalObj) + '\n')
     // Update caches
     _lastLineRaw = JSON.stringify(finalObj)

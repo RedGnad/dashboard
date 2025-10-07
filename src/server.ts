@@ -19,9 +19,12 @@ import { computeDelegationHashes, computeWarnings } from './hashing'
 import { computeCanonicalDelegationHashes, typehashes } from './eip712'
 import { appendAudit, hasStructHash, readAuditTail, newRunId, readAuditStream, auditStatus } from './audit'
 import { computeDelegatorCoverage, computeGlobalCoverage } from './coverage'
+import { strategyEngine, hashRationale } from './strategy/engine'
+import { computeCoreFeatures } from './features'
 import { startUserOpResolver } from './userop-resolver'
 import { Address, encodeFunctionData as viemEncodeFunctionData } from 'viem'
 import { readRunHistory, summarizeRunHistory } from './utils/history'
+import { loadGuardrails } from './guardrails'
 // --- Simple in-memory auth (personal_sign) state ---
 // NOTE: Nonces & sessions are ephemeral (reset on server restart). Adequate for gating UI today.
 // Future hardening: persist sessions, add rate limits, bind to user agent.
@@ -292,6 +295,373 @@ app.get('/api/delegations/coverage', (_req, res) => {
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e?.message || 'coverage_global_failed' })
   }
+})
+// Strategy preview (stub AI). Query params optional: delegator=0x..., volatility=0.42
+app.get('/api/strategy/preview', async (req, res) => {
+  try {
+    const delegator = String(req.query.delegator || '0x').toLowerCase()
+    const volatility = Number(req.query.volatility ?? 0.35)
+    console.log('[strategy] preview request', { delegator, volatility })
+    const ctx = {
+      timestamp: Date.now(),
+      delegator,
+      balances: {},
+      targets: [ { symbol: 'WMON', weightBps: 5000 } ],
+      prices: { USDC: '1', WMON: '0' },
+      recentExecutions: [],
+      riskParams: { maxSlippageBps: 80, maxSingleUsd: 100 },
+      marketVolatilityScore: Number.isFinite(volatility) ? Math.min(Math.max(volatility,0), 2) : 0.35,
+    }
+    const feat = computeCoreFeatures(delegator)
+  // Placeholder price snapshot (to later replace with oracle real value); ensures future volatility possible
+  const snapshotPrice = 1
+  const decision = await strategyEngine.decide(ctx as any)
+  const meta = decision.meta || {}
+    const aiRationaleHash = hashRationale(decision.rationale)
+  const featureHash = feat.featureHash
+  const featureHashV2 = feat.featureHashV2
+    // Build canonical features serialization identical to featureHash input (minus variable asOfTs if needed)
+    const canonicalParts: string[] = []
+    canonicalParts.push(`v=${feat.schemaVersion}`)
+    canonicalParts.push(`ts=${feat.asOfTs}`)
+    for (const k of feat.order) {
+      const v = (feat.features as any)[k]
+      canonicalParts.push(`${k}=${v === null || v === undefined ? 'null' : v}`)
+    }
+    const featuresCanonical = canonicalParts.join('\n')
+    // Inference subset (only features actually used by the model today)
+    const inferenceFeatures = {
+      allocationDeviation: feat.features.allocationDeviation ?? 0,
+      executionsLast24h: feat.features.executionsLast24h ?? 0,
+      volatilitySimple: feat.features.volatilitySimple ?? 0,
+    }
+    appendAudit({
+      action: 'ai_decision',
+      ts: ctx.timestamp,
+      delegator: delegator,
+      delegate: '0x',
+      role: 'ai',
+      structHash: '0x',
+      digest: '0x',
+      domainSeparator: '0x',
+      caveatsRoot: '0x',
+      salt: '0x',
+      warnings: [],
+      signatureModel: 'UNKNOWN',
+      aiRationaleHash,
+      aiRiskScore: decision.riskScore,
+      aiConfidence: decision.confidence,
+      strategyEngineVersion: strategyEngine.version(),
+      aiActionType: decision.actionType,
+      featureHash,
+      featureHashV2,
+      featureSchemaVersion: feat.schemaVersion,
+      modelHash: meta.modelHash,
+      inferenceProvider: meta.inferenceProvider,
+      featuresCanonical,
+      inferenceFeatures,
+      rawScore: meta.rawScore,
+      logitZ: meta.logitZ,
+      mappingVersion: meta.mappingVersion,
+      weightsUsedHash: meta.weightsUsedHash,
+    })
+    console.log('[strategy] decision', { actionType: decision.actionType, risk: decision.riskScore, hash: aiRationaleHash, featureHash })
+  return res.json({
+    ok: true,
+    decision,
+    aiRationaleHash,
+    version: strategyEngine.version(),
+    featureHash,
+    featureHashV2,
+    features: feat,
+    provenance: {
+      modelHash: meta.modelHash,
+      inferenceProvider: meta.inferenceProvider,
+      rawScore: meta.rawScore,
+      logitZ: meta.logitZ,
+      mappingVersion: meta.mappingVersion,
+      weightsUsedHash: meta.weightsUsedHash,
+      featureSchemaVersion: feat.schemaVersion,
+      featuresCanonical,
+      inferenceFeatures,
+    },
+  })
+  } catch (e: any) {
+    console.error('[strategy] preview failed', e)
+    return res.status(500).json({ ok: false, error: e?.message || 'strategy_preview_failed' })
+  }
+})
+
+// Latest AI decision with verification summary
+app.get('/api/strategy/decision/latest', (req, res) => {
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    if (!fs.existsSync(file)) return res.json({ ok: true, empty: true, decision: null })
+    const raw = fs.readFileSync(file, 'utf8').trim()
+    if (!raw) return res.json({ ok: true, empty: true, decision: null })
+    const lines = raw.split('\n')
+    let decision: any = null
+    // Walk backwards to find last ai_decision
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i]
+      if (!l) continue
+      try {
+        const j = JSON.parse(l)
+        if (j.action === 'ai_decision') { decision = j; break }
+      } catch {}
+    }
+    if (!decision) return res.json({ ok: true, empty: true, decision: null })
+    // Build verification summary
+    const verif: Record<string, { expected: any; actual: any; pass: boolean }> = {}
+    function add(label: string, expected: any, actual: any) {
+      verif[label] = { expected, actual, pass: expected === actual }
+    }
+    // Re-hash featuresCanonical if present
+    if (decision.featuresCanonical) {
+      try {
+        const enc = new TextEncoder().encode(decision.featuresCanonical)
+        let hex = '0x'; for (const b of enc) hex += b.toString(16).padStart(2,'0')
+        const { keccak256 } = require('viem') as typeof import('viem')
+        const fh = keccak256(hex)
+        add('featureHash', decision.featureHash, fh)
+        if (decision.featureHashV2) {
+          const lines = decision.featuresCanonical.split('\n')
+          const tsFiltered = lines.filter((l: string) => !l.startsWith('ts=')).join('\n')
+          const enc2 = new TextEncoder().encode(tsFiltered)
+            let hex2='0x'; for (const b of enc2) hex2+=b.toString(16).padStart(2,'0')
+          const fh2 = keccak256(hex2)
+          add('featureHashV2', decision.featureHashV2, fh2)
+        }
+      } catch {}
+    }
+    // Model hash check (best effort)
+    try {
+      const modelPath = path.join(process.cwd(), 'strategy-model.json')
+      if (fs.existsSync(modelPath)) {
+        const { loadModel } = require('./strategy/model') as typeof import('./strategy/model')
+        const model = loadModel()
+        add('modelHash', decision.modelHash, model.modelHash)
+      }
+    } catch {}
+    // Presence checks
+    add('rawScore(present)', true, decision.rawScore !== undefined)
+    add('mappingVersion(present)', true, decision.mappingVersion !== undefined)
+    add('weightsUsedHash(present)', true, decision.weightsUsedHash !== undefined)
+    const allPass = Object.values(verif).every(v => v.pass)
+    return res.json({ ok: true, decision, verification: { pass: allPass, checks: verif } })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'latest_decision_failed' })
+  }
+})
+
+// --- SSE Audit Stream ---
+// Emits each new audit line appended after client connection.
+// Lightweight tail-follow using file size polling.
+app.get('/api/audit/stream', (req, res) => {
+  // Headers for Server-Sent Events
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders?.()
+
+  const fs = require('node:fs') as typeof import('node:fs')
+  const path = require('node:path') as typeof import('node:path')
+  const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+  let position = 0
+  let closed = false
+
+  function send(event: string, data: any) {
+    try { res.write(`event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`) } catch {}
+  }
+
+  // Initial state
+  if (fs.existsSync(file)) {
+    try {
+      const stat = fs.statSync(file)
+      position = stat.size
+      send('init', { size: position })
+    } catch {}
+  } else {
+    send('init', { size: 0 })
+  }
+
+  const interval = setInterval(() => {
+    if (closed) return
+    try {
+      if (!fs.existsSync(file)) return
+      const stat = fs.statSync(file)
+      if (stat.size > position) {
+        const fd = fs.openSync(file, 'r')
+        const buf = Buffer.alloc(stat.size - position)
+        fs.readSync(fd, buf, 0, buf.length, position)
+        fs.closeSync(fd)
+        position = stat.size
+        const chunk = buf.toString('utf8')
+        const lines = chunk.split('\n').filter(l => l.trim())
+        for (const l of lines) {
+          try {
+            const j = JSON.parse(l)
+            send('line', { line: j, rollingHash: j.rollingHash, action: j.action })
+          } catch {}
+        }
+      }
+    } catch (e:any) {
+      send('error', { message: e?.message || 'poll_error' })
+    }
+  }, 1500) // 1.5s polling
+
+  req.on('close', () => { closed = true; clearInterval(interval) })
+})
+// Ingestion endpoint (phase 1) - accepts array of events
+// POST /api/strategy/events/ingest  body: { events: [{ id, ts, chainId, type, price?, amountQuote?, ... }] }
+app.post('/api/strategy/events/ingest', (req, res) => {
+  try {
+    const { events } = req.body || {}
+    if (!Array.isArray(events) || !events.length) return res.status(400).json({ ok: false, error: 'no_events' })
+    const { appendEvents } = require('./hyperindex/eventStore') as typeof import('./hyperindex/eventStore')
+    const ingested = events.map((e: any) => ({
+      id: String(e.id),
+      ts: Number(e.ts),
+      chainId: Number(e.chainId || 0),
+      type: String(e.type),
+      baseToken: e.baseToken ? String(e.baseToken) : undefined,
+      quoteToken: e.quoteToken ? String(e.quoteToken) : undefined,
+      amountBase: e.amountBase != null ? String(e.amountBase) : undefined,
+      amountQuote: e.amountQuote != null ? String(e.amountQuote) : undefined,
+      price: e.price != null ? Number(e.price) : undefined,
+      txHash: e.txHash ? String(e.txHash) : undefined,
+      blockNumber: e.blockNumber != null ? Number(e.blockNumber) : undefined,
+      meta: e.meta && typeof e.meta === 'object' ? e.meta : undefined,
+    })).filter((e: any) => e.id && e.ts && e.type)
+    if (!ingested.length) return res.status(400).json({ ok: false, error: 'invalid_events' })
+    appendEvents(ingested as any)
+    return res.json({ ok: true, ingested: ingested.length })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'ingest_failed' })
+  }
+})
+
+// Features head (real computation using ingested events)
+app.get('/api/strategy/features/head', (_req, res) => {
+  try {
+    const { computeFeatureSet } = require('./hyperindex/features') as typeof import('./hyperindex/features')
+    const feat = computeFeatureSet({})
+    if (!feat) return res.json({ ok: true, empty: true, features: null })
+    return res.json({ ok: true, features: feat })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'features_head_failed' })
+  }
+})
+// Execute endpoint: trigger execution from last or specific ai_decision
+app.post('/api/strategy/execute', async (req, res) => {
+  try {
+    const { rollingHash, force, delegator } = req.body || {}
+    let delegLower: string | undefined
+    if (delegator) {
+      const d = String(delegator).toLowerCase()
+      if (!/^0x[0-9a-f]{40}$/.test(d)) return res.status(400).json({ ok: false, error: 'invalid_delegator' })
+      delegLower = d
+    }
+    const { executeFromDecision } = await import('./execution/orchestrator')
+    const result = await executeFromDecision({ rollingHash, force, delegator: delegLower })
+    return res.json(result)
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'execute_failed' })
+  }
+})
+// Strategy history: paginated ai_decision audit entries
+// GET /api/strategy/history?limit=50&cursor=<rollingHash>&delegator=0x..
+// Cursor = rollingHash of last seen entry (exclusive). Returns chronological order.
+app.get('/api/strategy/history', (req, res) => {
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const limit = Math.min(Number(req.query.limit ?? 50), 200)
+    const cursor = String(req.query.cursor || '') // rollingHash
+    const delegatorQ = String(req.query.delegator || '').toLowerCase()
+    const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    if (!fs.existsSync(file)) return res.json({ ok: true, entries: [], nextCursor: null, eof: true, total: 0 })
+    const raw = fs.readFileSync(file, 'utf8').trim()
+    if (!raw) return res.json({ ok: true, entries: [], nextCursor: null, eof: true, total: 0 })
+    const lines = raw.split('\n')
+    const entries: any[] = []
+    for (const line of lines) {
+      if (!line) continue
+      try {
+        const j = JSON.parse(line)
+        if (j.action === 'ai_decision') {
+          if (delegatorQ && j.delegator?.toLowerCase() !== delegatorQ) continue
+          entries.push(j)
+        }
+      } catch {}
+    }
+    // Chronological order already (file append order). Find start index after cursor
+    let start = 0
+    if (cursor) {
+      const idx = entries.findIndex((e) => e.rollingHash === cursor)
+      if (idx >= 0) start = idx + 1
+    }
+    const slice = entries.slice(start, start + limit)
+    const nextCursor = slice.length ? slice[slice.length - 1].rollingHash : null
+    const eof = start + slice.length >= entries.length
+    return res.json({ ok: true, entries: slice, nextCursor: eof ? null : nextCursor, eof, total: entries.length })
+  } catch (e: any) {
+    console.error('[strategy-history] failed', e)
+    return res.status(500).json({ ok: false, error: e?.message || 'history_failed' })
+  }
+})
+// Effectiveness & guardrail metrics
+app.get('/api/strategy/effectiveness', (_req, res) => {
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    const guardrails = loadGuardrails()
+    const now = Date.now()
+    const since24h = now - 24 * 60 * 60 * 1000
+    let decisions = 0, decisions24h = 0, lastDecision: any = null
+    let executions = 0, execSubmitted = 0, execBlocked = 0, execBlockedGuardrail = 0, execFailed = 0
+    let execSubmitted24h = 0, execBlocked24h = 0, lastExecution: any = null
+  const guardrailReasons: Record<string, number> = {}
+    const GUARDRAIL_CODES = new Set(['risk_score_exceeds_max','confidence_below_min','max_exec_24h_reached','daily_cap_reached','min_spacing_not_elapsed'])
+    if (fs.existsSync(file)) {
+      const raw = fs.readFileSync(file, 'utf8').trim()
+      if (raw) for (const line of raw.split('\n')) {
+        if (!line) continue
+        try {
+          const j = JSON.parse(line)
+          if (j.action === 'ai_decision') {
+            decisions++; if (j.ts >= since24h) decisions24h++; lastDecision = j
+          } else if (j.action === 'execute') {
+            executions++; const submitted = !!j.userOperationHash
+            const warnings: string[] = Array.isArray(j.warnings) ? j.warnings : []
+            const execFailedFlag = !submitted && warnings.includes('execution_failed')
+            let guardrail: string | undefined = j.guardrailReason
+            if (!guardrail && !submitted) {
+              for (const w of warnings) { if (GUARDRAIL_CODES.has(w)) { guardrail = w; break } }
+            }
+            if (submitted) { execSubmitted++; if (j.ts >= since24h) execSubmitted24h++ }
+            else if (guardrail) { execBlocked++; execBlockedGuardrail++; if (j.ts >= since24h) execBlocked24h++; guardrailReasons[guardrail] = (guardrailReasons[guardrail] || 0)+1 }
+            else if (execFailedFlag) { execFailed++ }
+            else { execBlocked++; if (j.ts >= since24h) execBlocked24h++ }
+            lastExecution = j
+          }
+        } catch {}
+      }
+    }
+  return res.json({ ok: true, totals: { decisions, executions: { total: executions, submitted: execSubmitted, blocked: execBlocked, blockedGuardrail: execBlockedGuardrail, failed: execFailed } }, window24h: { decisions: decisions24h, submittedExecutions: execSubmitted24h, blockedExecutions: execBlocked24h }, lastDecision: lastDecision && { ts: lastDecision.ts, rollingHash: lastDecision.rollingHash, risk: lastDecision.aiRiskScore, confidence: lastDecision.aiConfidence, actionType: lastDecision.aiActionType }, lastExecution: lastExecution && { ts: lastExecution.ts, userOperationHash: lastExecution.userOperationHash || null, warnings: lastExecution.warnings || [], guardrailReason: lastExecution.guardrailReason || null }, guardrailReasons, guardrails })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'effectiveness_failed' })
+  }
+})
+// Guardrails inspect & reload
+app.get('/api/strategy/guardrails', (_req, res) => {
+  try { return res.json({ ok: true, guardrails: loadGuardrails(true) }) } catch (e: any) { return res.status(500).json({ ok: false, error: e?.message || 'guardrails_failed' }) }
+})
+app.post('/api/strategy/guardrails/reload', (_req, res) => {
+  try { const gr = loadGuardrails(true); return res.json({ ok: true, reloaded: true, guardrails: gr }) } catch (e: any) { return res.status(500).json({ ok: false, error: e?.message || 'guardrails_reload_failed' }) }
 })
 // Domain metadata (typehashes + configured domain separator components) for external indexers
 app.get('/api/delegations/domain-meta', async (_req, res) => {
@@ -2016,7 +2386,7 @@ export function startServer(port = Number(process.env.PORT || 8787)) {
     console.log(`[boot] RPC_URL=${process.env.RPC_URL}`)
     console.log(`[boot] BUNDLER=${process.env.ZERO_DEV_BUNDLER_RPC ? 'set' : 'missing'}`)
     console.log(`[boot] PAYMASTER=${process.env.ZERO_DEV_PAYMASTER_RPC ? 'set' : 'missing'}`)
-    console.log('[boot] endpoints ready: /api/topup /api/wrap /api/unwrap /api/delegations /api/diag /api/status /api/version /api/routes /api/paymaster/status /api/paymaster/test')
+  console.log('[boot] endpoints ready: /api/topup /api/wrap /api/unwrap /api/delegations /api/diag /api/status /api/version /api/routes /api/paymaster/status /api/paymaster/test /api/delegations/audit/* /api/delegations/coverage /api/strategy/preview /api/strategy/execute')
     // Start userOperation resolver loop
     try { startUserOpResolver() } catch (e: any) { console.warn('[boot] failed to start userOp resolver', e?.message || e) }
   })

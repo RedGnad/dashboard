@@ -1,0 +1,7 @@
+{
+  "maxRiskScore": 90,
+  "minConfidence": 0.5,
+  "dailyCapUsd": 2000,
+  "minMinutesBetweenExec": 1,
+  "maxExecutionsPer24h": 100
+}

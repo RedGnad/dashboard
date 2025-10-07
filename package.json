@@ -12,7 +12,12 @@
   "debug:start": "env | grep -E 'RPC_URL|ZERO_DEV|PIMLICO|DELEGATE|NO_API' || true; node -e 'console.log(\"[preflight] node version\", process.version)'; tsx src/index.ts",
   "api:start": "bash ./api-start.sh",
   "api:stop": "bash ./api-stop.sh",
-  "dca:once": "tsx src/index.ts --once"
+  "dca:once": "tsx src/index.ts --once",
+  "verify:audit": "tsx src/verify-audit.ts",
+  "audit:migrate:dry": "tsx src/migrate-audit-chain.ts --dry",
+  "audit:migrate": "tsx src/migrate-audit-chain.ts && npm run verify:audit",
+  "replay:decision": "tsx src/replay-decision.ts",
+  "verify:latest": "tsx src/verify-latest-decision.ts"
   },
   "dependencies": {
     "@metamask/delegation-toolkit": "^0.13.0",

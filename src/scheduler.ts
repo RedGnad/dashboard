@@ -54,8 +54,8 @@ function schedule(job: InternalJob) {
               const { privateKeyToAccount } = await import('viem/accounts')
               const { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } = await import('./encoding')
               const { WMON } = await import('./constants')
-              const { detectNativeValueScope } = await import('./server')
-              const { Address, encodeFunctionData } = await import('viem')
+              // Removed dependency on server internal detectNativeValueScope to avoid circular + build error; fallback simple detection.
+              const { encodeFunctionData } = await import('viem')
               const valueFile = path.join(process.cwd(), 'data', 'delegations', `${job.delegatorSA.toLowerCase()}__value.json`)
               if (!fs.existsSync(valueFile)) throw new Error('value_delegation_missing')
               const coreFile = path.join(process.cwd(), 'data', 'delegations', `${job.delegatorSA.toLowerCase()}.json`)
@@ -76,8 +76,8 @@ function schedule(job: InternalJob) {
               })
               // Détection scope natif
               const caveats = valueDel?.signedDelegation?.delegation?.caveats || []
-              const nativeDetect = detectNativeValueScope(caveats as any)
-              let calls: { to: string; data: `0x${string}` }[] = []
+              const nativeDetect = { hasNativeScope: caveats.some((c: any) => String(c?.enforcer||'').toLowerCase().includes('native')) }
+              let calls: { to: `0x${string}`; data: `0x${string}` }[] = []
               if (nativeDetect.hasNativeScope) {
                 // Un seul contexte: value delegation -> transfert natif (callData vide) vers EOA
                 let bal = 0n
@@ -96,7 +96,7 @@ function schedule(job: InternalJob) {
                   const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
                   const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
                   const dmData = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [[ctx] as any, modes as any, calldatas as any] }) as `0x${string}`
-                  calls = [{ to: env.DelegationManager as Address, data: dmData }]
+                  calls = [{ to: env.DelegationManager as `0x${string}`, data: dmData }]
                 } else {
                   console.log('[scheduler] no native MON to flush at end-of-cycle')
                 }
@@ -142,7 +142,7 @@ function schedule(job: InternalJob) {
                     const permissionContexts = [ctxArr[0], ctxArr[1]]
                     const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
                     const dmData = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
-                    calls = [{ to: env.DelegationManager as Address, data: dmData }]
+                    calls = [{ to: env.DelegationManager as `0x${string}`, data: dmData }]
                   }
                 } else {
                   console.log('[scheduler] no WMON to fallback-withdraw at end-of-cycle')
