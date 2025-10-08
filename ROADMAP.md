@@ -28,21 +28,32 @@ Construire un wallet autonome qui :
 ## 3. État Actuel (Résumé)
 | Domaine | Statut |
 |---------|--------|
-| Journal d’audit chaîné | ✅ opérationnel + migration/verify |
-| Décision stub (preview) | ✅ actionType basique (SKIP / DCA_SWAP) |
+| Journal d’audit chaîné (strict) | ✅ opérationnel + migration legacy → strict vérifiée |
+| Rolling integrity (prevEntryHash + rollingHash) | ✅ stable |
+| HyperIndex (features multi fenêtres 15m/1h/6h/24h) | ✅ ingestion + hashing déterministe |
+| featureHash v1 / featureHashV2 (timestamp-agnostic) | ✅ implémentés + test vérif |
+| modèle versionné (modelHash) | ✅ hash canonique du snapshot modèle actuel |
+| aiRationaleHash | ✅ traçabilité explicative |
+| Décision preview | ✅ déterministe (structure actionType / rationale / hashes) |
 | Exécution + guardrails | ✅ blocage ou envoi, journalisé |
-| Guardrails config JSON | ✅ + endpoints reload/inspect |
+| Guardrails v2 (drift, stale, hash mismatch) | ✅ étendus + hard block option |
+| Guardrails config JSON (reload) | ✅ endpoints reload/inspect |
 | Métriques (effectiveness) | ✅ décisions / exécutions / blocages |
-| decisionRollingHash | ✅ présent dans `execute` |
-| featureHash utile | ❌ (placeholder – pas de features réelles) |
-| modèle versionné (modelHash) | ❌ |
-| moteur trade (BUY/SELL/size) | ❌ |
-| champ guardrailReason dédié | ❌ (actuellement warnings) |
-| replay / vérification décision | ❌ |
-| UI console (dashboard) | ❌ |
-| flux audit live (SSE) | ❌ |
-| tests de base | ❌ |
-| docs objectifs & scope | ❌ (ce fichier = début) |
+| decisionRollingHash | ✅ présent partout (chaînage preuves) |
+| Replay / vérification décision (API + CLI) | ✅ comparaison champs critiques |
+| Proof Pack (export portable vérifiable) | ✅ canonical hashing 2‑phases + CLI verify |
+| Anchoring off-chain (manual + auto) | ✅ anchors.log + scheduler auto-anchoring |
+| Suite CLI vérification (audit, replay, hyperindex, pack, guardrails) | ✅ disponible |
+| UI dashboard | ✅ panels décisions / guardrails / HyperIndex / Proof Pack |
+| Flux audit live (SSE) | ✅ streaming temps réel |
+| Tests fondamentaux | ✅ audit chain / déterminisme / hyperindex / guardrails |
+| Documentation (roadmap + features) | 🟡 partielle – consolidation architecturale à faire |
+| Moteur trade avancé (BUY/SELL sizing dynamique) | 🟡 basique; optimisation & multi-modèle à venir |
+| Multi-modèle registry | ❌ (à concevoir) |
+| Source multi-chain (SourceAdapter) | ❌ (squelette à ajouter) |
+| Momentum & ratios avancés features | ❌ (placeholders restants) |
+| On-chain anchoring (L2 / calldata) | ❌ futur (actuel = off-chain fichier) |
+| Diagrammes / narration de confiance | ❌ à écrire |
 
 ---
 ## 4. TODO Liste (Catégories)
@@ -186,7 +197,7 @@ Feature vector ordonné (ex):
 
 ---
 ## 11. Items Différés / Idées Futures
-- Anchor `finalRollingHash` périodique on-chain.
+- On-chain anchoring périodique (`finalRollingHash` + packKeccak256) – off-chain déjà fait.
 - Multi-actifs prioritisation (scores comparés).
 - Simulation sandbox (dry-run non auditée).
 - Backtest mode (rejouer historique synthétique).
@@ -204,7 +215,7 @@ Feature vector ordonné (ex):
 ---
 ## 13. Statut Synthétique (Barre de progression)
 ```
-[███████-----]  ~55% fondations produit (sans moteur réel + UI + replay)
+[█████████--]  ~78% fondations (intégrité / preuve / replay / export / guardrails v2 livrés)
 ```
 
 ---
@@ -215,3 +226,20 @@ Feature vector ordonné (ex):
 
 ---
 _Quand ce fichier diverge de la réalité: le mettre à jour immédiatement après chaque milestone._
+
+---
+## 15. Évidence & Export (Nouveautés)
+Composants de preuve et de traçabilité livrés :
+
+1. Chaîne d’audit stricte: recalcul complet post‑migration, plus de “gaps” legacy.
+2. HyperIndex: fenêtres multiples dérivées de l’event store + hashing déterministe.
+3. Canonical Proof Pack: bundle (décision, features sérialisées, slice événements, rolling, manifest) → hash en 2 phases (exclusion packKeccak256 & anchorRef) pour éviter auto‑référence.
+4. Anchoring off-chain: `anchors.log` (rollingHash + packKeccak256 + timestamp + anchorRef optionnel) + mode `?anchor=1` + scheduler auto.
+5. Guardrails v2 enrichis: détection drift volatilité, stale features, mismatch featureHash; mode blocage dur configurable.
+6. CLI Vérification: audit chain, hyperindex, replay décision, guardrails, proof pack (reconstruction canonical hashing), latest integrity.
+7. UI Proof Pack Panel: téléchargement, décompression, re-hash canonical, liste des anchors, contrôle humain rapide.
+
+Prochain focus “évidence” :
+- On-chain anchoring (L2 / calldata minimal) pour horodatage tiers.
+- Squelette SourceAdapter multi-chaîne (préparation extension données). 
+- Consolidation documentation “Architecture de Confiance” (diagrammes, flux hashing, invariants).

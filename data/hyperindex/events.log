@@ -1,0 +1,6 @@
+{"id":"e1","ts":1759939564423,"chainId":1,"type":"swap","price":1,"amountQuote":"100","amountBase":"50"}
+{"id":"e2","ts":1759939569423,"chainId":1,"type":"swap","price":1.01,"amountQuote":"120","amountBase":"60"}
+{"id":"e3","ts":1759939573423,"chainId":1,"type":"swap","price":1.02,"amountQuote":"80","amountBase":"40"}
+{"id":"e1","ts":1759939668565,"chainId":1,"type":"swap","price":1,"amountQuote":"100","amountBase":"50"}
+{"id":"e2","ts":1759939673565,"chainId":1,"type":"swap","price":1.01,"amountQuote":"120","amountBase":"60"}
+{"id":"e3","ts":1759939677565,"chainId":1,"type":"swap","price":1.02,"amountQuote":"80","amountBase":"40"}

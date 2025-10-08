@@ -2,8 +2,7 @@ import 'dotenv/config'
 import { Address, parseUnits } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { Implementation, toMetaMaskSmartAccount, ExecutionMode, getDeleGatorEnvironment } from '@metamask/delegation-toolkit'
-import { DelegationManager } from '@metamask/delegation-toolkit/contracts'
-import { publicClient, bundlerClient, paymasterClient, monadTestnet } from './clients'
+import { publicClient, bundlerClient, paymasterClient, monadTestnet, asToolkitClient } from './clients'
 import { Address as AddressType } from 'viem'
 // Reuse helper from server for consistent paymaster injection (light duplicate parse to avoid circular import)
 function parseUsePaymasterFlag(v?: string): boolean { return !!v && ['true','1','yes','on','enabled'].includes(v.toLowerCase()) }
@@ -23,7 +22,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
   const delegateEOA = privateKeyToAccount(pk)
   const env = getDeleGatorEnvironment(monadTestnet.id)
   const delegateSA = await toMetaMaskSmartAccount({
-    client: publicClient,
+    client: asToolkitClient(),
     implementation: Implementation.Hybrid,
     deployParams: [delegateEOA.address, [], [], []],
     deploySalt: '0x',
@@ -128,7 +127,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
     const erc20Abi = [
       { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
     ] as const
-    const bal = (await publicClient.readContract({
+  const bal = (await (publicClient as any).readContract({
       address: USDC,
       abi: erc20Abi as any,
       functionName: 'balanceOf',
@@ -163,7 +162,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
         let minOut: bigint | undefined = undefined
         if (wantUnwrapThisRun) {
           try {
-            const quote = await publicClient.readContract({
+            const quote = await (publicClient as any).readContract({
               address: UNISWAP_V2_ROUTER02,
               abi: [ { name: 'getAmountsOut', type: 'function', stateMutability: 'view', inputs: [ { name: 'amountIn', type: 'uint256' }, { name: 'path', type: 'address[]' } ], outputs: [ { name: 'amounts', type: 'uint256[]' } ] } ] as any,
               functionName: 'getAmountsOut',
@@ -198,7 +197,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
         // Quote expected WMON out
         let minOut: bigint | undefined
         try {
-          const quote = await publicClient.readContract({
+          const quote = await (publicClient as any).readContract({
             address: UNISWAP_V2_ROUTER02,
             abi: [ { name: 'getAmountsOut', type: 'function', stateMutability: 'view', inputs: [ { name: 'amountIn', type: 'uint256' }, { name: 'path', type: 'address[]' } ], outputs: [ { name: 'amounts', type: 'uint256[]' } ] } ] as any,
             functionName: 'getAmountsOut',
@@ -281,7 +280,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       const erc20Abi = [
         { name: 'allowance', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' }, { name: 'spender', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] },
       ] as const
-      const allowance = await publicClient.readContract({
+  const allowance = await (publicClient as any).readContract({
         address: USDC,
         abi: erc20Abi as any,
         functionName: 'allowance',
@@ -355,7 +354,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       const erc20Abi = [
         { name: 'allowance', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' }, { name: 'spender', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] },
       ] as const
-      const allowance = await publicClient.readContract({
+  const allowance = await (publicClient as any).readContract({
         address: USDC,
         abi: erc20Abi as any,
         functionName: 'allowance',
@@ -470,7 +469,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       console.log('[runner] injecting paymaster for DCA op')
     }
     const runId = newRunId()
-    uoHash = await bundlerClient.sendUserOperation({
+  uoHash = await (bundlerClient as any).sendUserOperation({
       account: delegateSA,
       calls: [{ to: env.DelegationManager as Address, data: calldata }],
       maxFeePerGas,
@@ -548,7 +547,7 @@ export async function flushTokenForDelegator(delegatorSA: Address, token: Addres
   const delegateEOA = privateKeyToAccount(pk)
   const env = getDeleGatorEnvironment(monadTestnet.id)
   const delegateSA = await toMetaMaskSmartAccount({
-    client: publicClient,
+    client: asToolkitClient(),
     implementation: Implementation.Hybrid,
     deployParams: [delegateEOA.address, [], [], []],
     deploySalt: '0x',
@@ -562,7 +561,7 @@ export async function flushTokenForDelegator(delegatorSA: Address, token: Addres
   if (amount === 'all') {
     try {
       const erc20Abi = [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as const
-      amt = await publicClient.readContract({ address: token, abi: erc20Abi as any, functionName: 'balanceOf', args: [delegatorSA] }) as bigint
+  amt = await (publicClient as any).readContract({ address: token, abi: erc20Abi as any, functionName: 'balanceOf', args: [delegatorSA] }) as bigint
     } catch { amt = 0n }
   } else amt = amount
   const { encodeFunctionData } = await import('viem')
@@ -594,7 +593,7 @@ export async function flushTokenForDelegator(delegatorSA: Address, token: Addres
   let maxFeePerGas: bigint = 80n * 10n ** 9n
   let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
   try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp / 2n || 1n } } catch {}
-  const uoHash = await bundlerClient.sendUserOperation({
+  const uoHash = await (bundlerClient as any).sendUserOperation({
     account: delegateSA,
     calls: [{ to: env.DelegationManager as Address, data }],
     maxFeePerGas,

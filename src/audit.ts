@@ -1,9 +1,9 @@
-import { writeFileSync, appendFileSync, existsSync, readFileSync, mkdirSync, statSync } from 'node:fs'
+import { writeFileSync, appendFileSync, existsSync, readFileSync, mkdirSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { keccak256 } from 'viem'
 
-export type AuditAction = 'build' | 'submit' | 'execute' | 'verify' | 'userop_settled' | 'ai_decision'
+export type AuditAction = 'build' | 'submit' | 'execute' | 'verify' | 'userop_settled' | 'ai_decision' | 'revoke'
 
 export interface DelegationAuditEntryV1 {
   schemaVersion: 1
@@ -44,6 +44,8 @@ export interface DelegationAuditEntryV1 {
   decisionRollingHash?: string
   // Explicit guardrail reason when an execution is blocked (instead of inferring from warnings)
   guardrailReason?: string
+  // All guardrail reasons (primary + warnings) for observability
+  guardrailReasonsAll?: string[]
   // Deterministic model provenance
   modelHash?: string
   inferenceProvider?: string
@@ -59,6 +61,9 @@ export interface DelegationAuditEntryV1 {
 
 const DIR = join(process.cwd(), 'data', 'delegations')
 const FILE = join(DIR, 'audit.log')
+const LOCK_FILE = join(DIR, 'audit.lock')
+const LOCK_BUFFER = join(DIR, 'audit.lock.buffer')
+const SNAP_FILE = join(DIR, 'finalRollingHash.json')
 let _structHashIndex: Set<string> | null = null
 // Cache of last chain state to avoid re-reading entire file on every append
 let _lastLineRaw: string | null = null
@@ -111,6 +116,7 @@ export function buildAuditEntry(base: Partial<DelegationAuditEntryV1>): Delegati
     featureSchemaVersion: base.featureSchemaVersion,
     decisionRollingHash: base.decisionRollingHash,
     guardrailReason: base.guardrailReason,
+  guardrailReasonsAll: Array.isArray((base as any).guardrailReasonsAll) ? (base as any).guardrailReasonsAll : undefined,
     modelHash: base.modelHash,
     inferenceProvider: base.inferenceProvider,
     featuresCanonical: base.featuresCanonical,
@@ -126,6 +132,13 @@ export function buildAuditEntry(base: Partial<DelegationAuditEntryV1>): Delegati
 export function appendAudit(entry: Partial<DelegationAuditEntryV1>) {
   try {
     ensure()
+    // If migration lock active: buffer raw entry (without chain fields) and return early.
+    if (existsSync(LOCK_FILE)) {
+      const buf = { ...entry, _locked: true, bufferedAt: Date.now() }
+      appendFileSync(LOCK_BUFFER, JSON.stringify(buf) + '\n')
+      console.log('[audit-lock] buffered entry while lock active', { action: entry.action })
+      return
+    }
     // Lazy-load last chain state if unknown
     if (_lastLineRaw === null) {
       try {
@@ -142,9 +155,15 @@ export function appendAudit(entry: Partial<DelegationAuditEntryV1>) {
               if (j.rollingHash && typeof j.rollingHash === 'string') {
                 _lastRollingHash = j.rollingHash
               }
-            } catch {}
-            // compute last line hash (hash over full JSON line string)
-            _lastLineHash = keccak256(stringToHexSafe(l))
+              // Canonical prevEntryHash hashing rule: hash of previous line WITHOUT its rollingHash field.
+              const clone: any = { ...j }
+              delete clone.rollingHash
+              const cloneStr = JSON.stringify(clone)
+              _lastLineHash = keccak256(stringToHexSafe(cloneStr))
+            } catch {
+              // Fallback to raw line hash if JSON parse fails (should not happen)
+              _lastLineHash = keccak256(stringToHexSafe(l))
+            }
             break
           }
         }
@@ -152,11 +171,27 @@ export function appendAudit(entry: Partial<DelegationAuditEntryV1>) {
     }
 
     const base = buildAuditEntry(entry)
-    // Remove chain fields if caller tried to set them (we enforce canonical computation)
-    delete (base as any).prevEntryHash
-    delete (base as any).rollingHash
+    // Defensive: if caller provided prevEntryHash/rollingHash (legacy behavior), drop them.
+    if (base.prevEntryHash || base.rollingHash) {
+      if (process.env.AUDIT_STRICT_CHAIN_SANITY === '1') {
+        console.warn('[audit] dropping caller-supplied chain fields (enforced canonical)')
+      }
+      delete (base as any).prevEntryHash
+      delete (base as any).rollingHash
+    }
 
     const prevEntryHash = _lastLineRaw ? (_lastLineHash as string) : '0x'
+    // If the user passed an outdated prevEntryHash (in the original entry) we already dropped it above.
+    // Additional sanity: if process.env.AUDIT_REFUSE_STALE=1 and a stale hint was present, we can abort.
+    if ((entry as any).prevEntryHash && (entry as any).prevEntryHash !== prevEntryHash) {
+      const msg = `[audit] stale prevEntryHash supplied (${(entry as any).prevEntryHash} != ${prevEntryHash})`
+      if (process.env.AUDIT_REFUSE_STALE === '1') {
+        console.error(msg + ' -> REFUSED')
+        return
+      } else {
+        console.warn(msg + ' -> REWRITTEN')
+      }
+    }
     // Build an interim object including prevEntryHash to hash current line content deterministically
     const interim = { ...base, prevEntryHash }
     const interimStr = JSON.stringify(interim)
@@ -194,11 +229,76 @@ export function appendAudit(entry: Partial<DelegationAuditEntryV1>) {
       }
       console.log('[audit-append]', dbg)
     } catch {}
-    appendFileSync(FILE, JSON.stringify(finalObj) + '\n')
+  appendFileSync(FILE, JSON.stringify(finalObj) + '\n')
     // Update caches
     _lastLineRaw = JSON.stringify(finalObj)
     _lastRollingHash = rollingHash
-    _lastLineHash = lineHash
+    // For future prevEntryHash: we need the canonical hash of this just-appended line WITHOUT its rollingHash
+    try {
+      const clone: any = { ...finalObj }
+      delete clone.rollingHash
+      _lastLineHash = keccak256(stringToHexSafe(JSON.stringify(clone)))
+    } catch {
+      _lastLineHash = lineHash // fallback
+    }
+    // Optional vérification immédiate (léger) après append pour détecter corruption précoce.
+    // Active si AUDIT_VERIFY_ON_APPEND=1 (ou 'true'). On ne relit que les deux dernières lignes pour valider le chainage.
+    try {
+      if (/^(1|true)$/i.test(String(process.env.AUDIT_VERIFY_ON_APPEND || ''))) {
+        const rawFile = readFileSync(FILE,'utf8').trim()
+        const parts = rawFile ? rawFile.split('\n') : []
+        if (parts.length >= 1) {
+          // Vérifier dernière ligne versus cache (cohérence interne)
+          const lastRaw = parts[parts.length - 1]
+          const obj = JSON.parse(lastRaw)
+          // Recompute canonical line hash: remove rollingHash
+            const interimClone: any = { ...obj }
+            delete interimClone.rollingHash
+            const recomputedLineHash = keccak256(stringToHexSafe(JSON.stringify(interimClone)))
+            // prevEntryHash doit être soit '0x' (si c'était la première), soit lineHash de l'avant-dernière
+            if (parts.length > 1) {
+              const prevRaw = parts[parts.length - 2]
+              const prevObj = JSON.parse(prevRaw)
+              const prevInterim = { ...prevObj }; delete (prevInterim as any).rollingHash
+              const prevLineHash = keccak256(stringToHexSafe(JSON.stringify(prevInterim)))
+              if (obj.prevEntryHash !== prevLineHash) {
+                console.error('[audit-guard] prevEntryHash mismatch post-append', { expected: prevLineHash, got: obj.prevEntryHash })
+              }
+              // Validate rolling hash chaining
+              const expectedRolling = keccak256(concatHex(prevObj.rollingHash, recomputedLineHash))
+              if (obj.rollingHash !== expectedRolling) {
+                console.error('[audit-guard] rollingHash mismatch post-append', { expected: expectedRolling, got: obj.rollingHash })
+              }
+            } else {
+              // Single line genesis: rollingHash doit égaler lineHash
+              if (obj.rollingHash !== recomputedLineHash) {
+                console.error('[audit-guard] genesis rollingHash mismatch', { expected: recomputedLineHash, got: obj.rollingHash })
+              }
+            }
+        }
+      }
+    } catch (gErr) {
+      console.warn('[audit-guard] verification error', gErr)
+    }
+    // Write / update rolling hash snapshot for external monitors
+    try {
+      let lines = 0
+      // Fast path: read existing snapshot lines count and increment
+      if (existsSync(SNAP_FILE)) {
+        try {
+          const snap = JSON.parse(readFileSync(SNAP_FILE,'utf8'))
+          if (typeof snap.lines === 'number') lines = snap.lines + 1
+        } catch {}
+      } else {
+        // Fallback approximate: count lines in file (could be expensive only first time)
+        try {
+          const rawAll = readFileSync(FILE,'utf8')
+          lines = rawAll.trim() ? rawAll.trim().split('\n').length : 1
+        } catch { lines = 1 }
+      }
+      const snapshot = { rollingHash, ts: Date.now(), lines }
+      writeFileSync(SNAP_FILE, JSON.stringify(snapshot, null, 2))
+    } catch {}
     if (_structHashIndex) _structHashIndex.add(base.structHash.toLowerCase())
   } catch (e) {
     console.warn('[audit] append failed', e)
@@ -250,6 +350,48 @@ export function auditFileMeta() {
   } catch {
     return { sizeBytes: 0, lines: 0 }
   }
+}
+
+// Administrative helpers for lock lifecycle
+export function createAuditLock(note?: string) {
+  ensure();
+  if (!existsSync(LOCK_FILE)) writeFileSync(LOCK_FILE, JSON.stringify({ ts: Date.now(), note: note || '' }))
+  return { locked: true }
+}
+
+export function releaseAuditLock(flush = true) {
+  ensure();
+  if (!existsSync(LOCK_FILE)) return { locked: false, flushed: 0 }
+  // Remove lock first so buffered entries can be re-appended deterministically
+  try { unlinkSync(LOCK_FILE) } catch {}
+  let flushed = 0
+  if (flush && existsSync(LOCK_BUFFER)) {
+    try {
+      const raw = readFileSync(LOCK_BUFFER,'utf8').trim()
+      if (raw) {
+        for (const line of raw.split('\n')) {
+          if (!line) continue
+            try {
+              const obj = JSON.parse(line)
+              delete (obj as any)._locked
+              delete (obj as any).bufferedAt
+              // Re-append (will compute fresh chain fields)
+              appendAudit(obj)
+              flushed++
+            } catch {}
+        }
+      }
+    } catch {}
+    try { unlinkSync(LOCK_BUFFER) } catch {}
+  }
+  return { locked: false, flushed }
+}
+
+export function readRollingSnapshot() {
+  try {
+    if (!existsSync(SNAP_FILE)) return null
+    return JSON.parse(readFileSync(SNAP_FILE,'utf8'))
+  } catch { return null }
 }
 
 // Stream-style reader: cursor = 0-based line index. Returns up to limit entries and nextCursor.

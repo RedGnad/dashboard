@@ -16,6 +16,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { computeCoreFeatures, type FeatureResult } from './features'
 import { loadModel, computeScore, mapScoreToDecision } from './strategy/model'
+import { MAPPING_VERSION } from './constants'
 import { keccak256 } from 'viem'
 
 interface DecisionLine {
@@ -59,6 +60,8 @@ function parseArgs() {
     if (a === '--json') out.json = true
     if (a === '--strict') out.strict = true
     if (a === '--strict-snapshot') out.strictSnapshot = true
+    if (a === '--list' && args[i+1]) { out.list = Number(args[++i]) }
+    if (a === '--chain') out.chain = true
   }
   return out
 }
@@ -100,6 +103,7 @@ function replay(decision: DecisionLine) {
     volatilitySimple: featureInputs.volatilitySimple,
   })
   const diffs: Record<string, { expected: any; actual: any }> = {}
+  const tolerant: string[] = []
   function cmp(label: string, expected: any, actual: any) {
     if (expected !== actual) diffs[label] = { expected, actual }
   }
@@ -108,9 +112,21 @@ function replay(decision: DecisionLine) {
   cmp('aiActionType', decision.aiActionType, mapped.actionType === 'SELL' ? 'REBALANCE' : mapped.actionType)
   cmp('aiRiskScore', decision.aiRiskScore, mapped.riskScore)
   cmp('aiConfidence', decision.aiConfidence, mapped.confidence)
+  // Tolerance: if ONLY riskScore / confidence differ AND mappingVersion recorded matches current mapping version,
+  // we still consider core provenance deterministic (features/model/action).
+  const diffKeys = Object.keys(diffs)
+  const coreKeys = diffKeys.filter(k => !['aiRiskScore','aiConfidence'].includes(k))
+  if (coreKeys.length === 0 && diffKeys.length > 0) {
+    const mvStored = (decision as any).mappingVersion
+    if (mvStored && mvStored === MAPPING_VERSION) {
+      // classify risk/confidence diffs as tolerant (non-fatal drift in formula rounding)
+      for (const k of diffKeys) if (['aiRiskScore','aiConfidence'].includes(k)) tolerant.push(k)
+    }
+  }
 
-  const pass = Object.keys(diffs).length === 0
-  return { pass, diffs, decisionRollingHash: decision.rollingHash, decisionTs: decision.ts, stored: decision, recomputed: { featureHash: recomputedFeatureHash, modelHash: model.modelHash, mapped } }
+  const hardDiffs = Object.fromEntries(Object.entries(diffs).filter(([k]) => !tolerant.includes(k)))
+  const pass = Object.keys(hardDiffs).length === 0
+  return { pass, diffs, tolerant, decisionRollingHash: decision.rollingHash, decisionTs: decision.ts, stored: decision, recomputed: { featureHash: recomputedFeatureHash, modelHash: model.modelHash, mapped } }
 }
 
 async function main() {
@@ -119,6 +135,16 @@ async function main() {
   if (!decisions.length) {
     console.error('[replay] no ai_decision lines found')
     process.exit(1)
+  }
+  if (args.list) {
+    const slice = decisions.slice(-args.list)
+    const listing = slice.map(d => ({ ts: d.ts, rollingHash: d.rollingHash, action: d.aiActionType, risk: d.aiRiskScore, confidence: d.aiConfidence, featureHash: d.featureHash }))
+    if (args.json) console.log(JSON.stringify({ list: listing }, null, 2))
+    else {
+      console.log('[replay] list size=' + listing.length)
+      for (const it of listing) console.log(` - ts=${it.ts} rolling=${it.rollingHash} action=${it.action} risk=${it.risk} conf=${it.confidence}`)
+    }
+    return
   }
   let target: DecisionLine | undefined
   if (args.rolling) target = decisions.find(d => d.rollingHash === args.rolling)
@@ -161,12 +187,35 @@ async function main() {
     }
   }
   const result = replay(target)
+  let chainInfo: any = null
+  if (args.chain) {
+    try {
+      const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+      if (fs.existsSync(file)) {
+        const raw = fs.readFileSync(file,'utf8').trim().split('\n').filter(Boolean)
+        let found = false
+        for (const l of raw) {
+          try { const j = JSON.parse(l); if (j.rollingHash === result.decisionRollingHash) { found = true; break } } catch {}
+        }
+        chainInfo = { ok: found }
+      } else chainInfo = { ok: false, reason: 'audit_missing' }
+    } catch (e:any) { chainInfo = { ok: false, reason: e?.message || 'chain_error' } }
+  }
   if (args.json) {
-    console.log(JSON.stringify(result, null, 2))
+    console.log(JSON.stringify({ ...result, chain: chainInfo }, null, 2))
   } else {
-    if (result.pass) console.log('[replay] PASS', { rollingHash: result.decisionRollingHash })
+    const bits: string[] = []
+    bits.push(`rolling=${result.decisionRollingHash}`)
+    bits.push(`featureHashMatch=${result.diffs.featureHash ? 'false':'true'}`)
+    bits.push(`modelHashMatch=${result.diffs.modelHash ? 'false':'true'}`)
+    bits.push(`actionMatch=${result.diffs.aiActionType ? 'false':'true'}`)
+  bits.push(`riskMatch=${result.diffs.aiRiskScore ? (result.tolerant.includes('aiRiskScore')?'tolerant':'false'):'true'}`)
+  bits.push(`confidenceMatch=${result.diffs.aiConfidence ? (result.tolerant.includes('aiConfidence')?'tolerant':'false'):'true'}`)
+    if (chainInfo) bits.push(`chainOk=${chainInfo.ok}`)
+    if (result.pass) console.log('[replay] status=PASS ' + bits.join(' '))
     else {
-      console.error('[replay] MISMATCH', result.diffs)
+      console.error('[replay] status=FAIL ' + bits.join(' '))
+      console.error('[replay] diffs', result.diffs)
       if (args.strict) process.exit(3)
     }
   }

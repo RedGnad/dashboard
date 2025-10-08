@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ProofPackPanel from "./ProofPackPanel";
+import ProofPackDebugPanel from "./ProofPackDebugPanel";
 // HyperIndex panel component (Phase 1 integration)
 const HyperIndexPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [head, setHead] = useState<any>(null);
@@ -34,21 +35,32 @@ const HyperIndexPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     }
     try {
       setRehashError("");
-      const serLines: string[] = [];
-      serLines.push(`schemaVersion=${head.schemaVersion}`);
-      serLines.push(`asOfTs=${head.asOfTs}`);
-      for (const w of head.windowSpecs || [])
-        serLines.push(`window:${w.label}:${w.fromTs}:${w.toTs}`);
       const metricKeys = Object.keys(head.metrics || {}).sort();
-      for (const k of metricKeys)
-        serLines.push(
-          `m:${k}=${
-            head.metrics[k] === null || head.metrics[k] === undefined
-              ? "null"
-              : String(head.metrics[k])
-          }`
-        );
-      // lightweight keccak via dynamic import (js-sha3)
+      function build(linesStyle: "legacy" | "current") {
+        const lines: string[] = [];
+        if (linesStyle === "current") {
+          // Match backend serializeFeatures() current version (schemaVersion / chainId / asOfTs)
+          lines.push(`schemaVersion=${head.schemaVersion}`);
+          if (head.chainId != null) lines.push(`chainId=${head.chainId}`);
+          lines.push(`asOfTs=${head.asOfTs}`);
+        } else {
+          // Legacy snapshot attempt (older UI assumption)
+          lines.push(`v=${head.schemaVersion}`);
+          lines.push(`ts=${head.asOfTs}`);
+        }
+        for (const w of head.windowSpecs || [])
+          lines.push(`window:${w.label}:${w.fromTs}:${w.toTs}`);
+        for (const k of metricKeys)
+          lines.push(
+            `m:${k}=${
+              head.metrics[k] === null || head.metrics[k] === undefined
+                ? "null"
+                : String(head.metrics[k])
+            }`
+          );
+        return lines.join("\n");
+      }
+      const variants: { style: string; hash: string }[] = [];
       let kf: any;
       try {
         kf = (await import("js-sha3")).keccak256;
@@ -58,11 +70,21 @@ const HyperIndexPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         setRehashOk(false);
         return;
       }
-      const localHash = "0x" + kf(serLines.join("\n"));
-      setRehashOk(
-        String(localHash).toLowerCase() ===
-          String(head.featureHash).toLowerCase()
-      );
+      for (const style of ["current", "legacy"]) {
+        const ser = build(style as any);
+        variants.push({ style, hash: "0x" + kf(ser) });
+      }
+      const target = String(head.featureHash).toLowerCase();
+      const match = variants.find((v) => v.hash.toLowerCase() === target);
+      setRehashOk(!!match);
+      if (!match) {
+        setRehashError("Aucune variante ne correspond");
+      } else if (match.style === "legacy") {
+        setRehashError(
+          "Correspond à la variante legacy (backend courant = schemaVersion/chainId/asOfTs)"
+        );
+      }
+      // lightweight keccak via dynamic import (js-sha3)
     } catch (e: any) {
       setRehashError(e?.message || "rehash_failed");
       setRehashOk(false);
@@ -228,6 +250,11 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
   const [exportBlobUrl, setExportBlobUrl] = useState<string | null>(null);
   const [guardrailHead, setGuardrailHead] = useState<any>(null);
   const [guardrailLoadAt, setGuardrailLoadAt] = useState<number>(0);
+  const [liveHashStatus, setLiveHashStatus] = useState<{
+    match: boolean;
+    latest?: string;
+    stream?: string;
+  } | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const pollRef = useRef<number | null>(null);
 
@@ -287,6 +314,17 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
         });
       } catch {}
     });
+    es.onmessage = (ev) => {
+      try {
+        const js = JSON.parse(ev.data);
+        const ln = js.line || js;
+        if (!ln || typeof ln !== "object" || !ln.action) return;
+        setStreamLines((prev) => {
+          const next = [...prev, ln];
+          return next.slice(-50);
+        });
+      } catch {}
+    };
     return () => {
       es.close();
       setConnected(false);
@@ -294,17 +332,39 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
   }, [base]);
 
   const lastHashes = useMemo(() => {
-    const latestLine = [...streamLines]
-      .reverse()
-      .find((l) => l.action === "ai_decision");
-    if (!latestLine) return null;
+    const apiDec: any = latest?.decision;
+    const candidate = apiDec?.rollingHash
+      ? apiDec
+      : [...streamLines].reverse().find((l) => l.action === "ai_decision");
+    if (!candidate) return null;
     return {
-      rollingHash: latestLine.rollingHash,
-      featureHash: latestLine.featureHash,
-      featureHashV2: (latestLine as any).featureHashV2,
-      aiRationaleHash: latestLine.aiRationaleHash,
+      rollingHash: candidate.rollingHash,
+      featureHash: candidate.featureHash,
+      featureHashV2: (candidate as any).featureHashV2,
+      aiRationaleHash: candidate.aiRationaleHash,
     };
-  }, [streamLines]);
+  }, [streamLines, latest]);
+
+  // Derive naive live/local comparison: last rolling hash from API vs last from stream
+  useEffect(() => {
+    try {
+      const apiRh = (latest as any)?.decision?.rollingHash;
+      const streamRh = [...streamLines]
+        .reverse()
+        .find((l) => l.rollingHash)?.rollingHash;
+      if (!apiRh || !streamRh) {
+        setLiveHashStatus(null);
+      } else {
+        setLiveHashStatus({
+          match: apiRh === streamRh,
+          latest: apiRh,
+          stream: streamRh,
+        });
+      }
+    } catch {
+      setLiveHashStatus(null);
+    }
+  }, [latest, streamLines]);
 
   const verificationPass = latest?.verification?.pass;
   const decision = latest?.decision as any;
@@ -530,9 +590,16 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
           </div>
           {decision ? (
             <div style={{ marginTop: 4, fontSize: 12 }}>
-              <div>Action: {decision.actionType}</div>
-              <div>Risk: {decision.riskScore}</div>
-              <div>Confidence: {decision.confidence}</div>
+              <div>
+                Action: {decision.actionType || decision.aiActionType || "—"}
+              </div>
+              <div>
+                Risk: {decision.riskScore ?? decision.aiRiskScore ?? "—"}
+              </div>
+              <div>
+                Confidence:{" "}
+                {decision.confidence ?? decision.aiConfidence ?? "—"}
+              </div>
               <div style={{ fontSize: 11, color: "#555" }}>
                 ModelHash: {(decision as any).modelHash?.slice(0, 18)}…
               </div>
@@ -581,6 +648,27 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
                 <div>Feat v2: {lastHashes.featureHashV2.slice(0, 24)}…</div>
               )}
               <div>Rationale: {lastHashes.aiRationaleHash?.slice(0, 24)}…</div>
+              <div style={{ marginTop: 4 }}>
+                Live vs Stream:{" "}
+                {liveHashStatus ? (
+                  <span
+                    style={{
+                      color: liveHashStatus.match ? "#0a5" : "#c22",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {liveHashStatus.match ? "MATCH" : "DIVERGE"}
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </div>
+              {liveHashStatus && !liveHashStatus.match && (
+                <div style={{ fontSize: 10, color: "#b00" }}>
+                  api:{liveHashStatus.latest?.slice(0, 10)}… ≠ sse:
+                  {liveHashStatus.stream?.slice(0, 10)}…
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ marginTop: 4, fontSize: 12 }}>—</div>
@@ -617,6 +705,50 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
               {guardrailHead.evaluation?.reason && (
                 <div>
                   Reason: <code>{guardrailHead.evaluation.reason}</code>
+                </div>
+              )}
+              {guardrailHead.diff && (
+                <div style={{ marginTop: 6 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                      color: "#444",
+                    }}
+                  >
+                    Feature Hash Diff
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "monospace",
+                      fontSize: 10,
+                      marginTop: 2,
+                    }}
+                  >
+                    last:{" "}
+                    {(guardrailHead.diff.lastDecisionFeatureHash || "—").slice(
+                      0,
+                      18
+                    )}
+                    …<br />
+                    cur:{" "}
+                    {(guardrailHead.diff.currentFeatureHash || "—").slice(
+                      0,
+                      18
+                    )}
+                    …
+                  </div>
+                  {guardrailHead.diff.lastDecisionFeatureHash &&
+                    guardrailHead.diff.currentFeatureHash &&
+                    guardrailHead.diff.lastDecisionFeatureHash !==
+                      guardrailHead.diff.currentFeatureHash && (
+                      <div
+                        style={{ fontSize: 10, color: "#b00", marginTop: 2 }}
+                      >
+                        Mismatch (attend nouvelle décision pour aligner)
+                      </div>
+                    )}
                 </div>
               )}
               {guardrailHead.evaluation?.warnings?.length > 0 && (
@@ -688,9 +820,18 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
                   key={i}
                   style={{ padding: "2px 0", borderBottom: "1px solid #eee" }}
                 >
-                  <strong>{l.action}</strong> {l.aiActionType || ""}{" "}
-                  {l.riskScore != null ? " r=" + l.riskScore : ""}{" "}
-                  {l.confidence != null ? " c=" + l.confidence : ""}
+                  <strong>{l.action}</strong>{" "}
+                  {l.aiActionType || (l as any).actionType || ""}{" "}
+                  {l.riskScore != null
+                    ? " r=" + l.riskScore
+                    : (l as any).aiRiskScore != null
+                    ? " r=" + (l as any).aiRiskScore
+                    : ""}{" "}
+                  {l.confidence != null
+                    ? " c=" + l.confidence
+                    : (l as any).aiConfidence != null
+                    ? " c=" + (l as any).aiConfidence
+                    : ""}
                 </div>
               ))}
             {!streamLines.length && <div>Waiting…</div>}
@@ -698,6 +839,7 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
         </div>
         <HyperIndexPanel apiBase={base} />
         <ProofPackPanel apiBase={base} />
+        <ProofPackDebugPanel apiBase={base} />
       </div>
       {!!errors.length && (
         <div style={{ marginTop: 10, fontSize: 11, color: "#b00" }}>

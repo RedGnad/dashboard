@@ -1,6 +1,6 @@
 import { Address, encodeAbiParameters, encodePacked } from 'viem'
 import { createOpenDelegation, getDeleGatorEnvironment, Implementation, toMetaMaskSmartAccount } from '@metamask/delegation-toolkit'
-import { publicClient } from '../clients'
+import { asToolkitClient } from '../clients'
 
 // Placeholder: set deployed ValueTransferEnforcer address after deployment
 export const VALUE_TRANSFER_ENFORCER: Address = '0x0000000000000000000000000000000000000000'
@@ -21,7 +21,7 @@ export async function buildValueTransferDelegation(cfg: ValueTransferConfig) {
   const env = getDeleGatorEnvironment(10143)
   // Derive delegator smart account (ownerEOA) deterministically
   const smart = await toMetaMaskSmartAccount({
-    client: publicClient,
+    client: asToolkitClient(),
     implementation: Implementation.Hybrid,
     deployParams: [cfg.ownerEOA, [], [], []],
     deploySalt: '0x',

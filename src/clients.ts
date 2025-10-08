@@ -21,8 +21,24 @@ export const publicClient = createPublicClient({
   transport: http(process.env.RPC_URL ?? 'https://testnet-rpc.monad.xyz'),
 });
 
+// A distinct “bare” client for Delegation Toolkit to avoid account typing conflicts
+// Helper returning a view of publicClient acceptable for toolkit smart account creation.
+// (Avoids second instantiation + complex intersection types.)
+export function asToolkitClient() {
+  return publicClient as any
+}
+
+// Patch readContract to satisfy stricter viem toolchain typings (inject authorizationList placeholder)
+try {
+  const orig = (publicClient as any).readContract
+  if (typeof orig === 'function') {
+    ;(publicClient as any).readContract = (args: any) => orig({ authorizationList: undefined, ...args })
+  }
+} catch {}
+
+// Casting publicClient for AA bundler to avoid intersection narrowing issues introduced by toolkit typings.
 export const bundlerClient = createBundlerClient({
-  client: publicClient,
+  client: publicClient as any,
   transport: http(process.env.ZERO_DEV_BUNDLER_RPC!),
 });
 

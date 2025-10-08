@@ -3,6 +3,7 @@
 // Goal: stable hashing of feature vectors used by AI decisions.
 
 import { keccak256 } from 'viem'
+import { CHAIN_ID } from '../constants'
 
 // 1. Raw chain/indexer event as ingested (already somewhat normalized)
 export interface IngestedEvent {
@@ -27,18 +28,21 @@ export type EventRecord = IngestedEvent
 // 3. Feature windows we compute (rolling back from now)
 export interface FeatureSet {
   schemaVersion: number
+  chainId: number
   asOfTs: number
   windowSpecs: { label: string; fromTs: number; toTs: number }[]
   metrics: Record<string, number | string | null>
   featureHash: string  // keccak256 over canonical serialization
 }
 
-export const CURRENT_FEATURE_SCHEMA_VERSION = 1
+// Bump to 2 because we introduced chainId into canonical serialization.
+export const CURRENT_FEATURE_SCHEMA_VERSION = 2
 
 // Deterministic ordering: sort metric keys lexicographically, join as key=value lines.
 export function serializeFeatures(fs: Omit<FeatureSet, 'featureHash'>): string {
   const lines: string[] = []
   lines.push(`schemaVersion=${fs.schemaVersion}`)
+  lines.push(`chainId=${fs.chainId}`)
   lines.push(`asOfTs=${fs.asOfTs}`)
   for (const w of fs.windowSpecs) {
     lines.push(`window:${w.label}:${w.fromTs}:${w.toTs}`)
@@ -69,6 +73,7 @@ export function buildFeatureSet(params: {
   const windowSpecs = params.windows.map(w => ({ label: w.label, fromTs: now - w.durationMs, toTs: now }))
   const base: Omit<FeatureSet, 'featureHash'> = {
     schemaVersion: CURRENT_FEATURE_SCHEMA_VERSION,
+    chainId: CHAIN_ID,
     asOfTs: now,
     windowSpecs,
     metrics: params.metrics,

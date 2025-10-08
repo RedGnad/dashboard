@@ -21,6 +21,54 @@ type InternalJob = JobStatus & {
   _running?: boolean
 }
 
+// ---- Auto-anchoring (Proof Pack) periodic job ----
+interface AnchorJobState { intervalSec: number; _timer?: NodeJS.Timeout; active: boolean }
+let anchorJob: AnchorJobState | null = null
+
+export function startAutoAnchoring(intervalSec = 300) { // default 5 min
+  if (anchorJob?.active) {
+    anchorJob.intervalSec = intervalSec
+    return { ok: true, updated: true, intervalSec }
+  }
+  anchorJob = { intervalSec, active: true }
+  const tick = async () => {
+    if (!anchorJob?.active) return
+    try {
+      const url = new URL('http://127.0.0.1:' + (process.env.PORT || '8787') + '/api/strategy/proof-pack/latest?anchor=1')
+      const fetchMod = await import('node-fetch').catch(()=>null) as any
+      let res: any
+      if (fetchMod && typeof fetchMod.default === 'function') {
+        res = await fetchMod.default(url.toString())
+      } else if (typeof (globalThis as any).fetch === 'function') {
+        res = await (globalThis as any).fetch(url.toString())
+      } else {
+        console.warn('[auto-anchor] fetch non disponible')
+        return
+      }
+      if (!res.ok) {
+        console.warn('[auto-anchor] http_status', res.status)
+        return
+      }
+      const packHash = res.headers.get('x-pack-keccak256') || 'unknown'
+      console.log('[auto-anchor] anchored pack', { packHash, intervalSec })
+    } catch (e:any) {
+      console.warn('[auto-anchor] tick failed', e?.message || e)
+    }
+  }
+  anchorJob._timer = setInterval(tick, Math.max(60, intervalSec) * 1000)
+  console.log('[auto-anchor] started', { intervalSec })
+  // Immediate first run (detached, no await)
+  tick()
+  return { ok: true, started: true, intervalSec }
+}
+
+export function stopAutoAnchoring() {
+  if (anchorJob?._timer) clearInterval(anchorJob._timer)
+  if (anchorJob) anchorJob.active = false
+  console.log('[auto-anchor] stopped')
+  return { ok: true, stopped: true }
+}
+
 const jobs: Record<string, InternalJob> = {}
 
 function schedule(job: InternalJob) {
@@ -49,7 +97,7 @@ function schedule(job: InternalJob) {
               // Appel interne: réutiliser le code déjà existant (import dynamique de server helpers non nécessaire)
               const mod = await import('./server') // pour accéder à sendUserOpWithOptionalPaymaster si requis plus tard
               // On réimplémente localement le petit bout nécessaire (évite endpoint HTTP interne):
-              const { publicClient, monadTestnet, bundlerClient, paymasterClient } = await import('./clients')
+              const { publicClient, monadTestnet, bundlerClient, paymasterClient, asToolkitClient } = await import('./clients')
               const { Implementation, toMetaMaskSmartAccount, getDeleGatorEnvironment } = await import('@metamask/delegation-toolkit')
               const { privateKeyToAccount } = await import('viem/accounts')
               const { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithModes } = await import('./encoding')
@@ -67,7 +115,7 @@ function schedule(job: InternalJob) {
               const eoaAcc = privateKeyToAccount(pk)
               const env = getDeleGatorEnvironment(monadTestnet.id)
               const delegateSA = await toMetaMaskSmartAccount({
-                client: publicClient,
+                client: asToolkitClient(),
                 implementation: Implementation.Hybrid,
                 deployParams: [eoaAcc.address, [], [], []],
                 deploySalt: '0x',
@@ -104,7 +152,7 @@ function schedule(job: InternalJob) {
                 // Fallback: withdraw WMON puis transfert natif (2 contextes)
                 let wbal = 0n
                 try {
-                  wbal = await publicClient.readContract({
+                  wbal = await (publicClient as any).readContract({
                     address: WMON as Address,
                     abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] } ] as any,
                     functionName: 'balanceOf',

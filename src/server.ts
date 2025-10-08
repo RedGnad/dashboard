@@ -1,3 +1,4 @@
+import { appendAudit, createAuditLock, releaseAuditLock, readRollingSnapshot } from './audit'
 import express from 'express'
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
@@ -5,8 +6,10 @@ import cors from 'cors'
 import 'dotenv/config'
 import { writeFileSync, mkdirSync, existsSync, statSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { publicClient, monadTestnet, bundlerClient, paymasterClient } from './clients'
-import { startJob, stopJob, runNow, getJobs } from './scheduler'
+import { publicClient, monadTestnet, bundlerClient, paymasterClient, asToolkitClient as _asToolkitClient } from './clients'
+// Fallback si l'export est renommé / non présent (sécurité runtime)
+const asToolkitClient = (_asToolkitClient || (() => publicClient)) as () => any
+import { startJob, stopJob, runNow, getJobs, startAutoAnchoring, stopAutoAnchoring } from './scheduler'
 import { decodeErrorResult } from 'viem'
 import { runOnceForDelegator } from './runner'
 import { buildDebugBundle } from './utils/debug'
@@ -17,14 +20,16 @@ import { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithMo
 import { buildLimitCaveats } from './caveat-builders'
 import { computeDelegationHashes, computeWarnings } from './hashing'
 import { computeCanonicalDelegationHashes, typehashes } from './eip712'
-import { appendAudit, hasStructHash, readAuditTail, newRunId, readAuditStream, auditStatus } from './audit'
+// Remove duplicate appendAudit import (caused TS duplicate identifier)
+import { hasStructHash, readAuditTail, newRunId, readAuditStream, auditStatus } from './audit'
 import { computeDelegatorCoverage, computeGlobalCoverage } from './coverage'
 import { strategyEngine, hashRationale } from './strategy/engine'
-import { computeCoreFeatures } from './features'
+import { computeCoreFeatures, computeSyntheticPrice } from './features'
 import { startUserOpResolver } from './userop-resolver'
 import { Address, encodeFunctionData as viemEncodeFunctionData } from 'viem'
 import { readRunHistory, summarizeRunHistory } from './utils/history'
-import { loadGuardrails } from './guardrails'
+import { loadGuardrails, getGuardrailsConfigHash } from './guardrails'
+import { listAdapters, getAdapter } from './source-adapter'
 // --- Simple in-memory auth (personal_sign) state ---
 // NOTE: Nonces & sessions are ephemeral (reset on server restart). Adequate for gating UI today.
 // Future hardening: persist sessions, add rate limits, bind to user agent.
@@ -42,6 +47,22 @@ function buildAuthMessage(address: string, nonce: string, issuedAt: number) {
 const app = express()
 app.use(cors({ origin: true }))
 app.use(express.json({ limit: '256kb' }))
+
+// In-memory tracker for latest guardrail evaluation (preview or force)
+let _lastGuardrailEval: { at: number; delegator?: string; eval: any } | null = null
+
+// Validate AUTO_REVOKE_ABNORMAL_STREAK env (must be >=1). Adjust if invalid and audit.
+try {
+  const raw = process.env.AUTO_REVOKE_ABNORMAL_STREAK
+  if (raw !== undefined) {
+    const v = Number(raw)
+    if (!Number.isFinite(v) || v < 1) {
+      process.env.AUTO_REVOKE_ABNORMAL_STREAK = '1'
+      appendAudit({ action: 'ai_decision', role: 'system', delegator: '0x', delegate: '0x', ts: Date.now(), guardrailReason: 'auto_revoke_threshold_adjusted', warnings: ['auto_revoke_threshold_adjusted'] })
+      console.warn('[auto-revoke] invalid AUTO_REVOKE_ABNORMAL_STREAK value; forced to 1')
+    }
+  }
+} catch {}
 // In-memory log buffer to expose logs via HTTP for convenience
 const LOG_BUFFER: string[] = []
 function pushLog(prefix: string, args: any[]) {
@@ -180,6 +201,7 @@ app.post('/api/auth/verify', async (req, res) => {
     if (!address || !signature) return res.status(400).json({ ok: false, error: 'missing_fields' })
     const addr = String(address).toLowerCase()
     if (!/^0x[0-9a-f]{40}$/.test(addr)) return res.status(400).json({ ok: false, error: 'invalid_address' })
+    // (No enrichment here; keep endpoint minimal for auth)
     const rec = AUTH_NONCES.get(addr)
     if (!rec) return res.status(400).json({ ok: false, error: 'nonce_missing' })
     if (Date.now() > rec.expiresAt) { AUTH_NONCES.delete(addr); return res.status(400).json({ ok: false, error: 'nonce_expired' }) }
@@ -223,6 +245,79 @@ app.get('/', (_req, res) => {
   res.json({ ok: true, name: 'DCA API', endpoints: ['/api/health', '/api/delegate', '/api/diag'] })
 })
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
+// Consolidated state snapshot (for monitoring)
+app.get('/api/strategy/state', (_req, res) => {
+  try {
+    const fsMod = require('node:fs') as typeof import('node:fs')
+    const pathMod = require('node:path') as typeof import('node:path')
+    const auditFile = pathMod.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    let finalRollingHash: string | null = null
+    let lines = 0
+    if (fsMod.existsSync(auditFile)) {
+      const raw = fsMod.readFileSync(auditFile, 'utf8').trim()
+      if (raw) {
+        const arr = raw.split('\n')
+        lines = arr.length
+        for (let i = arr.length -1; i>=0; i--) {
+          try { const j = JSON.parse(arr[i]); if (j.rollingHash) { finalRollingHash = j.rollingHash; break } } catch {}
+        }
+      }
+    }
+    // anchors count
+    const anchorFile = pathMod.join(process.cwd(), 'data', 'anchors.log')
+    let anchors = 0
+    if (fsMod.existsSync(anchorFile)) {
+      const raw = fsMod.readFileSync(anchorFile, 'utf8').trim()
+      anchors = raw ? raw.split('\n').filter(Boolean).length : 0
+    }
+    const guardrailsHash = getGuardrailsConfigHash()
+    // last proof pack hash (header extraction naive: scan anchors for last packKeccak256)
+    let lastPackHash: string | null = null
+    if (fsMod.existsSync(anchorFile)) {
+      try {
+        const linesA = fsMod.readFileSync(anchorFile, 'utf8').trim().split('\n').filter(Boolean)
+        for (let i = linesA.length -1; i>=0; i--) {
+          try { const j = JSON.parse(linesA[i]); if (j.packKeccak256) { lastPackHash = j.packKeccak256; break } } catch {}
+        }
+      } catch {}
+    }
+    return res.json({ ok: true, rolling: { finalRollingHash, lines }, anchors, lastPackHash, guardrailsConfigHash: guardrailsHash })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'state_failed' })
+  }
+})
+// List registered source adapters (multi-chain readiness)
+app.get('/api/strategy/source-adapters', (_req, res) => {
+  try {
+    const adapters = listAdapters().map(a => ({ id: a.id, chainId: a.chainId, kind: a.kind() }))
+    return res.json({ ok: true, adapters })
+  } catch (e:any) { return res.status(500).json({ ok: false, error: e?.message || 'adapters_failed' }) }
+})
+// Simple market snapshot via adapter: /api/strategy/market?adapter=monad-testnet&symbols=USDC,WMON
+app.get('/api/strategy/market', async (req, res) => {
+  try {
+    const adapterId = String(req.query.adapter || 'monad-testnet')
+    const symbols = String(req.query.symbols || 'USDC,WMON').split(',').map(s=>s.trim()).filter(Boolean)
+    const adapter = getAdapter(adapterId)
+    if (!adapter) return res.status(404).json({ ok: false, error: 'adapter_not_found' })
+    const snap = await adapter.fetchMarketSnapshot(symbols)
+    return res.json({ ok: true, snapshot: snap })
+  } catch (e:any) { return res.status(500).json({ ok: false, error: e?.message || 'market_failed' }) }
+})
+// Auto-anchoring control
+app.post('/api/strategy/auto-anchor/start', (req, res) => {
+  try {
+    const intervalSec = Math.max(60, Number(req.body?.intervalSec || 300))
+    const r = startAutoAnchoring(intervalSec)
+  // Avoid duplicate 'ok' spread warning by constructing object explicitly
+  return res.json(r)
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'auto_anchor_start_failed' })
+  }
+})
+app.post('/api/strategy/auto-anchor/stop', (_req, res) => {
+  try { const r = stopAutoAnchoring(); return res.json(r) } catch (e:any) { return res.status(500).json({ ok: false, error: e?.message || 'auto_anchor_stop_failed' }) }
+})
 // Audit tail (simple feed pour HyperIndex ingestion initiale)
 app.get('/api/delegations/audit', (req, res) => {
   const n = Math.min(Number(req.query.n ?? 200), 1000)
@@ -313,8 +408,8 @@ app.get('/api/strategy/preview', async (req, res) => {
       marketVolatilityScore: Number.isFinite(volatility) ? Math.min(Math.max(volatility,0), 2) : 0.35,
     }
     const feat = computeCoreFeatures(delegator)
-  // Placeholder price snapshot (to later replace with oracle real value); ensures future volatility possible
-  const snapshotPrice = 1
+    // Synthetic deterministic price (temporary until oracle integration)
+    const snapshotPrice = computeSyntheticPrice(ctx.timestamp)
   const decision = await strategyEngine.decide(ctx as any)
   const meta = decision.meta || {}
     const aiRationaleHash = hashRationale(decision.rationale)
@@ -334,6 +429,86 @@ app.get('/api/strategy/preview', async (req, res) => {
       allocationDeviation: feat.features.allocationDeviation ?? 0,
       executionsLast24h: feat.features.executionsLast24h ?? 0,
       volatilitySimple: feat.features.volatilitySimple ?? 0,
+    }
+    // Guardrails v2 evaluation (uses recent executions context via audit scan lightweight)
+    let guardrailEval: any = null
+    // Pré-calcul HyperIndex minimal pour guardrail (abnormalTransferFlag)
+    let hyperAbnormalFlag: number | undefined
+    try {
+      const { aggregateHyperIndex } = require('./hyperindex/aggregator') as typeof import('./hyperindex/aggregator')
+      const agg = aggregateHyperIndex({ includeCanonical: false })
+      if (agg && typeof (agg.hyperMetrics as any).events_transfer_24h === 'number') {
+        const transfers = (agg.hyperMetrics as any).events_transfer_24h
+        hyperAbnormalFlag = transfers > 50 ? 1 : 0
+  if (process.env.DEBUG_GUARDRAILS) console.log('[force] hyper metrics transfers', { transfers, hyperAbnormalFlag })
+      } else {
+  if (process.env.DEBUG_GUARDRAILS) console.log('[force] hyper metrics missing events_transfer_24h (agg null or metric absent)')
+      }
+    } catch {}
+    try {
+      const { evaluateGuardrailsV2, loadGuardrails } = await import('./guardrails')
+      // Build execution summary (scan last 500 lines for executions & last decision)
+      const fsMod = await import('node:fs')
+      const pathMod = await import('node:path')
+      const auditFile = pathMod.join(process.cwd(), 'data', 'delegations', 'audit.log')
+      let lastExecutionTs: number | undefined
+      let executions24h = 0
+      let spentUsd24h = 0 // placeholder until dollar tracking
+      let lastDecisionFeatureHash: string | undefined
+      let lastDecisionFeatureHashV2: string | undefined
+      let lastDecisionVolatilitySimple: number | undefined
+      const since24h = Date.now() - 24*60*60*1000
+      if (fsMod.existsSync(auditFile)) {
+        try {
+          const lines = fsMod.readFileSync(auditFile, 'utf8').trim().split('\n').filter(Boolean)
+          for (let i = lines.length - 1; i >= 0 && i >= lines.length - 500; i--) {
+            try {
+              const j = JSON.parse(lines[i])
+              if (j.action === 'execute') {
+                if (!lastExecutionTs) lastExecutionTs = j.ts
+                if (j.ts >= since24h) executions24h++
+              } else if (j.action === 'ai_decision' && !lastDecisionFeatureHash) {
+                lastDecisionFeatureHash = j.featureHash
+                lastDecisionFeatureHashV2 = j.featureHashV2
+                lastDecisionVolatilitySimple = j.inferenceFeatures?.volatilitySimple
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+      const grCfg = loadGuardrails()
+      guardrailEval = evaluateGuardrailsV2(grCfg, {
+        ai: { risk: decision.riskScore, confidence: decision.confidence },
+        ctx: { lastExecutionTs, executions24h, spentUsd24h, lastDecisionFeatureHash, lastDecisionFeatureHashV2, lastDecisionVolatilitySimple },
+        features: { featureHash, featureHashV2, asOfTs: feat.asOfTs, volatilitySimple: feat.features.volatilitySimple ?? undefined },
+        hyper: hyperAbnormalFlag !== undefined ? { abnormalTransferFlag: hyperAbnormalFlag } : undefined,
+      })
+  if (process.env.DEBUG_GUARDRAILS) console.log('[force] guardrailEval', guardrailEval)
+  if (process.env.DEBUG_GUARDRAILS) console.log('[force] guardrailEval', guardrailEval)
+  _lastGuardrailEval = { at: Date.now(), delegator, eval: guardrailEval }
+  if (process.env.DEBUG_GUARDRAILS) console.log('[force] guardrailEval', guardrailEval)
+  _lastGuardrailEval = { at: Date.now(), delegator, eval: guardrailEval }
+      // --- Auto-revoke integration (streak abnormal hyperindex) ---
+      try {
+        const { recordGuardrailHit, maybeAutoRevoke, isRevoked } = require('./revocation') as typeof import('./revocation')
+        const abnormalDetected = (guardrailEval?.warnings || []).includes('abnormal_hyperindex_activity') || guardrailEval?.reason === 'abnormal_hyperindex_activity' || hyperAbnormalFlag === 1
+        if (abnormalDetected) {
+          recordGuardrailHit(delegator, 'abnormal_hyperindex_activity')
+          const rec = maybeAutoRevoke(delegator, { reason: 'auto_revoke_abnormal_hyperindex' })
+          if (rec) console.warn('[auto-revoke] delegation revoked', rec)
+        } else {
+          recordGuardrailHit(delegator, 'clear')
+        }
+        const revoked = isRevoked(delegator)
+        if (revoked) {
+          // Override blocking if revoked
+          guardrailEval = { blocked: true, reason: 'revoked', warnings: ['revoked'], info: { revokedAt: revoked.revokedAt } }
+        }
+      } catch (e) {
+        console.warn('[auto-revoke] integration failed (non-blocking)', (e as any)?.message || e)
+      }
+    } catch (e:any) {
+      console.warn('[guardrails] eval failed (non-blocking)', e?.message || e)
     }
     appendAudit({
       action: 'ai_decision',
@@ -364,6 +539,8 @@ app.get('/api/strategy/preview', async (req, res) => {
       logitZ: meta.logitZ,
       mappingVersion: meta.mappingVersion,
       weightsUsedHash: meta.weightsUsedHash,
+  guardrailReason: guardrailEval?.reason,
+  guardrailReasonsAll: guardrailEval?.reasonsAll,
     })
     console.log('[strategy] decision', { actionType: decision.actionType, risk: decision.riskScore, hash: aiRationaleHash, featureHash })
   return res.json({
@@ -384,11 +561,160 @@ app.get('/api/strategy/preview', async (req, res) => {
       featureSchemaVersion: feat.schemaVersion,
       featuresCanonical,
       inferenceFeatures,
+      guardrails: guardrailEval || null,
+      snapshotPrice,
+      // Expose passive HyperIndex context to caller (optional UI / debug)
+      ...( (() => {
+        try {
+          const { aggregateHyperIndex } = require('./hyperindex/aggregator') as typeof import('./hyperindex/aggregator')
+          const agg = aggregateHyperIndex({ includeCanonical: false })
+          if (!agg) return {}
+          // Experimental v3 candidates (passives): momentum, abnormal flag, quantized price reuse.
+          const exp: Record<string, number | string | null> = {}
+          const pc15 = (agg.hyperMetrics as any).priceChangePct_24h // placeholder reuse (we only have 24h now)
+          // momentum faux: dérivé simple (placeholder) => on met null si pas de granularité courte disponible
+          exp['exp_momentum'] = pc15 == null ? null : Number(pc15)
+          // abnormalTransferFlag: heuristique si events_transfer_24h > 2 * médiane approximative (absente) => simplifié: > 50
+          const transfers = (agg.hyperMetrics as any).events_transfer_24h || 0
+            exp['exp_abnormalTransferFlag'] = transfers > 50 ? 1 : 0
+          // quantized price: on réutilise snapshotPrice si présent sinon null
+          exp['exp_quantizedPrice'] = snapshotPrice == null ? null : snapshotPrice
+          // pnl placeholder (null pour l'instant)
+          exp['exp_pnlRealized'] = null
+          return { eventSetHash: agg.eventSetHash, hyperMetrics: agg.hyperMetrics, expFeatures: exp }
+        } catch { return {} }
+      })() ),
     },
   })
   } catch (e: any) {
     console.error('[strategy] preview failed', e)
     return res.status(500).json({ ok: false, error: e?.message || 'strategy_preview_failed' })
+  }
+})
+// Force generation of a new ai_decision (manual trigger) for a delegator; returns the new rolling hash.
+app.post('/api/strategy/decision/force', async (req,res) => {
+  try {
+    const delegator = (req.body && (req.body as any).delegator ? String((req.body as any).delegator) : '0x').toLowerCase()
+    try {
+      const { isRevoked } = require('./revocation') as typeof import('./revocation')
+      const revoked = isRevoked(delegator)
+      if (revoked) {
+        return res.status(403).json({ ok: false, error: 'delegation_revoked', revoked })
+      }
+    } catch {}
+    const volatility = Number(req.body?.volatility ?? 0.35)
+    const ctx = {
+      timestamp: Date.now(),
+      delegator,
+      balances: {},
+      targets: [ { symbol: 'WMON', weightBps: 5000 } ],
+      prices: { USDC: '1', WMON: '0' },
+      recentExecutions: [],
+      riskParams: { maxSlippageBps: 80, maxSingleUsd: 100 },
+      marketVolatilityScore: Number.isFinite(volatility) ? Math.min(Math.max(volatility,0), 2) : 0.35,
+    }
+    const feat = computeCoreFeatures(delegator)
+    const decision = await strategyEngine.decide(ctx as any)
+    const meta = decision.meta || {}
+    const aiRationaleHash = hashRationale(decision.rationale)
+    const featureHash = feat.featureHash
+    const featureHashV2 = feat.featureHashV2
+    const canonicalParts: string[] = []
+    canonicalParts.push(`v=${feat.schemaVersion}`)
+    canonicalParts.push(`ts=${feat.asOfTs}`)
+    for (const k of feat.order) {
+      const v = (feat.features as any)[k]
+      canonicalParts.push(`${k}=${v === null || v === undefined ? 'null' : v}`)
+    }
+    const featuresCanonical = canonicalParts.join('\n')
+
+    // --- Guardrails + auto-revoke integration (mirrors preview endpoint) ---
+    let guardrailEval: any = null
+    let hyperAbnormalFlag: number | undefined
+    try {
+      const { aggregateHyperIndex } = require('./hyperindex/aggregator') as typeof import('./hyperindex/aggregator')
+      const agg = aggregateHyperIndex({ includeCanonical: false })
+      if (agg && typeof (agg.hyperMetrics as any).events_transfer_24h === 'number') {
+        const transfers = (agg.hyperMetrics as any).events_transfer_24h
+        hyperAbnormalFlag = transfers > 50 ? 1 : 0
+  if (process.env.DEBUG_GUARDRAILS) console.log('[force] hyper metrics', { transfers, hyperAbnormalFlag })
+      } else {
+  if (process.env.DEBUG_GUARDRAILS) console.log('[force] no hyper metrics events_transfer_24h found (agg null?)')
+      }
+    } catch {}
+    try {
+      const { evaluateGuardrailsV2, loadGuardrails } = await import('./guardrails')
+      // Build execution summary (scan last 500 lines for executions & last decision)
+      const fsMod = await import('node:fs')
+      const pathMod = await import('node:path')
+      const auditFile = pathMod.join(process.cwd(), 'data', 'delegations', 'audit.log')
+      let lastExecutionTs: number | undefined
+      let executions24h = 0
+      let spentUsd24h = 0
+      let lastDecisionFeatureHash: string | undefined
+      let lastDecisionFeatureHashV2: string | undefined
+      let lastDecisionVolatilitySimple: number | undefined
+      const since24h = Date.now() - 24*60*60*1000
+      if (fsMod.existsSync(auditFile)) {
+        try {
+          const lines = fsMod.readFileSync(auditFile, 'utf8').trim().split('\n').filter(Boolean)
+          for (let i = lines.length - 1; i >= 0 && i >= lines.length - 500; i--) {
+            try {
+              const j = JSON.parse(lines[i])
+              if (j.action === 'execute') {
+                if (!lastExecutionTs) lastExecutionTs = j.ts
+                if (j.ts >= since24h) executions24h++
+              } else if (j.action === 'ai_decision' && !lastDecisionFeatureHash) {
+                lastDecisionFeatureHash = j.featureHash
+                lastDecisionFeatureHashV2 = j.featureHashV2
+                lastDecisionVolatilitySimple = j.inferenceFeatures?.volatilitySimple
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+      const grCfg = loadGuardrails()
+  if (process.env.DEBUG_GUARDRAILS) console.log('[force] guardrails config', { blockOnAbnormalHyperIndex: grCfg.blockOnAbnormalHyperIndex })
+      guardrailEval = evaluateGuardrailsV2(grCfg, {
+        ai: { risk: decision.riskScore, confidence: decision.confidence },
+        ctx: { lastExecutionTs, executions24h, spentUsd24h, lastDecisionFeatureHash, lastDecisionFeatureHashV2, lastDecisionVolatilitySimple },
+        features: { featureHash, featureHashV2, asOfTs: feat.asOfTs, volatilitySimple: feat.features.volatilitySimple ?? undefined },
+        hyper: hyperAbnormalFlag !== undefined ? { abnormalTransferFlag: hyperAbnormalFlag } : undefined,
+      })
+  if (process.env.DEBUG_GUARDRAILS) console.log('[force] guardrailEval', guardrailEval)
+      // Auto-revoke streak update
+      try {
+        const { recordGuardrailHit, maybeAutoRevoke, isRevoked } = require('./revocation') as typeof import('./revocation')
+        const abnormalDetectedForce = (guardrailEval?.warnings || []).includes('abnormal_hyperindex_activity') || guardrailEval?.reason === 'abnormal_hyperindex_activity' || hyperAbnormalFlag === 1
+        if (abnormalDetectedForce) {
+          recordGuardrailHit(delegator, 'abnormal_hyperindex_activity')
+          const rec = maybeAutoRevoke(delegator, { reason: 'auto_revoke_abnormal_hyperindex' })
+          if (rec) console.warn('[auto-revoke] delegation revoked', rec)
+        } else {
+          recordGuardrailHit(delegator, 'clear')
+        }
+        const revoked = isRevoked(delegator)
+        if (revoked) {
+          guardrailEval = { blocked: true, reason: 'revoked', warnings: ['revoked'], info: { revokedAt: revoked.revokedAt } }
+        }
+      } catch (e) {
+        console.warn('[auto-revoke] integration (force) failed (non-blocking)', (e as any)?.message || e)
+      }
+    } catch (e:any) {
+      console.warn('[guardrails] eval (force) failed (non-blocking)', e?.message || e)
+    }
+
+    appendAudit({
+      action: 'ai_decision', ts: ctx.timestamp, delegator, delegate: '0x', role: 'ai', structHash:'0x', digest:'0x', domainSeparator:'0x', caveatsRoot:'0x', salt:'0x', warnings:[], signatureModel:'UNKNOWN',
+      aiRationaleHash, aiRiskScore: decision.riskScore, aiConfidence: decision.confidence, strategyEngineVersion: strategyEngine.version(), aiActionType: decision.actionType,
+      featureHash, featureHashV2, featureSchemaVersion: feat.schemaVersion, modelHash: meta.modelHash, inferenceProvider: meta.inferenceProvider, featuresCanonical,
+      inferenceFeatures: { allocationDeviation: feat.features.allocationDeviation ?? 0, executionsLast24h: feat.features.executionsLast24h ?? 0, volatilitySimple: feat.features.volatilitySimple ?? 0 }, rawScore: meta.rawScore, logitZ: meta.logitZ, mappingVersion: meta.mappingVersion, weightsUsedHash: meta.weightsUsedHash,
+      guardrailReason: guardrailEval?.reason,
+      guardrailReasonsAll: guardrailEval?.reasonsAll,
+    })
+    return res.json({ ok: true, rollingHash: 'pending_readback', guardrails: guardrailEval || null })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'force_decision_failed' })
   }
 })
 
@@ -413,6 +739,14 @@ app.get('/api/strategy/decision/latest', (req, res) => {
       } catch {}
     }
     if (!decision) return res.json({ ok: true, empty: true, decision: null })
+    // Revocation status (if delegator present)
+    let revoked: any = null
+    try {
+      if (decision.delegator && /^0x[0-9a-f]{40}$/.test(decision.delegator)) {
+        const { isRevoked } = require('./revocation') as typeof import('./revocation')
+        revoked = isRevoked(decision.delegator)
+      }
+    } catch {}
     // Build verification summary
     const verif: Record<string, { expected: any; actual: any; pass: boolean }> = {}
     function add(label: string, expected: any, actual: any) {
@@ -424,14 +758,14 @@ app.get('/api/strategy/decision/latest', (req, res) => {
         const enc = new TextEncoder().encode(decision.featuresCanonical)
         let hex = '0x'; for (const b of enc) hex += b.toString(16).padStart(2,'0')
         const { keccak256 } = require('viem') as typeof import('viem')
-        const fh = keccak256(hex)
+  const fh = keccak256(hex as `0x${string}`)
         add('featureHash', decision.featureHash, fh)
         if (decision.featureHashV2) {
           const lines = decision.featuresCanonical.split('\n')
           const tsFiltered = lines.filter((l: string) => !l.startsWith('ts=')).join('\n')
           const enc2 = new TextEncoder().encode(tsFiltered)
             let hex2='0x'; for (const b of enc2) hex2+=b.toString(16).padStart(2,'0')
-          const fh2 = keccak256(hex2)
+          const fh2 = keccak256(hex2 as `0x${string}`)
           add('featureHashV2', decision.featureHashV2, fh2)
         }
       } catch {}
@@ -450,9 +784,119 @@ app.get('/api/strategy/decision/latest', (req, res) => {
     add('mappingVersion(present)', true, decision.mappingVersion !== undefined)
     add('weightsUsedHash(present)', true, decision.weightsUsedHash !== undefined)
     const allPass = Object.values(verif).every(v => v.pass)
-    return res.json({ ok: true, decision, verification: { pass: allPass, checks: verif } })
+    return res.json({ ok: true, decision: { ...decision, revoked: !!revoked, guardrailReasonsAll: decision.guardrailReasonsAll || decision.warnings || [] }, verification: { pass: allPass, checks: verif } })
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e?.message || 'latest_decision_failed' })
+  }
+})
+
+// Revocation status
+app.get('/api/delegations/revocation/status', (req,res) => {
+  try {
+    const delegator = String(req.query.delegator || '0x').toLowerCase()
+    if (!/^0x[0-9a-f]{40}$/.test(delegator)) return res.status(400).json({ ok: false, error: 'invalid_delegator' })
+    const { isRevoked, getStreak } = require('./revocation') as typeof import('./revocation')
+    const rec = isRevoked(delegator)
+    return res.json({ ok: true, revoked: !!rec, record: rec || null, abnormalStreak: getStreak(delegator) })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'revocation_status_failed' })
+  }
+})
+
+// HyperIndex proof endpoint: expose canonical aggregation for external verification
+app.get('/api/hyperindex/proof', (req, res) => {
+  try {
+    const { aggregateHyperIndex } = require('./hyperindex/aggregator') as typeof import('./hyperindex/aggregator')
+    const includeCanonical = /^(1|true)$/i.test(String(req.query?.canonical || ''))
+    const agg = aggregateHyperIndex({ includeCanonical })
+    if (!agg) return res.json({ ok: true, empty: true })
+    return res.json({ ok: true, proof: {
+      asOfTs: agg.asOfTs,
+      rangeMs: agg.rangeMs,
+      eventCount: agg.eventCount,
+      eventSetHash: agg.eventSetHash,
+      hyperMetrics: agg.hyperMetrics,
+      canonical: includeCanonical ? agg._canonical : undefined,
+    } })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'hyperindex_proof_failed' })
+  }
+})
+
+// Replay an AI decision (latest or by rollingHash) with verification modes
+// GET /api/strategy/decision/replay?rollingHash=0x..&mode=basic|strict|strict-snapshot
+app.get('/api/strategy/decision/replay', (req, res) => {
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const { keccak256 } = require('viem') as typeof import('viem')
+    const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    if (!fs.existsSync(file)) return res.status(404).json({ ok: false, error: 'no_audit_log' })
+    const raw = fs.readFileSync(file, 'utf8').trim()
+    if (!raw) return res.status(404).json({ ok: false, error: 'empty_audit_log' })
+    const lines = raw.split('\n')
+    const rollingQ = String(req.query.rollingHash || '')
+    const mode = String(req.query.mode || 'basic')
+    let decision: any = null
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i]
+      if (!l) continue
+      try {
+        const j = JSON.parse(l)
+        if (j.action === 'ai_decision') {
+          if (!rollingQ || j.rollingHash === rollingQ) { decision = j; break }
+        }
+      } catch {}
+    }
+    if (!decision) return res.status(404).json({ ok: false, error: 'decision_not_found' })
+    // Basic recomputation logic (reuse inline simplified version similar to replay-decision.ts)
+    const { loadModel, computeScore, mapScoreToDecision } = require('./strategy/model') as typeof import('./strategy/model')
+    // Re-hash featuresCanonical if available
+    let reFeatureHash: string | undefined
+    let reFeatureHashV2: string | undefined
+    if (decision.featuresCanonical) {
+      const enc = new TextEncoder().encode(decision.featuresCanonical)
+      let hex = '0x'; for (const b of enc) hex += b.toString(16).padStart(2,'0')
+      reFeatureHash = keccak256(hex as `0x${string}`)
+      const linesF = decision.featuresCanonical.split('\n')
+      const tsFiltered = linesF.filter((l: string) => !l.startsWith('ts=')).join('\n')
+      const enc2 = new TextEncoder().encode(tsFiltered)
+      let hex2='0x'; for (const b of enc2) hex2 += b.toString(16).padStart(2,'0')
+      reFeatureHashV2 = keccak256(hex2 as `0x${string}`)
+    }
+    const model = loadModel()
+    const featureInputs = decision.inferenceFeatures || {}
+    const { score, z } = computeScore({
+      allocationDeviation: featureInputs.allocationDeviation || 0,
+      executionsLast24h: featureInputs.executionsLast24h || 0,
+      volatilitySimple: featureInputs.volatilitySimple || 0,
+    }, model)
+    const mapped = mapScoreToDecision(score, {
+      allocationDeviation: featureInputs.allocationDeviation || 0,
+      executionsLast24h: featureInputs.executionsLast24h || 0,
+      volatilitySimple: featureInputs.volatilitySimple || 0,
+    })
+    // Build checks depending on mode
+    const checks: Record<string, { expected: any; actual: any; pass: boolean }> = {}
+    function add(label: string, expected: any, actual: any) { checks[label] = { expected, actual, pass: expected === actual } }
+    if (mode === 'basic' || mode === 'strict' || mode === 'strict-snapshot') {
+      if (reFeatureHash) add('featureHash', decision.featureHash, reFeatureHash)
+      add('modelHash', decision.modelHash, model.modelHash)
+      add('actionType', decision.aiActionType, mapped.actionType === 'SELL' ? 'REBALANCE' : mapped.actionType)
+      add('riskScore', decision.aiRiskScore, mapped.riskScore)
+      add('confidence', decision.aiConfidence, mapped.confidence)
+    }
+    if (mode === 'strict' || mode === 'strict-snapshot') {
+      if (reFeatureHashV2) add('featureHashV2', decision.featureHashV2, reFeatureHashV2)
+      add('rawScore(present)', true, decision.rawScore !== undefined)
+      add('mappingVersion(present)', true, decision.mappingVersion !== undefined)
+      add('weightsUsedHash(present)', true, decision.weightsUsedHash !== undefined)
+    }
+    // strict-snapshot requires ALL snapshot related fields EXACT + presence
+    const pass = Object.values(checks).every(c => c.pass)
+    return res.json({ ok: true, pass, mode, rollingHash: decision.rollingHash, decisionTs: decision.ts, checks, recomputed: { featureHash: reFeatureHash, featureHashV2: reFeatureHashV2, modelHash: model.modelHash, score, z, mapped } })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'replay_failed' })
   }
 })
 
@@ -554,6 +998,236 @@ app.get('/api/strategy/features/head', (_req, res) => {
     return res.status(500).json({ ok: false, error: e?.message || 'features_head_failed' })
   }
 })
+
+// Proof pack latest (lightweight bundle). Returns gzipped JSON with files array.
+app.get('/api/strategy/proof-pack/latest', async (_req, res) => {
+  try {
+    const fsMod = await import('node:fs')
+    const pathMod = await import('node:path')
+  const { keccak256 } = await import('viem')
+  const zlib = await import('node:zlib')
+    const { computeFeatureSet } = await import('./hyperindex/features')
+    const { loadAllEvents } = await import('./hyperindex/eventStore')
+    const auditFile = pathMod.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    let decisionLine: any = null
+    let rollingHash: string | undefined
+    let rollingHeight = 0
+    if (fsMod.existsSync(auditFile)) {
+      const lines = fsMod.readFileSync(auditFile, 'utf8').trim().split('\n').filter(Boolean)
+      rollingHeight = lines.length
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const j = JSON.parse(lines[i])
+          if (!rollingHash && j.rollingHash) rollingHash = j.rollingHash
+          if (!decisionLine && j.action === 'ai_decision') {
+            decisionLine = j
+            if (rollingHash) break
+          }
+        } catch {}
+      }
+    }
+    const features = computeFeatureSet({})
+    const all = loadAllEvents()
+    let events: any[] = []
+    let eventsWindow: any
+    if (features) {
+      const to = features.asOfTs
+      const from = Math.min(...features.windowSpecs.map((w: any) => w.fromTs))
+      events = all.filter(e => e.ts >= from && e.ts <= to)
+      eventsWindow = { from, to, count: events.length }
+    } else {
+      events = all.slice(-200)
+      if (events.length) eventsWindow = { from: events[0].ts, to: events[events.length - 1].ts, count: events.length }
+    }
+    function stringToHex(str: string): `0x${string}` {
+      const enc = new TextEncoder().encode(str)
+      let hex = '0x'
+      for (const b of enc) hex += b.toString(16).padStart(2, '0')
+      return hex as `0x${string}`
+    }
+    const buildTs = Date.now()
+    const chainId = Number(process.env.CHAIN_ID || (decisionLine?.chainId ?? features?.chainId ?? 0))
+    const files: { name: string; content: string }[] = []
+    if (decisionLine) files.push({ name: 'decision.json', content: JSON.stringify(decisionLine, null, 2) })
+    if (features) files.push({ name: 'features.json', content: JSON.stringify(features, null, 2) })
+    if (events.length) files.push({ name: 'events.jsonl', content: events.map(e => JSON.stringify(e)).join('\n') + '\n' })
+    if (rollingHash) files.push({ name: 'rolling.txt', content: `${rollingHash}\nheight=${rollingHeight}\n` })
+    const manifestProvisional: any = {
+      schemaVersion: '1.0.0',
+      buildTs,
+      chainId,
+      decision: decisionLine ? { actionId: decisionLine.actionId, ts: decisionLine.ts, aiActionType: decisionLine.aiActionType } : undefined,
+      decisionRollingHash: decisionLine?.rollingHash,
+      featureHash: features?.featureHash,
+      modelHash: decisionLine?.modelHash,
+      weightsUsedHash: decisionLine?.weightsUsedHash,
+      aiRationaleHash: decisionLine?.aiRationaleHash,
+      rollingHash,
+      rollingHashHeight: rollingHeight,
+      eventsWindow,
+      files: [] as any[],
+    }
+    for (const f of files) {
+      const hex = stringToHex(f.content)
+      const k = keccak256(hex)
+      manifestProvisional.files.push({ name: f.name, keccak256: k, size: Buffer.byteLength(f.content) })
+    }
+    // First bundle WITHOUT packKeccak field
+    const provisionalFiles = [...files, { name: 'manifest.json', content: JSON.stringify(manifestProvisional, null, 2) }]
+    const bundleSansPack = { files: provisionalFiles.map(f => ({ name: f.name, content: f.content })) }
+    const bundleSansPackJson = JSON.stringify(bundleSansPack)
+    const packKeccak256 = keccak256(stringToHex(bundleSansPackJson))
+    // Optional anchoring (off-chain lightweight). If query anchor=1, append anchor line to data/anchors.log and attach anchorRef ONLY in final manifest (not hashed in packKeccak256 pre-image).
+    let anchorRef: string | undefined
+    const wantAnchor = typeof (_req.query as any)?.anchor !== 'undefined'
+    if (wantAnchor) {
+      const anchorTs = Date.now()
+      anchorRef = `anc_${anchorTs}`
+      try {
+        const anchorsDir = pathMod.join(process.cwd(), 'data')
+        const anchorsFile = pathMod.join(anchorsDir, 'anchors.log')
+        if (!fsMod.existsSync(anchorsDir)) fsMod.mkdirSync(anchorsDir, { recursive: true })
+        const anchorLine = {
+          ts: anchorTs,
+            anchorRef,
+            packKeccak256,
+            rollingHash,
+            rollingHashHeight: rollingHeight,
+            featureHash: features?.featureHash,
+            decisionRollingHash: decisionLine?.rollingHash
+        }
+        fsMod.appendFileSync(anchorsFile, JSON.stringify(anchorLine) + '\n')
+      } catch (e:any) {
+        console.warn('[anchor] failed to append', e?.message || e)
+      }
+    }
+    const manifestFinal = { ...manifestProvisional, packKeccak256, ...(anchorRef ? { anchorRef } : {}) }
+    const finalFiles = [...files, { name: 'manifest.json', content: JSON.stringify(manifestFinal, null, 2) }]
+    const finalBundle = { files: finalFiles.map(f => ({ name: f.name, content: f.content })) }
+    const finalJson = JSON.stringify(finalBundle)
+  const gz = zlib.gzipSync(Buffer.from(finalJson))
+    res.setHeader('Content-Type', 'application/gzip')
+    res.setHeader('X-Pack-Keccak256', packKeccak256)
+    res.setHeader('Content-Disposition', `attachment; filename="proof-pack-${buildTs}.json.gz"`)
+    return res.send(gz)
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'proof_pack_failed' })
+  }
+})
+
+// Anchors listing (last 50)
+app.get('/api/strategy/anchors', (req, res) => {
+  try {
+    const fsMod = require('node:fs') as typeof import('node:fs')
+    const pathMod = require('node:path') as typeof import('node:path')
+    const anchorsFile = pathMod.join(process.cwd(), 'data', 'anchors.log')
+    if (!fsMod.existsSync(anchorsFile)) return res.json({ ok: true, anchors: [] })
+    const raw = fsMod.readFileSync(anchorsFile, 'utf8').trim().split('\n').filter(Boolean)
+    const lines = raw.slice(-50).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+    return res.json({ ok: true, anchors: lines })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'anchors_failed' })
+  }
+})
+
+// Manual anchor append (optional) POST /api/strategy/anchors  { packKeccak256, rollingHash }
+app.post('/api/strategy/anchors', (req, res) => {
+  try {
+    const fsMod = require('node:fs') as typeof import('node:fs')
+    const pathMod = require('node:path') as typeof import('node:path')
+    const { packKeccak256, rollingHash } = req.body || {}
+    if (!packKeccak256 || !rollingHash) return res.status(400).json({ ok: false, error: 'missing_fields' })
+    const anchorsFile = pathMod.join(process.cwd(), 'data', 'anchors.log')
+    const anchorRef = 'anc_' + Date.now()
+    const line = { ts: Date.now(), anchorRef, packKeccak256, rollingHash }
+    fsMod.appendFileSync(anchorsFile, JSON.stringify(line) + '\n')
+    return res.json({ ok: true, anchorRef })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'anchor_append_failed' })
+  }
+})
+
+// ---------------- HyperIndex style namespace (phase 1) ----------------
+// GET /api/hyperindex/features/head  -> alias to strategy features head
+app.get('/api/hyperindex/features/head', (_req, res) => {
+  try {
+    const { computeFeatureSet } = require('./hyperindex/features') as typeof import('./hyperindex/features')
+    const feat = computeFeatureSet({})
+    if (!feat) return res.json({ ok: true, empty: true, features: null })
+    return res.json({ ok: true, features: feat })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'hyperindex_features_failed' })
+  }
+})
+
+// GET /api/hyperindex/events?limit=100&sinceTs=...&types=swap,transfer
+app.get('/api/hyperindex/events', (req, res) => {
+  try {
+    const { queryEvents, countEvents } = require('./hyperindex/eventStore') as typeof import('./hyperindex/eventStore')
+    const limit = Math.min(Number(req.query.limit ?? 100), 500)
+    const sinceTs = req.query.sinceTs ? Number(req.query.sinceTs) : undefined
+    const typesParam = String(req.query.types || '')
+    const typeIn = typesParam ? typesParam.split(',').filter(Boolean) : undefined
+    const events = queryEvents({ limit, sinceTs, typeIn })
+    return res.json({ ok: true, events, limit, totalApprox: countEvents() })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'hyperindex_events_failed' })
+  }
+})
+
+// GET /api/hyperindex/_meta  -> mimic subset of HyperIndex _meta semantics
+// Returns progress style info based on local event log only (single chain simulation)
+app.get('/api/hyperindex/_meta', (_req, res) => {
+  try {
+    const { loadAllEvents } = require('./hyperindex/eventStore') as typeof import('./hyperindex/eventStore')
+    const all = loadAllEvents()
+    if (!all.length) return res.json({ ok: true, chains: [], eventsProcessed: 0 })
+    const first = all[0]
+    const last = all[all.length - 1]
+    const chainIds = Array.from(new Set(all.map(e => e.chainId))).sort()
+    const typeCounts: Record<string, number> = {}
+    for (const e of all) typeCounts[e.type] = (typeCounts[e.type] || 0) + 1
+    return res.json({
+      ok: true,
+      eventsProcessed: all.length,
+      firstEventTs: first.ts,
+      lastEventTs: last.ts,
+      chains: chainIds.map(id => ({ chainId: id, firstEventTs: all.find(e => e.chainId === id)?.ts || first.ts, lastEventTs: [...all].reverse().find(e => e.chainId === id)?.ts || last.ts })),
+      types: typeCounts,
+    })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'hyperindex_meta_failed' })
+  }
+})
+
+// GET /api/hyperindex/routes -> proxy /api/_routes (helpful discovery)
+app.get('/api/hyperindex/routes', async (_req, res) => {
+  try {
+    // Reuse internal route listing function by invoking the handler indirectly would be complex; simpler: replicate logic here quickly.
+    const out: { method: string; path: string }[] = []
+    // @ts-ignore internal express
+    const stack = app._router && app._router.stack ? app._router.stack : []
+    for (const layer of stack) {
+      if (!layer) continue
+      if (layer.route && layer.route.path) {
+        const methods = Object.keys(layer.route.methods || {})
+        for (const m of methods) out.push({ method: m.toUpperCase(), path: layer.route.path })
+      } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
+        for (const s of layer.handle.stack) {
+          if (s.route && s.route.path) {
+            const methods = Object.keys(s.route.methods || {})
+            for (const m of methods) out.push({ method: m.toUpperCase(), path: s.route.path })
+          }
+        }
+      }
+    }
+    out.sort((a,b) => a.path === b.path ? a.method.localeCompare(b.method) : a.path.localeCompare(b.path))
+    return res.json({ ok: true, routes: out.filter(r => r.path.startsWith('/api/hyperindex') || r.path.startsWith('/api/strategy') || r.path.startsWith('/api/delegations') || r.path.startsWith('/api/audit') ) })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'hyperindex_routes_failed' })
+  }
+})
+
 // Execute endpoint: trigger execution from last or specific ai_decision
 app.post('/api/strategy/execute', async (req, res) => {
   try {
@@ -656,6 +1330,124 @@ app.get('/api/strategy/effectiveness', (_req, res) => {
     return res.status(500).json({ ok: false, error: e?.message || 'effectiveness_failed' })
   }
 })
+
+// Dynamic route listing for discovery
+app.get('/api/_routes', (req, res) => {
+  try {
+    const out: { method: string; path: string }[] = []
+    // @ts-ignore accessing private Express internals acceptable here
+    const stack = app._router && app._router.stack ? app._router.stack : []
+    for (const layer of stack) {
+      if (!layer) continue
+      if (layer.route && layer.route.path) {
+        const methods = Object.keys(layer.route.methods || {})
+        for (const m of methods) out.push({ method: m.toUpperCase(), path: layer.route.path })
+      } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
+        for (const s of layer.handle.stack) {
+          if (s.route && s.route.path) {
+            const methods = Object.keys(s.route.methods || {})
+            for (const m of methods) out.push({ method: m.toUpperCase(), path: s.route.path })
+          }
+        }
+      }
+    }
+    // Sort for determinism
+    out.sort((a,b) => a.path === b.path ? a.method.localeCompare(b.method) : a.path.localeCompare(b.path))
+    return res.json({ ok: true, routes: out })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'routes_failed' })
+  }
+})
+
+// Anchor rollingHash stub (simulated on-chain anchor persistence)
+// POST /api/audit/anchor  { note?: string }
+// Reads last line rollingHash and appends anchor record to anchors.jsonl
+app.post('/api/audit/anchor', (req, res) => {
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const auditFile = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    if (!fs.existsSync(auditFile)) return res.status(400).json({ ok: false, error: 'no_audit_log' })
+    const raw = fs.readFileSync(auditFile, 'utf8').trim()
+    if (!raw) return res.status(400).json({ ok: false, error: 'empty_audit_log' })
+    const lines = raw.split('\n')
+    let lastRolling: string | undefined
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i]
+      if (!l) continue
+      try { const j = JSON.parse(l); if (j.rollingHash) { lastRolling = j.rollingHash; break } } catch {}
+    }
+    if (!lastRolling) return res.status(400).json({ ok: false, error: 'no_rolling_hash_found' })
+    const anchorsFile = path.join(process.cwd(), 'data', 'delegations', 'anchors.jsonl')
+    const rec = { ts: Date.now(), rollingHash: lastRolling, note: req.body?.note || null }
+    fs.appendFileSync(anchorsFile, JSON.stringify(rec) + '\n')
+    return res.json({ ok: true, anchored: rec })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'anchor_failed' })
+  }
+})
+
+// List anchors
+app.get('/api/audit/anchors', (_req, res) => {
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const anchorsFile = path.join(process.cwd(), 'data', 'delegations', 'anchors.jsonl')
+    if (!fs.existsSync(anchorsFile)) return res.json({ ok: true, anchors: [] })
+    const raw = fs.readFileSync(anchorsFile, 'utf8').trim()
+    if (!raw) return res.json({ ok: true, anchors: [] })
+    const anchors = raw.split('\n').map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+    return res.json({ ok: true, anchors })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'anchors_failed' })
+  }
+})
+
+// Export latest decision snapshot (features + provenance) for offline verification
+// GET /api/strategy/decision/export/latest
+app.get('/api/strategy/decision/export/latest', (req, res) => {
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    if (!fs.existsSync(file)) return res.status(404).json({ ok: false, error: 'no_audit_log' })
+    const raw = fs.readFileSync(file, 'utf8').trim()
+    if (!raw) return res.status(404).json({ ok: false, error: 'empty_audit_log' })
+    const lines = raw.split('\n')
+    let decision: any = null
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i]; if (!l) continue
+      try { const j = JSON.parse(l); if (j.action === 'ai_decision') { decision = j; break } } catch {}
+    }
+    if (!decision) return res.status(404).json({ ok: false, error: 'no_decision_found' })
+    const snapshot = {
+      exportedAt: Date.now(),
+      rollingHash: decision.rollingHash,
+      featureHash: decision.featureHash,
+      featureHashV2: decision.featureHashV2 || null,
+      modelHash: decision.modelHash || null,
+      weightsUsedHash: decision.weightsUsedHash || null,
+      mappingVersion: decision.mappingVersion || null,
+      rawScore: decision.rawScore,
+      logitZ: decision.logitZ,
+      aiActionType: decision.aiActionType,
+      aiRiskScore: decision.aiRiskScore,
+      aiConfidence: decision.aiConfidence,
+      aiRationaleHash: decision.aiRationaleHash,
+      featuresCanonical: decision.featuresCanonical || null,
+      inferenceFeatures: decision.inferenceFeatures || null,
+      provenance: {
+        schemaVersion: decision.featureSchemaVersion || null,
+        inferenceProvider: decision.inferenceProvider || null,
+      }
+    }
+    res.setHeader('Content-Type', 'application/json')
+    res.setHeader('Content-Disposition', 'attachment; filename="decision-snapshot.json"')
+    return res.send(JSON.stringify({ ok: true, snapshot }, null, 2))
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'export_failed' })
+  }
+})
 // Guardrails inspect & reload
 app.get('/api/strategy/guardrails', (_req, res) => {
   try { return res.json({ ok: true, guardrails: loadGuardrails(true) }) } catch (e: any) { return res.status(500).json({ ok: false, error: e?.message || 'guardrails_failed' }) }
@@ -663,8 +1455,114 @@ app.get('/api/strategy/guardrails', (_req, res) => {
 app.post('/api/strategy/guardrails/reload', (_req, res) => {
   try { const gr = loadGuardrails(true); return res.json({ ok: true, reloaded: true, guardrails: gr }) } catch (e: any) { return res.status(500).json({ ok: false, error: e?.message || 'guardrails_reload_failed' }) }
 })
+// Guardrails head evaluation (replays minimal context to show what would block now)
+app.get('/api/strategy/guardrails/head', async (_req, res) => {
+  try {
+    const { evaluateGuardrailsV2, loadGuardrails } = await import('./guardrails')
+    const gr = loadGuardrails()
+    const fsMod = await import('node:fs')
+    const pathMod = await import('node:path')
+    const auditFile = pathMod.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    let lastExecutionTs: number | undefined
+    let executions24h = 0
+    let spentUsd24h = 0
+    let lastDecisionFeatureHash: string | undefined
+    let lastDecisionFeatureHashV2: string | undefined
+    let lastDecisionVolatilitySimple: number | undefined
+    let lastDecisionTs: number | undefined
+    const since24h = Date.now() - 24*60*60*1000
+    if (fsMod.existsSync(auditFile)) {
+      try {
+        const lines = fsMod.readFileSync(auditFile, 'utf8').trim().split('\n').filter(Boolean)
+        for (let i = lines.length - 1; i >= 0 && i >= lines.length - 1000; i--) {
+          try {
+            const j = JSON.parse(lines[i])
+            if (j.action === 'execute') {
+              if (!lastExecutionTs) lastExecutionTs = j.ts
+              if (j.ts >= since24h) executions24h++
+            } else if (j.action === 'ai_decision' && !lastDecisionFeatureHash) {
+              lastDecisionFeatureHash = j.featureHash
+              lastDecisionFeatureHashV2 = j.featureHashV2
+              lastDecisionVolatilitySimple = j.inferenceFeatures?.volatilitySimple
+              lastDecisionTs = j.ts
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+    // Load current feature head
+    let featureHead: any = null
+    try {
+      const { computeFeatureSet } = await import('./hyperindex/features')
+      featureHead = computeFeatureSet({})
+    } catch {}
+    // Safeguard: computeFeatureSet may return a structure without .features nested object if schema changes
+    let volatilitySimple: number | undefined
+    try { volatilitySimple = featureHead && featureHead.features ? featureHead.features.volatilitySimple : undefined } catch {}
+    const evalRes = evaluateGuardrailsV2(gr, {
+      ai: { risk: undefined, confidence: undefined },
+      ctx: { lastExecutionTs, executions24h, spentUsd24h, lastDecisionFeatureHash, lastDecisionFeatureHashV2, lastDecisionVolatilitySimple },
+      features: featureHead ? { featureHash: featureHead.featureHash, featureHashV2: featureHead.featureHashV2, asOfTs: featureHead.asOfTs, volatilitySimple } : undefined,
+    })
+    const diff = {
+      lastDecisionFeatureHash,
+      currentFeatureHash: featureHead?.featureHash || null,
+      lastDecisionFeatureHashV2,
+      currentFeatureHashV2: featureHead?.featureHashV2 || null
+    }
+    return res.json({ ok: true, evaluation: evalRes, lastDecisionTs, featureAsOfTs: featureHead?.asOfTs || null, diff })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'guardrails_head_failed' })
+  }
+})
+// Return last guardrail evaluation (preview or force) for observability
+app.get('/api/strategy/guardrails/last', (_req,res) => {
+  try {
+    if (!_lastGuardrailEval) return res.json({ ok: true, empty: true })
+    return res.json({ ok: true, last: _lastGuardrailEval })
+  } catch (e:any) { return res.status(500).json({ ok: false, error: e?.message || 'guardrails_last_failed' }) }
+})
 // Domain metadata (typehashes + configured domain separator components) for external indexers
 app.get('/api/delegations/domain-meta', async (_req, res) => {
+// Rolling hash snapshot
+app.get('/api/audit/rolling-hash/snapshot', (_req,res) => {
+  try { return res.json({ ok: true, snapshot: readRollingSnapshot() }) } catch { return res.status(500).json({ ok: false, error: 'snapshot_failed' }) }
+})
+// Audit lock (migration safety)
+app.post('/api/audit/lock', (req,res) => {
+  try { const note = (req.body && (req.body as any).note) || undefined; const r = createAuditLock(note); return res.json({ ok: true, ...r }) } catch (e:any) { return res.status(500).json({ ok: false, error: e?.message || 'lock_failed' }) }
+})
+app.post('/api/audit/unlock', (req,res) => {
+  try { const flush = !req.body || (req.body as any).flush !== false; const r = releaseAuditLock(flush); return res.json({ ok: true, ...r }) } catch (e:any) { return res.status(500).json({ ok: false, error: e?.message || 'unlock_failed' }) }
+})
+// Proof pack debug: expose provisional manifest pre-image & final manifest recomputed live (not compressed) for auditors
+app.get('/api/proof-pack/debug', async (_req,res) => {
+  try {
+    const fsMod = await import('node:fs')
+    const pathMod = await import('node:path')
+    const { keccak256 } = await import('viem')
+    const auditFile = pathMod.join(process.cwd(), 'data', 'delegations', 'audit.log')
+    let decisionLine: any = null; let rollingHash: string | undefined; let rollingHeight = 0
+    if (fsMod.existsSync(auditFile)) {
+      const lines = fsMod.readFileSync(auditFile,'utf8').trim().split('\n').filter(Boolean)
+      rollingHeight = lines.length
+      for (let i = lines.length -1; i>=0; i--) { try { const j = JSON.parse(lines[i]); if (!rollingHash && j.rollingHash) rollingHash = j.rollingHash; if (!decisionLine && j.action==='ai_decision') { decisionLine = j; if (rollingHash) break } } catch {} }
+    }
+    let features: any = null
+    try { const { computeFeatureSet } = await import('./hyperindex/features'); features = computeFeatureSet({}) } catch {}
+    const files: { name: string; content: string }[] = []
+    if (decisionLine) files.push({ name:'decision.json', content: JSON.stringify(decisionLine,null,2) })
+    if (features) files.push({ name:'features.json', content: JSON.stringify(features,null,2) })
+    if (rollingHash) files.push({ name:'rolling.txt', content: `${rollingHash}\nheight=${rollingHeight}\n` })
+    function sToHex(str:string){ const enc=new TextEncoder().encode(str); let h='0x'; for (const b of enc) h+=b.toString(16).padStart(2,'0'); return h as `0x${string}` }
+    const manifestProv = { schemaVersion:'1.0.0', buildTs: Date.now(), decisionRollingHash: decisionLine?.rollingHash, featureHash: features?.featureHash, modelHash: decisionLine?.modelHash, files: files.map(f=>({ name:f.name, keccak256: keccak256(sToHex(f.content)) })) }
+    const preImage = JSON.stringify({ files: [...files, { name:'manifest.json', content: JSON.stringify(manifestProv,null,2) }] })
+    const packKeccak256 = keccak256(sToHex(preImage))
+    return res.json({ ok: true, manifestProvisional: manifestProv, packKeccak256, preImageLength: preImage.length })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'proof_pack_debug_failed' })
+  }
+})
   try {
     const domain = {
       name: process.env.DELEGATION_DOMAIN_NAME || 'Delegation',
@@ -865,7 +1763,7 @@ app.get('/api/delegate', async (_req, res) => {
         console.warn('[delegation] Environment not found for chain', monadTestnet.id, err)
       }
       const sa = await toMetaMaskSmartAccount({
-        client: publicClient,
+        client: asToolkitClient(),
         implementation: Implementation.Hybrid,
         deployParams: [eoa.address, [], [], []],
         deploySalt: '0x',
@@ -895,7 +1793,7 @@ app.get('/api/diag', async (req, res) => {
         let env: any | undefined
         try { env = getDeleGatorEnvironment(monadTestnet.id) } catch {}
         const sa = await toMetaMaskSmartAccount({
-          client: publicClient,
+          client: asToolkitClient(),
           implementation: Implementation.Hybrid,
           deployParams: [eoa.address, [], [], []],
           deploySalt: '0x',
@@ -1488,7 +2386,7 @@ app.post('/api/send-mon', async (req, res) => {
       const eoa = privateKeyToAccount(pk)
       const env = getDeleGatorEnvironment(monadTestnet.id)
       const delegateSA = await toMetaMaskSmartAccount({
-        client: publicClient,
+        client: asToolkitClient(),
         implementation: Implementation.Hybrid,
         deployParams: [eoa.address, [], [], []],
         deploySalt: '0x',
@@ -1572,7 +2470,7 @@ app.post('/api/send-mon', async (req, res) => {
     const eoa = privateKeyToAccount(pk)
     const env = getDeleGatorEnvironment(monadTestnet.id)
     const delegateSA = await toMetaMaskSmartAccount({
-      client: publicClient,
+      client: asToolkitClient(),
       implementation: Implementation.Hybrid,
       deployParams: [eoa.address, [], [], []],
       deploySalt: '0x',
@@ -1711,7 +2609,7 @@ app.post('/api/unwrap', async (req, res) => {
     let env: any
     try { env = getDeleGatorEnvironment(monadTestnet.id) } catch {}
     const sa = await toMetaMaskSmartAccount({
-      client: publicClient,
+      client: asToolkitClient(),
       implementation: Implementation.Hybrid,
       deployParams: [eoa.address, [], [], []],
       deploySalt: '0x',
@@ -1797,7 +2695,7 @@ app.post('/api/withdraw-native', async (req, res) => {
     const eoa = privateKeyToAccount(pk)
     const env = getDeleGatorEnvironment(monadTestnet.id)
     const delegateSA = await toMetaMaskSmartAccount({
-      client: publicClient,
+      client: asToolkitClient(),
       implementation: Implementation.Hybrid,
       deployParams: [eoa.address, [], [], []],
       deploySalt: '0x',
@@ -1880,7 +2778,7 @@ app.post('/api/delegate/withdraw-mon', async (_req, res) => {
     const eoa = privateKeyToAccount(pk)
     const env = getDeleGatorEnvironment(monadTestnet.id)
     const delegateSA = await toMetaMaskSmartAccount({
-      client: publicClient,
+      client: asToolkitClient(),
       implementation: Implementation.Hybrid,
       deployParams: [eoa.address, [], [], []],
       deploySalt: '0x',
@@ -1930,7 +2828,7 @@ app.post('/api/flush', async (req, res) => {
     let env: any
     try { env = getDeleGatorEnvironment(monadTestnet.id) } catch {}
     const sa = await toMetaMaskSmartAccount({
-      client: publicClient,
+      client: asToolkitClient(),
       implementation: Implementation.Hybrid,
       deployParams: [eoa.address, [], [], []],
       deploySalt: '0x',
@@ -2022,7 +2920,7 @@ app.post('/api/topup', async (req, res) => {
     let env: any
     try { env = getDeleGatorEnvironment(monadTestnet.id) } catch {}
     const sa = await toMetaMaskSmartAccount({
-      client: publicClient,
+      client: asToolkitClient(),
       implementation: Implementation.Hybrid,
       deployParams: [eoa.address, [], [], []],
       deploySalt: '0x',
@@ -2150,7 +3048,7 @@ app.post('/api/wrap', async (req, res) => {
     let env: any
     try { env = getDeleGatorEnvironment(monadTestnet.id) } catch {}
     const sa = await toMetaMaskSmartAccount({
-      client: publicClient,
+      client: asToolkitClient(),
       implementation: Implementation.Hybrid,
       deployParams: [eoa.address, [], [], []],
       deploySalt: '0x',
@@ -2344,7 +3242,7 @@ app.post('/api/simulate', async (req, res) => {
       const eoa = privateKeyToAccount(pk)
       const env = getDeleGatorEnvironment(monadTestnet.id)
       const delegateSA = await toMetaMaskSmartAccount({
-        client: publicClient,
+        client: asToolkitClient(),
         implementation: Implementation.Hybrid,
         deployParams: [eoa.address, [], [], []],
         deploySalt: '0x',

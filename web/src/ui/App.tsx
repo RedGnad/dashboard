@@ -114,6 +114,50 @@ export default function App() {
 
   const injectedConnector = useMemo(() => injected(), []);
 
+  // Helper: format balance where undefined => '?', null => '?', numeric/parsable 0 => '0'
+  function fmtBalance(v: any): string {
+    if (v === null || v === undefined) return "?";
+    if (typeof v === "string") {
+      if (v.trim() === "") return "?";
+      // treat string '0' (any case) as 0 not unknown
+      if (/^0+$/.test(v.trim())) return "0";
+      return v;
+    }
+    if (typeof v === "number")
+      return Number.isFinite(v) ? (v === 0 ? "0" : String(v)) : "?";
+    if (typeof v === "bigint") return v === 0n ? "0" : v.toString();
+    return String(v);
+  }
+
+  // --- HyperIndex Proof (mini panel) -------------------------------------------------
+  const [hyperProof, setHyperProof] = useState<any>(null);
+  const [hyperProofErr, setHyperProofErr] = useState<string>("");
+  useEffect(() => {
+    let active = true;
+    async function poll() {
+      try {
+        const r = await fetch(`${apiBase || ""}/api/hyperindex/proof`)
+          .then((r) => r.json())
+          .catch(() => ({}));
+        if (!active) return;
+        if (r?.ok && r.proof) {
+          setHyperProof(r.proof);
+          setHyperProofErr("");
+        } else if (r?.empty) {
+          setHyperProof(null);
+        } else if (r?.error) {
+          setHyperProofErr(r.error);
+        }
+      } finally {
+        if (active) setTimeout(poll, 6000);
+      }
+    }
+    poll();
+    return () => {
+      active = false;
+    };
+  }, [apiBase]);
+
   async function refreshSaPanel() {
     try {
       // fetch delegate info
@@ -159,26 +203,26 @@ export default function App() {
         next.delegator = { address: delegatorSa };
         const db = diag?.delegatorBalances;
         if (db) {
-          next.delegator.mon = db.mon;
-          next.delegator.usdc = db.usdc;
-          next.delegator.wmon = db.wmon ?? "0";
+          next.delegator.mon = fmtBalance(db.mon);
+          next.delegator.usdc = fmtBalance(db.usdc);
+          next.delegator.wmon = fmtBalance(db.wmon ?? "0");
         } else {
-          next.delegator.mon = next.delegator.mon || "0";
-          next.delegator.usdc = next.delegator.usdc || "0";
-          next.delegator.wmon = "0";
+          next.delegator.mon = fmtBalance(next.delegator.mon || "0");
+          next.delegator.usdc = fmtBalance(next.delegator.usdc || "0");
+          next.delegator.wmon = fmtBalance("0");
         }
       }
       if (delegate?.sa) {
         next.delegate = { eoa: delegate.eoa, sa: delegate.sa };
         const ddb = diag?.delegateBalances;
         if (ddb) {
-          next.delegate.mon = ddb.mon;
-          next.delegate.usdc = ddb.usdc;
-          next.delegate.wmon = ddb.wmon ?? "0";
+          next.delegate.mon = fmtBalance(ddb.mon);
+          next.delegate.usdc = fmtBalance(ddb.usdc);
+          next.delegate.wmon = fmtBalance(ddb.wmon ?? "0");
         } else {
-          next.delegate.mon = next.delegate.mon || "0";
-          next.delegate.usdc = next.delegate.usdc || "0";
-          next.delegate.wmon = "0";
+          next.delegate.mon = fmtBalance(next.delegate.mon || "0");
+          next.delegate.usdc = fmtBalance(next.delegate.usdc || "0");
+          next.delegate.wmon = fmtBalance("0");
         }
       }
       if (diag?.quote) next.quote = diag.quote;
@@ -1868,6 +1912,106 @@ export default function App() {
       {/* AI Console (historique décisions) */}
       <AiConsole apiBase={apiBase} />
       <AiDashboard apiBase={apiBase} />
+      <div
+        style={{
+          marginTop: 16,
+          padding: 12,
+          border: "1px solid #ddd",
+          borderRadius: 8,
+          background: "#f9fbff",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: 0.5,
+            textTransform: "uppercase",
+            color: "#334",
+          }}
+        >
+          HyperIndex Proof
+        </div>
+        {!hyperProof && !hyperProofErr && (
+          <div style={{ fontSize: 11, marginTop: 4 }}>
+            Aucune donnée (en attente d'événements)…
+          </div>
+        )}
+        {hyperProofErr && (
+          <div style={{ fontSize: 11, color: "#b00" }}>
+            Erreur: {hyperProofErr}
+          </div>
+        )}
+        {hyperProof && (
+          <div style={{ marginTop: 6, fontSize: 11, lineHeight: 1.4 }}>
+            <div>
+              eventSetHash:{" "}
+              <code>{String(hyperProof.eventSetHash).slice(0, 26)}…</code>
+            </div>
+            <div>events(24h): {hyperProof.eventCount}</div>
+            <div>
+              volatility_24h: {hyperProof.hyperMetrics?.volatility_24h ?? "—"}
+            </div>
+            <div>
+              priceChangePct_24h:{" "}
+              {hyperProof.hyperMetrics?.priceChangePct_24h ?? "—"}
+            </div>
+            {typeof hyperProof.hyperMetrics?.events_transfer_24h ===
+              "number" && (
+              <div>
+                transfers_24h: {hyperProof.hyperMetrics.events_transfer_24h}
+              </div>
+            )}
+          </div>
+        )}
+        {hyperProof && (
+          <div style={{ marginTop: 8 }}>
+            <button
+              style={{ fontSize: 11 }}
+              onClick={async () => {
+                try {
+                  const r = await fetch(
+                    `${apiBase || ""}/api/hyperindex/proof?canonical=1`
+                  ).then((r) => r.json());
+                  if (!r.ok) throw new Error(r.error || "fetch_failed");
+                  const canonical = r.proof?.canonical || "";
+                  if (!canonical) {
+                    alert("canonical absent");
+                    return;
+                  }
+                  // simple local keccak via dynamic import
+                  let kf: any;
+                  try {
+                    kf = (await import("js-sha3")).keccak256;
+                  } catch {}
+                  if (!kf) {
+                    alert("js-sha3 indisponible");
+                    return;
+                  }
+                  const local = "0x" + kf(canonical);
+                  if (
+                    local.toLowerCase() ===
+                    String(r.proof.eventSetHash).toLowerCase()
+                  ) {
+                    alert("Verification OK");
+                  } else {
+                    alert(
+                      "Mismatch local=" +
+                        local +
+                        " server=" +
+                        r.proof.eventSetHash
+                    );
+                  }
+                } catch (e: any) {
+                  alert("Erreur: " + (e?.message || e));
+                }
+              }}
+            >
+              Vérifier localement
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

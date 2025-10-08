@@ -1,5 +1,7 @@
 import { keccak256 } from 'viem'
 import { loadModel, computeScore, mapScoreToDecision } from './model'
+import { MAPPING_VERSION } from '../constants'
+import { computeCoreFeatures } from '../features'
 
 export interface StrategyContext {
   timestamp: number
@@ -37,18 +39,18 @@ export class DeterministicDcaStrategy implements StrategyEngine {
   version() { return 'det-v1' }
   async decide(ctx: StrategyContext): Promise<StrategyDecision> {
     const model = loadModel()
-    // Features consumed: we rely on preview attaching featureHash externally; here we recompute needed keys only if present in ctx.balances (not yet) -> use placeholders
-    // For now we derive allocationDeviation & others from empty placeholders -> neutral decisions unless model weights + random context produce thresholds.
-    const pseudoFeatures: Record<string, any> = {
-      balanceStableRatio: null,
-      balanceTargetRatio: null,
-      allocationDeviation: 0, // neutral by default
-      timeSinceLastTradeMins: 60,
-      executionsLast24h: 0,
-      volatilitySimple: ctx.marketVolatilityScore, // reuse volatility as stand-in
+    // Compute real core features (snapshot based for now)
+    const feat = computeCoreFeatures(ctx.delegator || '0x')
+    const featuresForModel: Record<string, any> = {
+      allocationDeviation: typeof feat.features.allocationDeviation === 'number' ? feat.features.allocationDeviation : 0,
+      executionsLast24h: feat.features.executionsLast24h || 0,
+      volatilitySimple: typeof feat.features.volatilitySimple === 'number' ? feat.features.volatilitySimple : (ctx.marketVolatilityScore || 0),
+      balanceStableRatio: feat.features.balanceStableRatio ?? 0,
+      balanceTargetRatio: feat.features.balanceTargetRatio ?? 0,
+      timeSinceLastTradeMins: feat.features.timeSinceLastTradeMins ?? 60,
     }
-  const { score, z, weightsUsedHash } = computeScore(pseudoFeatures, model)
-  const mapped = mapScoreToDecision(score, pseudoFeatures)
+    const { score, z, weightsUsedHash } = computeScore(featuresForModel, model)
+    const mapped = mapScoreToDecision(score, featuresForModel)
     const primary = ctx.targets[0] || { symbol: 'WMON', weightBps: 5000 }
     const baseAmount = '10000000000000000'
     const steps = mapped.actionType === 'DCA_SWAP' ? [ { from: 'USDC', to: primary.symbol, amount: baseAmount, intentUsd: '10' } ] : []
@@ -58,7 +60,7 @@ export class DeterministicDcaStrategy implements StrategyEngine {
       rationale: mapped.rationale,
       riskScore: mapped.riskScore,
       confidence: mapped.confidence,
-      meta: { ...mapped.meta, modelHash: model.modelHash, inferenceProvider: 'ts-local', version: model.version, rawScore: score, logitZ: z, mappingVersion: 'map-v1', weightsUsedHash },
+      meta: { ...mapped.meta, modelHash: model.modelHash, inferenceProvider: 'ts-local', version: model.version, rawScore: score, logitZ: z, mappingVersion: MAPPING_VERSION, weightsUsedHash, featureHash: feat.featureHash, featureHashV2: feat.featureHashV2 },
     }
   }
 }

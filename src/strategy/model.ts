@@ -92,19 +92,36 @@ export interface DecisionMapping {
 
 export function mapScoreToDecision(score: number, features: Record<string, any>): DecisionMapping {
   const allocDev = typeof features.allocationDeviation === 'number' ? features.allocationDeviation : 0
+  const hyperVol24h = typeof features.hyper_volatility_24h === 'number' ? features.hyper_volatility_24h : undefined
+  const momentum = typeof features.hyper_momentum === 'number' ? features.hyper_momentum : undefined
   // Basic thresholds
   let action: DecisionMapping['actionType'] = 'SKIP'
-  if (allocDev < -0.03 && score > 0.58) action = 'DCA_SWAP'
-  else if (allocDev > 0.05 && score > 0.60) action = 'SELL'
+  let buyThreshold = 0.58
+  let sellThreshold = 0.60
+  // Momentum influence: if positive momentum, ease buy; if negative, ease sell
+  if (typeof momentum === 'number') {
+    if (momentum > 0.5) buyThreshold -= 0.02
+    if (momentum < -0.5) sellThreshold -= 0.02
+  }
+  if (allocDev < -0.03 && score > buyThreshold) action = 'DCA_SWAP'
+  else if (allocDev > 0.05 && score > sellThreshold) action = 'SELL'
 
-  const magnitude = Math.min(0.25, Math.max(0.05, Math.abs(allocDev))) // 5% - 25%
+  // Base magnitude (5% - 25%) modulée par volatilité 24h (si très élevée, réduire)
+  const rawMag = Math.min(0.25, Math.max(0.05, Math.abs(allocDev)))
+  let volFactor = 1
+  if (typeof hyperVol24h === 'number' && hyperVol24h > 0) {
+    // Simple dampening: scale down size when vol > 0.5 (arbitrary placeholder)
+    volFactor = Math.max(0.4, Math.min(1, 0.8 / (1 + (hyperVol24h - 0.2))))
+  }
+  const magnitude = rawMag * volFactor
   const sizePct = Number(magnitude.toFixed(4))
   // Risk: allocate ~ scaled positive combination (simulate volatility weighting if present)
   const executions = features.executionsLast24h || 0
   const vol = typeof features.volatilitySimple === 'number' ? features.volatilitySimple : 0
-  const baseRisk = Math.min(100, Math.round((Math.abs(allocDev) * 50) + (vol * 10) + executions * 5))
+  const hyperVolComponent = hyperVol24h ? Math.min(20, hyperVol24h * 5) : 0
+  const baseRisk = Math.min(100, Math.round((Math.abs(allocDev) * 50) + (vol * 10) + executions * 5 + hyperVolComponent))
   const riskScore = baseRisk
   const confidence = Number((0.5 + (score * 0.45)).toFixed(4)) // 0.5 -> 0.95
-  const rationale = `score=${score.toFixed(4)} allocDev=${allocDev.toFixed(4)} action=${action}`
-  return { actionType: action, sizePct, rationale, riskScore, confidence, meta: { allocDev, executions, vol, score } }
+  const rationale = `score=${score.toFixed(4)} allocDev=${allocDev.toFixed(4)} action=${action} hyperVol24h=${hyperVol24h ?? 'null'} momentum=${momentum ?? 'null'}`
+  return { actionType: action, sizePct, rationale, riskScore, confidence, meta: { allocDev, executions, vol, score, hyperVol24h, momentum } }
 }
