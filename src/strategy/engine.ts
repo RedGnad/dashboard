@@ -1,7 +1,8 @@
 import { keccak256 } from 'viem'
-import { loadModel, computeScore, mapScoreToDecision } from './model'
+import { loadModel, mapScoreToDecision } from './model'
 import { MAPPING_VERSION } from '../constants'
 import { computeCoreFeatures } from '../features'
+import { selectInferenceProvider } from './providers'
 
 export interface StrategyContext {
   timestamp: number
@@ -38,7 +39,7 @@ export interface StrategyEngine {
 export class DeterministicDcaStrategy implements StrategyEngine {
   version() { return 'det-v1' }
   async decide(ctx: StrategyContext): Promise<StrategyDecision> {
-    const model = loadModel()
+    const model = loadModel() // conservé pour compat local et pour feature hash v2 même si provider externe
     // Compute real core features (snapshot based for now)
     const feat = computeCoreFeatures(ctx.delegator || '0x')
     const featuresForModel: Record<string, any> = {
@@ -49,7 +50,13 @@ export class DeterministicDcaStrategy implements StrategyEngine {
       balanceTargetRatio: feat.features.balanceTargetRatio ?? 0,
       timeSinceLastTradeMins: feat.features.timeSinceLastTradeMins ?? 60,
     }
-    const { score, z, weightsUsedHash } = computeScore(featuresForModel, model)
+    // Provider abstraction
+    const provider = selectInferenceProvider()
+    const inf = await provider.run({ features: featuresForModel, delegator: ctx.delegator, timestamp: ctx.timestamp, featureHashV2: feat.featureHashV2 })
+    const score = inf.score
+    const z = inf.z ?? 0
+    // weightsUsedHash: si provider ne fournit pas, fallback au model local (pour cohérence structure audit)
+    const weightsUsedHash = inf.weightsUsedHash || model.modelHash // model.modelHash as placeholder
     const mapped = mapScoreToDecision(score, featuresForModel)
     const primary = ctx.targets[0] || { symbol: 'WMON', weightBps: 5000 }
     const baseAmount = '10000000000000000'
@@ -60,7 +67,7 @@ export class DeterministicDcaStrategy implements StrategyEngine {
       rationale: mapped.rationale,
       riskScore: mapped.riskScore,
       confidence: mapped.confidence,
-      meta: { ...mapped.meta, modelHash: model.modelHash, inferenceProvider: 'ts-local', version: model.version, rawScore: score, logitZ: z, mappingVersion: MAPPING_VERSION, weightsUsedHash, featureHash: feat.featureHash, featureHashV2: feat.featureHashV2 },
+      meta: { ...mapped.meta, modelHash: inf.modelHash || model.modelHash, inferenceProvider: provider.name(), version: inf.version, rawScore: score, logitZ: z, mappingVersion: MAPPING_VERSION, weightsUsedHash, featureHash: feat.featureHash, featureHashV2: feat.featureHashV2 },
     }
   }
 }

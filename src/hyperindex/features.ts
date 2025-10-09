@@ -1,5 +1,6 @@
 import { buildFeatureSet, FeatureSet } from './schema'
 import { queryEvents } from './eventStore'
+import { normalizeNumber, normalizeMetrics } from '../utils/normalize'
 
 // Compute rolling metrics over multiple windows.
 // Windows: 15m, 1h, 6h, 24h (phase 1).
@@ -61,7 +62,7 @@ export function computeFeatureSet(opts: FeatureComputationOptions = {}): Feature
     return Math.sqrt(variance)
   }
 
-  const metrics: Record<string, number | string | null> = {
+  const metricsRaw: Record<string, number | string | null> = {
     priceChangePct_15m: priceChange(e15),
     priceChangePct_1h: priceChange(e1h),
     priceChangePct_6h: priceChange(e6h),
@@ -75,6 +76,13 @@ export function computeFeatureSet(opts: FeatureComputationOptions = {}): Feature
     events_1h: e1h.length,
     events_6h: e6h.length,
     events_24h: e24h.length,
+  }
+
+  // Normalize numeric precision for deterministic hashing (8 decimals default)
+  const metrics: Record<string, number | string | null> = {}
+  for (const [k,v] of Object.entries(metricsRaw)) {
+    if (typeof v === 'number') metrics[k] = normalizeNumber(v, { decimals: 8 })
+    else metrics[k] = v
   }
 
   return buildFeatureSet({ metrics, windows: WINDOWS, now })

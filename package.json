@@ -29,8 +29,11 @@
   "verify:guardrails-config": "tsx src/verify-guardrails-config.ts",
     "verify:live": "tsx src/verify-live.ts",
     "verify:all": "tsx src/verify-all.ts",
+  "abi:blockvision": "tsx src/tools/fetch-abi-blockvision.ts",
+  "exp:features": "tsx src/exp_features_distribution.ts",
     "test": "vitest run --reporter=default",
-    "ci:verify": "VERIFY_ALL_HARD_REPLAY=1 VERIFY_ALL_HARD_DETERMINISM=1 AUDIT_VERIFY_ON_APPEND=1 AUDIT_REFUSE_STALE=1 npm run verify:all && npm test"
+    "ci:verify": "VERIFY_ALL_HARD_REPLAY=1 VERIFY_ALL_HARD_DETERMINISM=1 AUDIT_VERIFY_ON_APPEND=1 AUDIT_REFUSE_STALE=1 npm run verify:all && npm test",
+    "check:verify:blockvision": "tsx src/tools/check-verify-blockvision.ts"
   },
   "dependencies": {
     "@metamask/delegation-toolkit": "^0.13.0",
@@ -38,7 +41,8 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "js-sha3": "^0.9.3",
-    "viem": "^2.21.0"
+    "viem": "^2.21.0",
+    "@switchboard-xyz/on-demand": "^0.1.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

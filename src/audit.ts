@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { keccak256 } from 'viem'
 
-export type AuditAction = 'build' | 'submit' | 'execute' | 'verify' | 'userop_settled' | 'ai_decision' | 'revoke'
+export type AuditAction = 'build' | 'submit' | 'execute' | 'verify' | 'userop_settled' | 'ai_decision' | 'revoke' | 'donation_intent'
 
 export interface DelegationAuditEntryV1 {
   schemaVersion: 1
@@ -57,6 +57,10 @@ export interface DelegationAuditEntryV1 {
   logitZ?: number
   mappingVersion?: string
   weightsUsedHash?: string
+  // Price context snapshot (for replay of price-derived features)
+  snapshotPrice?: number
+  priceSource?: string
+  snapshotPriceTs?: number
 }
 
 const DIR = join(process.cwd(), 'data', 'delegations')
@@ -126,6 +130,9 @@ export function buildAuditEntry(base: Partial<DelegationAuditEntryV1>): Delegati
     logitZ: base.logitZ,
     mappingVersion: base.mappingVersion,
     weightsUsedHash: base.weightsUsedHash,
+    snapshotPrice: base.snapshotPrice,
+    priceSource: base.priceSource,
+    snapshotPriceTs: base.snapshotPriceTs,
   }
 }
 

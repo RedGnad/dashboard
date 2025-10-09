@@ -112,7 +112,119 @@ export default function App() {
     }
   }, []);
 
-  const injectedConnector = useMemo(() => injected(), []);
+  // --- Price Meta (Surge / Fallback badge) ----------------------------------------
+  const [priceMeta, setPriceMeta] = useState<{
+    source: string;
+    isSurge: boolean;
+    isFallback: boolean;
+    ageMs: number | null;
+    stale: boolean;
+    staleMs: number;
+    snapshotPrice?: number | null;
+    snapshotPriceTs?: number | null;
+  } | null>(null);
+  const [momentum, setMomentum] = useState<number | null>(null);
+  // Désactive par défaut le polling IA; activer avec ?ai=1
+  const aiEnabled = useMemo(() => {
+    try {
+      const ai = new URLSearchParams(window.location.search).get("ai");
+      return ai === "1";
+    } catch { return false }
+  }, []);
+  useEffect(() => {
+    if (!aiEnabled) return;
+    let active = true;
+    async function poll() {
+      try {
+        const delegatorGuess = saPanel?.delegator?.address || "0x";
+        const url = new URL(
+          "/api/strategy/preview",
+          apiBase || window.location.origin
+        );
+        url.searchParams.set("delegator", delegatorGuess);
+        const r = await fetch(url.toString())
+          .then((r) => r.json())
+          .catch(() => null);
+        if (!active) return;
+        if (r && r.ok && r.priceMeta) {
+          setPriceMeta({
+            ...r.priceMeta,
+            snapshotPrice: r.snapshotPrice,
+            snapshotPriceTs: r.snapshotPriceTs,
+          });
+          if (typeof r.momentumShortMinusLong === "number")
+            setMomentum(r.momentumShortMinusLong);
+          else setMomentum(r.momentumShortMinusLong ?? null);
+        }
+      } finally {
+        if (active) setTimeout(poll, 5000);
+      }
+    }
+    poll();
+    return () => { active = false };
+  }, [apiBase, saPanel?.delegator?.address, aiEnabled]);
+
+  function renderPriceBadge() {
+    if (!priceMeta) return <span style={{ opacity: 0.5 }}>prix…</span>;
+    const { isSurge, isFallback, stale, ageMs, source, snapshotPrice } =
+      priceMeta;
+    const bg = isSurge ? (stale ? "#b36b00" : "#0a6d32") : "#555";
+    const label = isSurge ? (stale ? "Surge (stale)" : "Surge") : "Fallback";
+    const age = ageMs == null ? "?" : `${ageMs}ms`;
+    const priceStr = snapshotPrice == null ? "—" : snapshotPrice.toFixed(4);
+    const mom = momentum;
+    let momColor = "#777";
+    if (mom != null) {
+      if (mom > 0) momColor = "#0b7d2b";
+      else if (mom < 0) momColor = "#a11d2e";
+    }
+    const momStr = mom == null ? "—" : mom.toFixed(4);
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+        <span
+          title={`source=${source}\nage=${age}\nstale=${stale}\nprice=${priceStr}`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "2px 8px",
+            borderRadius: 14,
+            background: bg,
+            color: "#fff",
+            fontSize: 12,
+            fontFamily: "monospace",
+          }}
+        >
+          <strong>{label}</strong>
+          <span>{priceStr}</span>
+          <span style={{ opacity: 0.8 }}>({age})</span>
+        </span>
+        <span
+          title={`momentumShortMinusLong = SMA(5)-SMA(20)`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "2px 8px",
+            borderRadius: 14,
+            background: "#1e1e1e",
+            border: "1px solid #333",
+            color: momColor,
+            fontSize: 12,
+            fontFamily: "monospace",
+          }}
+        >
+          <span style={{ opacity: 0.7 }}>MOM</span>
+          <strong>{momStr}</strong>
+        </span>
+      </span>
+    );
+  }
+
+  const injectedConnector = useMemo(() => injected({
+    // Prefer MetaMask in multi-injected environments; wagmi will pick window.ethereum.providers entry with isMetaMask
+    shimDisconnect: true,
+  }), []);
 
   // Helper: format balance where undefined => '?', null => '?', numeric/parsable 0 => '0'
   function fmtBalance(v: any): string {
@@ -1512,7 +1624,17 @@ export default function App() {
         fontFamily: "Inter, system-ui, sans-serif",
       }}
     >
-      <h1>Monad Delegatoor</h1>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <h1 style={{ margin: 0 }}>Monad Delegatoor</h1>
+        {renderPriceBadge()}
+      </div>
       <button
         style={{ position: "absolute", top: 8, right: 8, fontSize: 10 }}
         onClick={() => {
@@ -1563,7 +1685,10 @@ export default function App() {
       {!isConnected ? (
         <button
           disabled={connectStatus === "pending"}
-          onClick={() => connect({ connector: injectedConnector })}
+          onClick={() => {
+            // Try to connect explicitly with injected (MetaMask preferred). If multiple providers, wagmi will surface UI in extension.
+            connect({ connector: injectedConnector });
+          }}
         >
           {connectStatus === "pending" ? "Connecting…" : "Connect Wallet"}
         </button>

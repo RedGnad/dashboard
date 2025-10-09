@@ -1,0 +1,33 @@
+name: monad-protocol-metrics
+description: Daily protocol metrics (users, tx, cumulative, avg fee) on Monad Testnet
+preload_handlers: true
+networks:
+  - id: 10143 # Monad Testnet chainId (aligns with src/constants.ts)
+    rpc_config:
+      url: ${ENVIO_RPC_URL}
+      for:
+        - historical
+        - realtime
+    start_block: 0
+    contracts:
+      # Magma - StakeManager (verified) — we care about Deposit / Withdraw
+      - name: magma
+        address: 0x2c9C959516e9AAEdB2C748224a41249202ca8BE7
+        handler: src/EventHandlers.ts
+        events:
+          - event: Deposit(address indexed depositor, uint256 indexed amount, uint256 gMonMinted, uint256 indexed referralId)
+            field_selection:
+              transaction_fields:
+                - hash
+                - from
+                - gasPrice
+              block_fields:
+                - timestamp
+          - event: Withdraw(address indexed withdrawer, uint256 indexed amount, uint256 gMonBurned)
+            field_selection:
+              transaction_fields:
+                - hash
+                - from
+                - gasPrice
+              block_fields:
+                - timestamp

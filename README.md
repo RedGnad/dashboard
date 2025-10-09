@@ -251,6 +251,13 @@ Le frontend (section *AI Verification Dashboard*) affiche:
 - Proof Pack re-hash local (reconstruction pré-image côté navigateur) → confirme `packKeccak256`.
 - État replay détaillé (basic / strict / strict-snapshot) avec PASS/FAIL par mode.
 
+### Protocol Metrics (Envio / RPC)
+Le panneau “Protocol Metrics” consomme `/api/metrics/protocols/daily`.
+- Source préférée: Envio HyperIndex GraphQL (`ENVIO_GRAPHQL_URL`).
+- Si Envio est indisponible, l’API bascule automatiquement sur un scan RPC rapide (fenêtre récente) pour garder la vue utile.
+
+Voir `docs/metrics.md` pour les détails (variables d’environnement et paramètres de requête).
+
 Exemple d'état strict FAIL typique: divergence `featureHashV2` (ex: sérialisation locale vs distante) ou mismatch modèle.
 
 ## SSE Streaming

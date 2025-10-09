@@ -1,0 +1,16 @@
+[
+	{
+		"id": "fortytwo",
+		"name": "FortyTwo Core",
+		"addresses": [
+			"0xDf26B347a02e74cd8bf6F562454826CD49CC6CB1"
+		]
+	},
+	{
+		"id": "magma",
+		"name": "Magma StakeManager",
+		"addresses": [
+			"0x2c9C959516e9AAEdB2C748224a41249202ca8BE7"
+		]
+	}
+]

@@ -1,0 +1,27 @@
+# Daily protocol metrics entity
+type DailyMetrics {
+  id: ID!                 # <protocolId>-<YYYY-MM-DD>
+  protocolId: String!     # logical id (e.g., UniswapV2)
+  dateISO: String!        # YYYY-MM-DD (UTC)
+  usersDaily: Int!
+  txDaily: Int!
+  txCumulative: BigInt!   # maintained incrementally
+  avgTxPerUser: Float!
+  feeSum: BigInt!
+  feeCount: Int!
+  avgFeeNative: Float!
+}
+
+# Internal helper to track seen users per day to compute unique counts
+type DailyUser {
+  id: ID!                # <protocolId>-<date>-<user>
+  protocolId: String!
+  dateISO: String!
+  user: String!
+}
+
+# Global state per protocol to hold running cumulative tx count
+type ProtocolState {
+  id: ID!                # <protocolId>
+  txCumulative: BigInt!
+}

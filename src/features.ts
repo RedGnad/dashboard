@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { keccak256 } from 'viem'
 import { FEATURE_SET_VERSION } from './constants'
-import { buildDefaultPriceProvider } from './pricing/provider'
+// Replaced default provider with Surge-aware global provider
+import { getSpot, getConfiguredBaseSymbol } from './pricing/globalProvider'
 import { quantizePrice } from './pricing/quantize'
 
 // Core deterministic feature set (MVP) separate from hyperindex metrics.
@@ -30,6 +31,12 @@ export interface FeatureResult {
   order: string[]
   featureHash: string
   featureHashV2?: string
+  // Price context (not part of hashing order v1/v2 to preserve backward determinism)
+  snapshotPrice?: number | null
+  priceSource?: string
+  snapshotPriceTs?: number | null // source timestamp (prefer oracle source_ts_ms; fallback reception/reference)
+  // Extended (non-hash) experimental features
+  momentumShortMinusLong?: number | null
 }
 
 const FEATURE_SCHEMA_VERSION = 1
@@ -106,13 +113,14 @@ function computeSimpleVolatility(priceSeries: { ts: number; price: number }[]): 
   return Number(vol.toFixed(8))
 }
 
-export function computeCoreFeatures(delegator: string, opts?: { referenceNow?: number; cutoffTs?: number }): FeatureResult {
+export function computeCoreFeatures(delegator: string, opts?: { referenceNow?: number; cutoffTs?: number; priceSeriesOverride?: { ts: number; price: number }[] }): FeatureResult {
   const referenceNow = opts?.referenceNow && Number.isFinite(opts.referenceNow) ? Number(opts.referenceNow) : Date.now()
   const cutoffTs = opts?.cutoffTs && Number.isFinite(opts.cutoffTs) ? Number(opts.cutoffTs) : undefined
   console.log('[features] computeCoreFeatures invoked', { delegator, referenceNow, cutoffTs })
   const now = referenceNow
   const balances = loadBalances(delegator)
-  const { lastExecutionTs, executions24h, priceSeries } = scanAuditForExecutionStats(referenceNow, cutoffTs)
+  const { lastExecutionTs, executions24h, priceSeries: auditPriceSeries } = scanAuditForExecutionStats(referenceNow, cutoffTs)
+  const priceSeries = Array.isArray(opts?.priceSeriesOverride) ? opts!.priceSeriesOverride : auditPriceSeries
   const stable = balances.stable ?? 0
   const target = balances.target ?? 0
   const other = balances.other ?? 0
@@ -128,11 +136,37 @@ export function computeCoreFeatures(delegator: string, opts?: { referenceNow?: n
   const volatilitySimple = computeSimpleVolatility(priceSeries)
   // (Experimental) price sampling for future momentum / quantized price features
   let snapshotPrice: number | null = null
+  let priceSource: string | undefined
+  let snapshotPriceTs: number | null = null
   try {
-    const priceProvider = buildDefaultPriceProvider()
-    const pr = awaitMaybe(priceProvider.getSpot({ symbol: 'WMON', ts: now }))
-    if (pr && pr.price != null) snapshotPrice = quantizePrice(pr.price)
-  } catch {}
+    const baseSymbol = getConfiguredBaseSymbol()
+    const pr = getSpot(baseSymbol)
+    if (pr && pr.price != null) {
+      snapshotPrice = quantizePrice(pr.price)
+      priceSource = pr.source
+      // Prefer underlying oracle source timestamp if adapter provided it
+      snapshotPriceTs = (pr as any).sourceTs && Number.isFinite((pr as any).sourceTs) ? (pr as any).sourceTs : pr.ts || now
+    }
+  } catch { /* non-blocking */ }
+
+  // --- Experimental momentum feature (SMA short vs long) -----------------------------------
+  // We intentionally DO NOT include momentum in hashed ORDER until FEATURE_SET_VERSION >= 3.
+  // Method: use historical priceSeries from audit (ai_decision lines) only (exclude current snapshot)
+  // to keep determinism stable across replays even if live snapshot differs slightly.
+  // SMA short window: 5, long window: 20. Require full long window; else null.
+  let momentumShortMinusLong: number | null = null
+  try {
+    const SERIES_FOR_MOM = priceSeries.slice() // historical only
+    if (SERIES_FOR_MOM.length >= 20) {
+      const last20 = SERIES_FOR_MOM.slice(-20).map(p => p.price).filter(p => Number.isFinite(p))
+      const last5 = SERIES_FOR_MOM.slice(-5).map(p => p.price).filter(p => Number.isFinite(p))
+      if (last20.length === 20 && last5.length === 5) {
+        const smaLong = last20.reduce((a,b)=>a+b,0) / 20
+        const smaShort = last5.reduce((a,b)=>a+b,0) / 5
+        momentumShortMinusLong = toFixedOrNull(smaShort - smaLong)
+      }
+    }
+  } catch { /* non-blocking */ }
 
   const features: CoreFeatures = {
     balanceStableRatio,
@@ -185,7 +219,7 @@ export function computeCoreFeatures(delegator: string, opts?: { referenceNow?: n
 
   // Future: if FEATURE_SET_VERSION >=3 add extended features & compute featureHashV3
 
-  return { schemaVersion: FEATURE_SCHEMA_VERSION, asOfTs: now, features, order: ORDER.slice(), featureHash, featureHashV2 }
+  return { schemaVersion: FEATURE_SCHEMA_VERSION, asOfTs: now, features, order: ORDER.slice(), featureHash, featureHashV2, snapshotPrice, priceSource, snapshotPriceTs, momentumShortMinusLong }
 }
 
 // Minimal promise unwrap helper (avoid top-level async refactor for now)

@@ -3,7 +3,15 @@
   "streaks": {
     "0x1111111111111111111111111111111111111111": {
       "abnormalHyperIndex": 0,
-      "lastUpdated": 1759939678638
+      "lastUpdated": 1759964962203
+    },
+    "0x022b39bc36eacf22360f61247487e956812afe5e": {
+      "abnormalHyperIndex": 0,
+      "lastUpdated": 1760037817231
+    },
+    "0x": {
+      "abnormalHyperIndex": 0,
+      "lastUpdated": 1760026538914
     }
   }
 }

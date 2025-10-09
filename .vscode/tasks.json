@@ -96,6 +96,13 @@
 				"$tsc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Web: Start Vite (persist)",
+			"type": "shell",
+			"command": "cd web && npm run dev --silent",
+			"isBackground": true,
+			"group": "build"
 		}
 	]
 }

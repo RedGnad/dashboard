@@ -24,6 +24,9 @@ import { computeCanonicalDelegationHashes, typehashes } from './eip712'
 import { hasStructHash, readAuditTail, newRunId, readAuditStream, auditStatus } from './audit'
 import { computeDelegatorCoverage, computeGlobalCoverage } from './coverage'
 import { strategyEngine, hashRationale } from './strategy/engine'
+import { initGlobalPriceInfra } from './pricing/globalProvider'
+import { loadRegistry, computeDailyForAllRPC } from './metrics/protocols'
+import { fetchDailyMetricsEnvio } from './metrics/envioAdapter'
 import { computeCoreFeatures, computeSyntheticPrice } from './features'
 import { startUserOpResolver } from './userop-resolver'
 import { Address, encodeFunctionData as viemEncodeFunctionData } from 'viem'
@@ -47,6 +50,54 @@ function buildAuthMessage(address: string, nonce: string, issuedAt: number) {
 const app = express()
 app.use(cors({ origin: true }))
 app.use(express.json({ limit: '256kb' }))
+// Initialize price infrastructure (Surge) early
+try { initGlobalPriceInfra() } catch (e:any) { console.warn('[price] init failed', e?.message || e) }
+
+// -------------------- Donations (configuration de pourcentage) --------------------
+// Stockage: fichier delegation JSON -> job.donation = { pct: number (1-100), to: address, updatedAt: epoch_ms }
+// Le backend reste agnostique vis-à-vis des "5 organismes"; la liste peut vivre côté front.
+function isAddressLike(a: string | undefined): a is `0x${string}` { return !!a && /^0x[0-9a-fA-F]{40}$/.test(a) }
+
+// GET: lire config donation
+app.get('/api/donations/config/:delegator', (req, res) => {
+  try {
+    const delegator = (req.params.delegator || '').toLowerCase()
+    if (!isAddressLike(delegator)) return res.status(400).json({ ok: false, error: 'invalid_delegator' })
+    const file = join(process.cwd(), 'data', 'delegations', `${delegator}.json`)
+    if (!existsSync(file)) return res.json({ ok: true, hasDelegation: false })
+    let json: any
+    try { json = JSON.parse(readFileSync(file, 'utf8')) } catch { return res.status(500).json({ ok: false, error: 'parse_failed' }) }
+    const donation = json?.job?.donation || null
+    return res.json({ ok: true, hasDelegation: true, donation })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'donation_config_failed' })
+  }
+})
+
+// POST: définir / mettre à jour l'intention de donation
+app.post('/api/donations/intent', (req, res) => {
+  try {
+    const { delegator, pct, to } = req.body || {}
+    const delegatorSA = (delegator || '').toLowerCase()
+    if (!isAddressLike(delegatorSA)) return res.status(400).json({ ok: false, error: 'invalid_delegator' })
+    const nPct = Number(pct)
+    if (!Number.isFinite(nPct) || nPct <= 0 || nPct > 100) return res.status(400).json({ ok: false, error: 'invalid_pct' })
+    const dest = (to || '').toLowerCase()
+    if (!isAddressLike(dest)) return res.status(400).json({ ok: false, error: 'invalid_destination' })
+    const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+    if (!existsSync(file)) return res.status(404).json({ ok: false, error: 'delegation_missing' })
+    let json: any
+    try { json = JSON.parse(readFileSync(file, 'utf8')) } catch { return res.status(500).json({ ok: false, error: 'parse_failed' }) }
+    json.job = json.job || {}
+    json.job.donation = { pct: nPct, to: dest, updatedAt: Date.now() }
+    try { writeFileSync(file, JSON.stringify(json, null, 2)) } catch { return res.status(500).json({ ok: false, error: 'persist_failed' }) }
+    // Audit chain: action donation_intent (role system pour configuration)
+    appendAudit({ ts: Date.now(), action: 'donation_intent', delegator: delegatorSA, delegate: json?.signedDelegation?.delegation?.delegate || '0x', role: 'system', warnings: [], modelHash: json?.job?.modelHash, inferenceProvider: json?.job?.inferenceProvider })
+    return res.json({ ok: true, donation: json.job.donation })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'donation_intent_failed' })
+  }
+})
 
 // In-memory tracker for latest guardrail evaluation (preview or force)
 let _lastGuardrailEval: { at: number; delegator?: string; eval: any } | null = null
@@ -91,6 +142,39 @@ function parseUsePaymasterFlag(v?: string): boolean {
 }
 const RAW_USE_PAYMASTER = process.env.USE_PAYMASTER
 const USE_PAYMASTER = parseUsePaymasterFlag(RAW_USE_PAYMASTER)
+
+// --- Minimal typed ABIs (centralize to reduce duplicate inline any casts) ------------------------
+// Viem 2.x is stricter about parameter typing; providing a const-asserted ABI helps inference.
+// Only includes what we actually call (balanceOf, getAmountsOut). Extend cautiously.
+const MIN_ERC20_ABI = [
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'owner', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const
+const UNISWAP_V2_ROUTER_MIN_ABI = [
+  {
+    name: 'getAmountsOut',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [ { name: 'amountIn', type: 'uint256' }, { name: 'path', type: 'address[]' } ],
+    outputs: [{ name: 'amounts', type: 'uint256[]' }],
+  },
+] as const
+
+// Helper to read ERC20 balance with minimal typing friction (viem strict params variant simplified)
+async function readErc20Balance(token: Address, owner: Address): Promise<bigint> {
+  return publicClient.readContract({
+    address: token,
+    authorizationList: [] as any,
+    abi: MIN_ERC20_ABI as any,
+    functionName: 'balanceOf',
+    args: [owner],
+  }) as Promise<bigint>
+}
 
 // --- Native value delegation detection helpers ---
 // Some delegation-toolkit builds encode the native token transfer scope via specific enforcer contract(s)
@@ -245,6 +329,62 @@ app.get('/', (_req, res) => {
   res.json({ ok: true, name: 'DCA API', endpoints: ['/api/health', '/api/delegate', '/api/diag'] })
 })
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
+// Protocol metrics (registry + daily via RPC quick scan)
+app.get('/api/metrics/protocols/registry', (_req, res) => {
+  try { return res.json({ ok: true, registry: loadRegistry() }) } catch (e:any) { return res.status(500).json({ ok: false, error: e?.message || 'registry_failed' }) }
+})
+app.get('/api/metrics/protocols/daily', async (req, res) => {
+  const envioUrl = process.env.ENVIO_GRAPHQL_URL
+  const forceRpc = String(process.env.METRICS_RPC_FALLBACK_ONLY || '').toLowerCase()
+  const preferEnvio = !['true','1','yes','on'].includes(forceRpc)
+  const registry = loadRegistry()
+
+  // Helper: RPC fallback with modest scan window to stay responsive
+  async function fallbackRPC() {
+    try {
+      // Keep it snappy: very small window and block cap by default
+      const hours = Number(req.query.hours || 0.25) // ~15 minutes
+      const withFees = String(req.query.withFees || 'false').toLowerCase()
+      const maxBlocksScan = Number(req.query.maxBlocks || 400)
+      const task = computeDailyForAllRPC(registry, { hours, withFees: ['true','1','yes','on'].includes(withFees), maxBlocksScan })
+      // Hard timeout so UI never hangs
+      const timeoutMs = Number(req.query.timeoutMs || 8000)
+      const data = await Promise.race([
+        task,
+        new Promise((_, rej) => setTimeout(() => rej(new Error('rpc_fallback_timeout')), timeoutMs)),
+      ]) as Awaited<ReturnType<typeof computeDailyForAllRPC>>
+      return res.json({ ok: true, data, source: 'rpc' })
+    } catch (e: any) {
+      return res.status(500).json({ ok: false, error: e?.message || 'rpc_fallback_failed' })
+    }
+  }
+
+  if (preferEnvio && envioUrl) {
+    try {
+      const data = await fetchDailyMetricsEnvio(registry)
+      return res.json({ ok: true, data, source: 'envio' })
+    } catch (e: any) {
+      console.warn('[metrics] Envio fetch failed', e?.message || e)
+      const wantScan = ['true','1','yes','on'].includes(String(req.query.scan || '').toLowerCase())
+      if (!wantScan) {
+        const dateISO = new Date().toISOString().slice(0,10)
+        const zeros = registry.map(p => ({ id: p.id, dateISO, usersDaily: 0, txDaily: 0, txCumulative: null, avgTxPerUser: 0, avgFeeNative: null, depositDaily: null, withdrawDaily: null }))
+        return res.json({ ok: true, data: zeros, source: 'envio-unavailable' })
+      }
+      return await fallbackRPC()
+    }
+  }
+  // No Envio configured or explicitly disabled.
+  // Default: respond immediately with zero metrics to keep UI snappy.
+  // Opt-in: add ?scan=1 to perform a lightweight RPC scan.
+  const wantScan = ['true','1','yes','on'].includes(String(req.query.scan || '').toLowerCase())
+  if (!wantScan) {
+    const dateISO = new Date().toISOString().slice(0,10)
+    const zeros = registry.map(p => ({ id: p.id, dateISO, usersDaily: 0, txDaily: 0, txCumulative: null, avgTxPerUser: 0, avgFeeNative: null, depositDaily: null, withdrawDaily: null }))
+    return res.json({ ok: true, data: zeros, source: 'none' })
+  }
+  return await fallbackRPC()
+})
 // Consolidated state snapshot (for monitoring)
 app.get('/api/strategy/state', (_req, res) => {
   try {
@@ -407,9 +547,17 @@ app.get('/api/strategy/preview', async (req, res) => {
       riskParams: { maxSlippageBps: 80, maxSingleUsd: 100 },
       marketVolatilityScore: Number.isFinite(volatility) ? Math.min(Math.max(volatility,0), 2) : 0.35,
     }
-    const feat = computeCoreFeatures(delegator)
-    // Synthetic deterministic price (temporary until oracle integration)
-    const snapshotPrice = computeSyntheticPrice(ctx.timestamp)
+  const feat = computeCoreFeatures(delegator)
+  const snapshotPrice = (feat as any).snapshotPrice ?? null
+  const priceSource = (feat as any).priceSource || 'unknown'
+  const snapshotPriceTs = (feat as any).snapshotPriceTs ?? null
+  const momentumShortMinusLong = (feat as any).momentumShortMinusLong ?? null
+  const nowTs = Date.now()
+  const staleMsCfg = process.env.SWITCHBOARD_STALE_MS ? Number(process.env.SWITCHBOARD_STALE_MS) : 15_000
+  const ageMs = snapshotPriceTs ? Math.max(0, nowTs - snapshotPriceTs) : null
+  const isSurge = priceSource === 'surge'
+  const isFallback = priceSource !== 'surge'
+  const stale = ageMs != null && isSurge ? ageMs > staleMsCfg : false
   const decision = await strategyEngine.decide(ctx as any)
   const meta = decision.meta || {}
     const aiRationaleHash = hashRationale(decision.rationale)
@@ -429,6 +577,7 @@ app.get('/api/strategy/preview', async (req, res) => {
       allocationDeviation: feat.features.allocationDeviation ?? 0,
       executionsLast24h: feat.features.executionsLast24h ?? 0,
       volatilitySimple: feat.features.volatilitySimple ?? 0,
+      momentumShortMinusLong: momentumShortMinusLong ?? null,
     }
     // Guardrails v2 evaluation (uses recent executions context via audit scan lightweight)
     let guardrailEval: any = null
@@ -539,6 +688,9 @@ app.get('/api/strategy/preview', async (req, res) => {
       logitZ: meta.logitZ,
       mappingVersion: meta.mappingVersion,
       weightsUsedHash: meta.weightsUsedHash,
+  snapshotPrice: snapshotPrice ?? undefined,
+  priceSource: priceSource,
+  snapshotPriceTs: snapshotPriceTs ?? undefined,
   guardrailReason: guardrailEval?.reason,
   guardrailReasonsAll: guardrailEval?.reasonsAll,
     })
@@ -551,6 +703,24 @@ app.get('/api/strategy/preview', async (req, res) => {
     featureHash,
     featureHashV2,
     features: feat,
+  snapshotPrice,
+  priceSource,
+  snapshotPriceTs,
+  momentumShortMinusLong,
+  priceMeta: { source: priceSource, isSurge, isFallback, ageMs, stale, staleMs: staleMsCfg },
+    donation: (() => {
+      try {
+        if (!delegator || !/^0x[0-9a-f]{40}$/.test(delegator)) return null
+        const file = join(process.cwd(), 'data', 'delegations', `${delegator}.json`)
+        if (!existsSync(file)) return null
+        const j = JSON.parse(readFileSync(file, 'utf8'))
+        const d = j?.job?.donation
+        if (!d || typeof d.pct !== 'number' || d.pct <= 0) return null
+        const baseUsd = Number(decision?.meta?.amountInUSDC || 0)
+        const donationUsd = baseUsd * (d.pct / 100)
+        return { pct: d.pct, to: d.to, amountInUSDC: baseUsd, donationUsd: Number.isFinite(donationUsd) ? donationUsd : 0 }
+      } catch { return null }
+    })(),
     provenance: {
       modelHash: meta.modelHash,
       inferenceProvider: meta.inferenceProvider,
@@ -573,10 +743,11 @@ app.get('/api/strategy/preview', async (req, res) => {
           const exp: Record<string, number | string | null> = {}
           const pc15 = (agg.hyperMetrics as any).priceChangePct_24h // placeholder reuse (we only have 24h now)
           // momentum faux: dérivé simple (placeholder) => on met null si pas de granularité courte disponible
-          exp['exp_momentum'] = pc15 == null ? null : Number(pc15)
+          // Replace placeholder with real momentum if available
+          exp['exp_momentum'] = momentumShortMinusLong == null ? null : momentumShortMinusLong
           // abnormalTransferFlag: heuristique si events_transfer_24h > 2 * médiane approximative (absente) => simplifié: > 50
           const transfers = (agg.hyperMetrics as any).events_transfer_24h || 0
-            exp['exp_abnormalTransferFlag'] = transfers > 50 ? 1 : 0
+          exp['exp_abnormalTransferFlag'] = transfers > 50 ? 1 : 0
           // quantized price: on réutilise snapshotPrice si présent sinon null
           exp['exp_quantizedPrice'] = snapshotPrice == null ? null : snapshotPrice
           // pnl placeholder (null pour l'instant)
@@ -602,7 +773,7 @@ app.post('/api/strategy/decision/force', async (req,res) => {
         return res.status(403).json({ ok: false, error: 'delegation_revoked', revoked })
       }
     } catch {}
-    const volatility = Number(req.body?.volatility ?? 0.35)
+  const volatility = Number(req.body?.volatility ?? 0.35)
     const ctx = {
       timestamp: Date.now(),
       delegator,
@@ -613,7 +784,17 @@ app.post('/api/strategy/decision/force', async (req,res) => {
       riskParams: { maxSlippageBps: 80, maxSingleUsd: 100 },
       marketVolatilityScore: Number.isFinite(volatility) ? Math.min(Math.max(volatility,0), 2) : 0.35,
     }
-    const feat = computeCoreFeatures(delegator)
+  const feat = computeCoreFeatures(delegator)
+  const snapshotPrice = (feat as any).snapshotPrice ?? null
+  const priceSource = (feat as any).priceSource || 'unknown'
+  const snapshotPriceTs = (feat as any).snapshotPriceTs ?? null
+  const momentumShortMinusLong = (feat as any).momentumShortMinusLong ?? null
+    const nowTs = Date.now()
+    const staleMsCfg = process.env.SWITCHBOARD_STALE_MS ? Number(process.env.SWITCHBOARD_STALE_MS) : 15_000
+    const ageMs = snapshotPriceTs ? Math.max(0, nowTs - snapshotPriceTs) : null
+    const isSurge = priceSource === 'surge'
+    const isFallback = priceSource !== 'surge'
+  const stale = ageMs != null && isSurge ? ageMs > staleMsCfg : false
     const decision = await strategyEngine.decide(ctx as any)
     const meta = decision.meta || {}
     const aiRationaleHash = hashRationale(decision.rationale)
@@ -712,9 +893,20 @@ app.post('/api/strategy/decision/force', async (req,res) => {
       guardrailReason: guardrailEval?.reason,
       guardrailReasonsAll: guardrailEval?.reasonsAll,
     })
-    return res.json({ ok: true, rollingHash: 'pending_readback', guardrails: guardrailEval || null })
+  return res.json({ ok: true, rollingHash: 'pending_readback', guardrails: guardrailEval || null, momentumShortMinusLong })
   } catch (e:any) {
     return res.status(500).json({ ok: false, error: e?.message || 'force_decision_failed' })
+  }
+})
+
+// Debug: inference provider info
+app.get('/api/inference/provider', (_req, res) => {
+  try {
+    const { selectInferenceProvider } = require('./strategy/providers') as typeof import('./strategy/providers')
+    const prov = selectInferenceProvider()
+    return res.json({ ok: true, provider: prov.name(), env: process.env.INFERENCE_PROVIDER || 'local' })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'provider_info_failed' })
   }
 })
 
@@ -1519,7 +1711,18 @@ app.get('/api/strategy/guardrails/head', async (_req, res) => {
 app.get('/api/strategy/guardrails/last', (_req,res) => {
   try {
     if (!_lastGuardrailEval) return res.json({ ok: true, empty: true })
-    return res.json({ ok: true, last: _lastGuardrailEval })
+    const delegator = _lastGuardrailEval.delegator || process.env.DELEGATOR || undefined
+    let streak: number | undefined
+    let revoked: any = undefined
+    if (delegator) {
+      try {
+        const rev = require('./revocation') as any
+        streak = typeof rev.getStreak === 'function' ? rev.getStreak(delegator) : undefined
+        const rec = typeof rev.isRevoked === 'function' ? rev.isRevoked(delegator) : null
+        revoked = rec ? { revoked: true, record: rec, streak } : { revoked: false, streak }
+      } catch {}
+    }
+    return res.json({ ok: true, last: _lastGuardrailEval, revocation: revoked })
   } catch (e:any) { return res.status(500).json({ ok: false, error: e?.message || 'guardrails_last_failed' }) }
 })
 // Domain metadata (typehashes + configured domain separator components) for external indexers
@@ -1809,18 +2012,8 @@ app.get('/api/diag', async (req, res) => {
       if (cachedDelegate?.sa) {
         const [balMon, balToken, balWmon] = await Promise.all([
           publicClient.getBalance({ address: cachedDelegate.sa as `0x${string}` }),
-          publicClient.readContract({
-            address: USDC,
-            abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-            functionName: 'balanceOf',
-            args: [cachedDelegate.sa as `0x${string}`],
-          }) as Promise<bigint>,
-          publicClient.readContract({
-            address: WMON,
-            abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-            functionName: 'balanceOf',
-            args: [cachedDelegate.sa as `0x${string}`],
-          }) as Promise<bigint>,
+          readErc20Balance(USDC as Address, cachedDelegate.sa as Address),
+          readErc20Balance(WMON as Address, cachedDelegate.sa as Address),
         ])
         out.delegateBalances = { mon: balMon.toString(), usdc: (balToken as bigint).toString(), wmon: (balWmon as bigint).toString() }
       }
@@ -1832,18 +2025,8 @@ app.get('/api/diag', async (req, res) => {
       try {
         const [balMon, balToken, balWmon] = await Promise.all([
           publicClient.getBalance({ address: delegator }),
-          publicClient.readContract({
-            address: USDC,
-            abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-            functionName: 'balanceOf',
-            args: [delegator],
-          }) as Promise<bigint>,
-          publicClient.readContract({
-            address: WMON,
-            abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-            functionName: 'balanceOf',
-            args: [delegator],
-          }) as Promise<bigint>,
+          readErc20Balance(USDC as Address, delegator as Address),
+          readErc20Balance(WMON as Address, delegator as Address),
         ])
         out.delegatorBalances = { mon: balMon.toString(), usdc: (balToken as bigint).toString(), wmon: (balWmon as bigint).toString() }
       } catch (e: any) {
@@ -1854,11 +2037,10 @@ app.get('/api/diag', async (req, res) => {
     try {
       const amounts = await publicClient.readContract({
         address: UNISWAP_V2_ROUTER02,
-        abi: [
-          { name: 'getAmountsOut', type: 'function', stateMutability: 'view', inputs: [ { name: 'amountIn', type: 'uint256' }, { name: 'path', type: 'address[]' } ], outputs: [{ name: 'amounts', type: 'uint256[]' }] },
-        ] as any,
+        authorizationList: [] as any,
+        abi: UNISWAP_V2_ROUTER_MIN_ABI as any,
         functionName: 'getAmountsOut',
-        args: [amount, [USDC, WMON]],
+        args: [amount, [USDC as Address, WMON as Address]],
       }) as bigint[]
       out.quote = { in: amount.toString(), out: (amounts?.[1] as bigint | undefined)?.toString() }
     } catch (e: any) {
@@ -2295,12 +2477,7 @@ app.get('/api/delegations/scopes/:delegatorSA', async (req, res) => {
     let wmonBal = '0'
     try { monBal = (await publicClient.getBalance({ address: delegatorSA as Address })).toString() } catch {}
     try {
-      wmonBal = (await publicClient.readContract({
-        address: WMON as Address,
-        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-        functionName: 'balanceOf',
-        args: [delegatorSA as Address],
-      }) as bigint).toString()
+      wmonBal = (await readErc20Balance(WMON as Address, delegatorSA as Address)).toString()
     } catch {}
     return res.json({ ok: true, delegatorSA, hasValue: true, caveatCount: caveats.length, detection, balances: { mon: monBal, wmon: wmonBal }, caveats })
   } catch (e: any) {
@@ -2417,12 +2594,7 @@ app.post('/api/send-mon', async (req, res) => {
     // Lire balance WMON pour withdraw
     let wbal = 0n
     try {
-      wbal = await publicClient.readContract({
-        address: WMON as Address,
-        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] } ] as any,
-        functionName: 'balanceOf',
-        args: [delegatorSA as Address],
-      }) as bigint
+      wbal = await readErc20Balance(WMON as Address, delegatorSA as Address)
     } catch {}
     if (wbal === 0n) return res.status(400).json({ error: 'no_wmon_balance', stage: 'balance_check', wmonBalance: '0', mode: 'fallback-wmon' })
     let wad: bigint
@@ -2627,12 +2799,7 @@ app.post('/api/unwrap', async (req, res) => {
       // fetch full balance
       let bal = 0n
       try {
-        bal = await publicClient.readContract({
-          address: WMON,
-          abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-          functionName: 'balanceOf',
-          args: [delegatorSA as Address],
-        }) as bigint
+        bal = await readErc20Balance(WMON as Address, delegatorSA as Address)
       } catch {}
       // resolve percent
       let p = 96
@@ -2705,12 +2872,7 @@ app.post('/api/withdraw-native', async (req, res) => {
     // Read WMON balance of delegator SA
     let wbal = 0n
     try {
-      wbal = await publicClient.readContract({
-        address: WMON as any,
-        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] } ] as any,
-        functionName: 'balanceOf',
-        args: [delegatorSA],
-      }) as bigint
+      wbal = await readErc20Balance(WMON as Address, delegatorSA as Address)
     } catch {}
     if (wbal === 0n) return res.json({ ok: false, error: 'no_wmon_balance' })
     let wad: bigint
@@ -2844,12 +3006,7 @@ app.post('/api/flush', async (req, res) => {
       let amt: bigint
       if (amount === 'all') {
         try {
-          amt = await publicClient.readContract({
-            address: tokenAddr as Address,
-            abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-            functionName: 'balanceOf',
-            args: [delegatorSA as Address],
-          }) as bigint
+          amt = await readErc20Balance(tokenAddr as Address, delegatorSA as Address)
         } catch { amt = 0n }
       } else {
         amt = BigInt(String(amount || 0))
@@ -2939,12 +3096,7 @@ app.post('/api/topup', async (req, res) => {
     // Lire solde USDC owner
     let ownerBal: bigint = 0n
     try {
-      ownerBal = await publicClient.readContract({
-        address: USDC,
-        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-        functionName: 'balanceOf',
-        args: [ownerAddr],
-      }) as bigint
+      ownerBal = await readErc20Balance(USDC as Address, ownerAddr)
     } catch {}
     if (ownerBal < toPull) {
       console.warn('[topup] insufficient USDC balance owner', { owner: ownerAddr, ownerBal: ownerBal.toString(), requested: toPull.toString() })
@@ -3115,20 +3267,10 @@ app.get('/api/status/:delegator', async (req, res) => {
     let usdc = 0n, mon = 0n, wmon = 0n
     try { mon = await publicClient.getBalance({ address: delegator as Address }) } catch {}
     try {
-      usdc = await publicClient.readContract({
-        address: USDC,
-        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-        functionName: 'balanceOf',
-        args: [delegator as Address],
-      }) as bigint
+      usdc = await readErc20Balance(USDC as Address, delegator as Address)
     } catch {}
     try {
-      wmon = await publicClient.readContract({
-        address: WMON,
-        abi: [ { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } ] as any,
-        functionName: 'balanceOf',
-        args: [delegator as Address],
-      }) as bigint
+      wmon = await readErc20Balance(WMON as Address, delegator as Address)
     } catch {}
     const needsTopup = usdc === 0n
     return res.json({ ok: true, hasDelegation: exists, balances: { usdc: usdc.toString(), mon: mon.toString(), wmon: wmon.toString() }, needsTopup, hasPermitAuth: Boolean(permit || auth3009) })
@@ -3219,6 +3361,7 @@ app.post('/api/simulate', async (req, res) => {
             address: ENTRY_POINT_V07,
             abi: ENTRY_POINT_ABI_MIN as any,
             functionName: 'balanceOf',
+            authorizationList: [] as any,
             args: [pmAddress as Address],
           }) as bigint
           entryPointBalance = bal.toString()
