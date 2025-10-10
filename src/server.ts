@@ -25,7 +25,7 @@ import { hasStructHash, readAuditTail, newRunId, readAuditStream, auditStatus } 
 import { computeDelegatorCoverage, computeGlobalCoverage } from './coverage'
 import { strategyEngine, hashRationale } from './strategy/engine'
 import { initGlobalPriceInfra } from './pricing/globalProvider'
-import { loadRegistry, computeDailyForAllRPC } from './metrics/protocols'
+import { loadRegistry, computeDailyForAllRPC, type DailyProtocolMetrics } from './metrics/protocols'
 import { fetchDailyMetricsEnvio } from './metrics/envioAdapter'
 import { computeCoreFeatures, computeSyntheticPrice } from './features'
 import { startUserOpResolver } from './userop-resolver'
@@ -324,6 +324,8 @@ app.get('/api/auth/me', (req, res) => {
 })
 
 let cachedDelegate: { eoa: string; sa: string; envSupported?: boolean } | null = null
+// Cache last successful protocol metrics response to avoid UI flicker to zeros on transient failures
+let lastMetricsCache: { data: DailyProtocolMetrics[]; source: string; at: number } | null = null
 // Root landing page for quick sanity check
 app.get('/', (_req, res) => {
   res.json({ ok: true, name: 'DCA API', endpoints: ['/api/health', '/api/delegate', '/api/diag'] })
@@ -334,10 +336,13 @@ app.get('/api/metrics/protocols/registry', (_req, res) => {
   try { return res.json({ ok: true, registry: loadRegistry() }) } catch (e:any) { return res.status(500).json({ ok: false, error: e?.message || 'registry_failed' }) }
 })
 app.get('/api/metrics/protocols/daily', async (req, res) => {
+  // Disable HTTP caching for dynamic metrics
+  try { res.setHeader('Cache-Control', 'no-store') } catch {}
   const envioUrl = process.env.ENVIO_GRAPHQL_URL
   const forceRpc = String(process.env.METRICS_RPC_FALLBACK_ONLY || '').toLowerCase()
   const preferEnvio = !['true','1','yes','on'].includes(forceRpc)
   const registry = loadRegistry()
+  const wantScan = ['true','1','yes','on'].includes(String(req.query.scan || '').toLowerCase())
 
   // Helper: RPC fallback with modest scan window to stay responsive
   async function fallbackRPC() {
@@ -353,20 +358,31 @@ app.get('/api/metrics/protocols/daily', async (req, res) => {
         task,
         new Promise((_, rej) => setTimeout(() => rej(new Error('rpc_fallback_timeout')), timeoutMs)),
       ]) as Awaited<ReturnType<typeof computeDailyForAllRPC>>
+      // update cache
+      try { lastMetricsCache = { data, source: 'rpc', at: Date.now() } } catch {}
       return res.json({ ok: true, data, source: 'rpc' })
     } catch (e: any) {
       return res.status(500).json({ ok: false, error: e?.message || 'rpc_fallback_failed' })
     }
   }
 
+  if (wantScan) {
+    // Caller explicitly asked to scan via RPC (quick sample), even if Envio is available
+    return await fallbackRPC()
+  }
   if (preferEnvio && envioUrl) {
     try {
       const data = await fetchDailyMetricsEnvio(registry)
+      // update cache
+      try { lastMetricsCache = { data, source: 'envio', at: Date.now() } } catch {}
       return res.json({ ok: true, data, source: 'envio' })
     } catch (e: any) {
       console.warn('[metrics] Envio fetch failed', e?.message || e)
-      const wantScan = ['true','1','yes','on'].includes(String(req.query.scan || '').toLowerCase())
       if (!wantScan) {
+        // If we have a previous good dataset, serve it to avoid zeros flicker
+        if (lastMetricsCache) {
+          return res.json({ ok: true, data: lastMetricsCache.data, source: 'cache' })
+        }
         const dateISO = new Date().toISOString().slice(0,10)
         const zeros = registry.map(p => ({ id: p.id, dateISO, usersDaily: 0, txDaily: 0, txCumulative: null, avgTxPerUser: 0, avgFeeNative: null, depositDaily: null, withdrawDaily: null }))
         return res.json({ ok: true, data: zeros, source: 'envio-unavailable' })
@@ -377,8 +393,11 @@ app.get('/api/metrics/protocols/daily', async (req, res) => {
   // No Envio configured or explicitly disabled.
   // Default: respond immediately with zero metrics to keep UI snappy.
   // Opt-in: add ?scan=1 to perform a lightweight RPC scan.
-  const wantScan = ['true','1','yes','on'].includes(String(req.query.scan || '').toLowerCase())
   if (!wantScan) {
+    // Serve last good data if available to avoid zeros when scan is not requested
+    if (lastMetricsCache) {
+      return res.json({ ok: true, data: lastMetricsCache.data, source: 'cache' })
+    }
     const dateISO = new Date().toISOString().slice(0,10)
     const zeros = registry.map(p => ({ id: p.id, dateISO, usersDaily: 0, txDaily: 0, txCumulative: null, avgTxPerUser: 0, avgFeeNative: null, depositDaily: null, withdrawDaily: null }))
     return res.json({ ok: true, data: zeros, source: 'none' })

@@ -39,12 +39,10 @@ const HyperIndexPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       function build(linesStyle: "legacy" | "current") {
         const lines: string[] = [];
         if (linesStyle === "current") {
-          // Match backend serializeFeatures() current version (schemaVersion / chainId / asOfTs)
           lines.push(`schemaVersion=${head.schemaVersion}`);
           if (head.chainId != null) lines.push(`chainId=${head.chainId}`);
           lines.push(`asOfTs=${head.asOfTs}`);
         } else {
-          // Legacy snapshot attempt (older UI assumption)
           lines.push(`v=${head.schemaVersion}`);
           lines.push(`ts=${head.asOfTs}`);
         }
@@ -84,7 +82,6 @@ const HyperIndexPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           "Correspond à la variante legacy (backend courant = schemaVersion/chainId/asOfTs)"
         );
       }
-      // lightweight keccak via dynamic import (js-sha3)
     } catch (e: any) {
       setRehashError(e?.message || "rehash_failed");
       setRehashOk(false);
@@ -179,10 +176,13 @@ const HyperIndexPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 };
 
 // Protocol Metrics panel (Envio-powered)
-const ProtocolMetricsPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
+export const ProtocolMetricsPanel: React.FC<{ apiBase: string }> = ({
+  apiBase,
+}) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>("");
   const [source, setSource] = useState<string>("");
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [rows, setRows] = useState<
     Array<{
       id: string;
@@ -196,15 +196,48 @@ const ProtocolMetricsPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       withdrawDaily?: number | null;
     }>
   >([]);
+  const [stale, setStale] = useState<boolean>(false);
+  const [lastGoodRows, setLastGoodRows] = useState<typeof rows | null>(null);
+  const [lastGoodAt, setLastGoodAt] = useState<number | null>(null);
+
+  const nf0 = useMemo(() => new Intl.NumberFormat("en-US"), []);
+  const nf2 = useMemo(
+    () =>
+      new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    []
+  );
 
   async function load() {
     try {
       setLoading(true);
       setError("");
-      const r = await fetch(`${apiBase}/api/metrics/protocols/daily`).then((x) => x.json());
+      const r = await fetch(`${apiBase}/api/metrics/protocols/daily`).then(
+        (x) => x.json()
+      );
       if (!r?.ok) throw new Error(r?.error || "metrics_failed");
-      setRows(Array.isArray(r.data) ? r.data : []);
-      setSource(r.source || "");
+      const data = Array.isArray(r.data) ? r.data : [];
+      const src = String(r.source || "");
+      const isGood = ["envio", "rpc", "cache"].includes(src);
+      setSource(src);
+      if (isGood) {
+        setRows(data);
+        setLastGoodRows(data);
+        setLastGoodAt(Date.now());
+        setStale(false);
+      } else {
+        // Keep last good data on transient failures to avoid flashing zero rows
+        if (lastGoodRows) {
+          setRows(lastGoodRows);
+          setStale(true);
+        } else {
+          setRows(data);
+          setStale(true);
+        }
+      }
+      setLastUpdated(Date.now());
     } catch (e: any) {
       setError(e?.message || String(e));
       setRows([]);
@@ -218,48 +251,100 @@ const ProtocolMetricsPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       setLoading(true);
       setError("");
       const url = new URL(`${apiBase}/api/metrics/protocols/daily`);
-      url.searchParams.set('scan', '1');
-      url.searchParams.set('hours', '0.25');
-      url.searchParams.set('maxBlocks', '200');
-      url.searchParams.set('timeoutMs', '4000');
-      const r = await fetch(url.toString()).then(x=>x.json());
-      if (!r?.ok) throw new Error(r?.error || 'metrics_failed');
-      setRows(Array.isArray(r.data) ? r.data : []);
-      setSource(r.source || '');
-    } catch (e:any) {
+      url.searchParams.set("scan", "1");
+      url.searchParams.set("hours", "0.25");
+      url.searchParams.set("maxBlocks", "200");
+      url.searchParams.set("timeoutMs", "4000");
+      const r = await fetch(url.toString()).then((x) => x.json());
+      if (!r?.ok) throw new Error(r?.error || "metrics_failed");
+      const data = Array.isArray(r.data) ? r.data : [];
+      const src = String(r.source || "");
+      const isGood = ["envio", "rpc", "cache"].includes(src);
+      setSource(src);
+      if (isGood) {
+        setRows(data);
+        setLastGoodRows(data);
+        setLastGoodAt(Date.now());
+        setStale(false);
+      } else {
+        if (lastGoodRows) {
+          setRows(lastGoodRows);
+          setStale(true);
+        } else {
+          setRows(data);
+          setStale(true);
+        }
+      }
+      setLastUpdated(Date.now());
+    } catch (e: any) {
       setError(e?.message || String(e));
       setRows([]);
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     load();
   }, [apiBase]);
+  // Auto-refresh every 1s without overlapping requests (throttled)
+  useEffect(() => {
+    const iv = window.setInterval(() => {
+      if (!loading) load();
+    }, 1000);
+    return () => window.clearInterval(iv);
+  }, [loading, apiBase]);
 
   return (
     <div
-      style={{ border: "1px solid #ddd", borderRadius: 8, padding: 10, background: "#fafefe" }}
+      style={{
+        border: "1px solid #ddd",
+        borderRadius: 8,
+        padding: 10,
+        background: "#fafefe",
+      }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: "#555" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            color: "#555",
+          }}
+        >
           Protocol Metrics (Envio)
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={load} disabled={loading} style={{ fontSize: 11 }}>
-            {loading ? "…" : "Refresh"}
-          </button>
-          <button onClick={scanRpc} disabled={loading} style={{ fontSize: 11 }}>
-            {loading ? "…" : "Scan (RPC)"}
-          </button>
+        {/* Controls temporarily hidden to avoid UI flicker during auto-refresh */}
+      </div>
+      <div
+        style={{
+          marginTop: 4,
+          fontSize: 10,
+          color: "#777",
+          display: "flex",
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          source: <code>{source || "—"}</code>
+          {stale ? <span style={{ color: "#b30" }}> • stale</span> : null}
+        </div>
+        <div>
+          auto-refresh: 1s • last:{" "}
+          {lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : "—"}
         </div>
       </div>
-      {source && (
-        <div style={{ marginTop: 4, fontSize: 10, color: '#777' }}>
-          source: <code>{source}</code>
-        </div>
-      )}
       {error && (
-        <div style={{ marginTop: 6, fontSize: 11, color: "#b30" }}>Erreur: {error}</div>
+        <div style={{ marginTop: 6, fontSize: 11, color: "#b30" }}>
+          Erreur: {error}
+        </div>
       )}
       {!error && rows.length === 0 && (
         <div style={{ marginTop: 6, fontSize: 11, color: "#666" }}>
@@ -267,47 +352,190 @@ const ProtocolMetricsPanel: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         </div>
       )}
       {rows.length > 0 && (
-        <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
-          {rows.map((r) => (
-            <div
-              key={r.id}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(8, minmax(0, 1fr))",
-                gap: 8,
-                fontSize: 12,
-                padding: "6px 8px",
-                border: "1px solid #eee",
-                borderRadius: 6,
-                background: "#fff",
-              }}
-            >
-              <div><strong>{r.id}</strong></div>
-              <div title="users/day">👤 {r.usersDaily}</div>
-              <div title="tx/day">🔁 {r.txDaily}</div>
-              <div title="tx cumulative">Σ {r.txCumulative ?? "—"}</div>
-              <div title="avg tx / user">μ {r.avgTxPerUser?.toFixed?.(2) ?? r.avgTxPerUser}</div>
-              <div title="avg fee (native)">⛽ {r.avgFeeNative == null ? "—" : r.avgFeeNative.toFixed(6)}</div>
-              <div title="deposits/day">⬆️ {r.depositDaily == null ? "—" : r.depositDaily}</div>
-              <div title="withdraws/day">⬇️ {r.withdrawDaily == null ? "—" : r.withdrawDaily}</div>
+        <div style={{ marginTop: 10 }}>
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ minWidth: 980 }}>
+              {/* header */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "160px 110px 90px 110px 120px 120px 130px 130px",
+                  gap: 8,
+                  fontSize: 11,
+                  padding: "6px 8px",
+                  border: "1px solid #eee",
+                  borderRadius: 6,
+                  background: "#fafafa",
+                  fontWeight: 600,
+                  color: "#444",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <div>Protocol</div>
+                <div>Date (UTC)</div>
+                <div
+                  title="users/day"
+                  style={{
+                    textAlign: "right",
+                    fontFamily:
+                      "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  👤 Users
+                </div>
+                <div
+                  title="tx/day"
+                  style={{
+                    textAlign: "right",
+                    fontFamily:
+                      "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  🔁 Tx
+                </div>
+                <div
+                  title="cumulative tx"
+                  style={{
+                    textAlign: "right",
+                    fontFamily:
+                      "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  Σ Tx
+                </div>
+                <div
+                  style={{
+                    textAlign: "right",
+                    fontFamily:
+                      "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  Avg Tx/User
+                </div>
+                <div
+                  style={{
+                    textAlign: "right",
+                    fontFamily:
+                      "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  Avg Fee (native)
+                </div>
+                <div
+                  style={{
+                    textAlign: "right",
+                    fontFamily:
+                      "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  In / Out (d)
+                </div>
+              </div>
+              {/* rows */}
+              <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
+                {rows.map((r) => (
+                  <div
+                    key={r.id}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "160px 110px 90px 110px 120px 120px 130px 130px",
+                      gap: 8,
+                      fontSize: 11,
+                      padding: "6px 8px",
+                      border: "1px solid #eee",
+                      borderRadius: 6,
+                      background: "#fff",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {r.id}
+                    </div>
+                    <div>{r.dateISO || "—"}</div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontFamily:
+                          "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      }}
+                    >
+                      {nf0.format(Number(r.usersDaily || 0))}
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontFamily:
+                          "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      }}
+                    >
+                      {nf0.format(Number(r.txDaily || 0))}
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontFamily:
+                          "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      }}
+                    >
+                      {r.txCumulative == null
+                        ? "—"
+                        : nf0.format(Number(r.txCumulative))}
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontFamily:
+                          "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      }}
+                    >
+                      {nf2.format(Number((r as any).avgTxPerUser ?? 0))}
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontFamily:
+                          "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      }}
+                    >
+                      {r.avgFeeNative == null
+                        ? "—"
+                        : Number.isFinite(Number(r.avgFeeNative))
+                        ? Number(r.avgFeeNative).toFixed(6)
+                        : String(r.avgFeeNative)}
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontFamily:
+                          "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      }}
+                    >
+                      {r.depositDaily == null
+                        ? "—"
+                        : nf0.format(Number(r.depositDaily))}
+                      {" / "}
+                      {r.withdrawDaily == null
+                        ? "—"
+                        : nf0.format(Number(r.withdrawDaily))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
+          </div>
         </div>
       )}
     </div>
   );
 };
-
-interface LatestDecisionResponse {
-  ok: boolean;
-  empty?: boolean;
-  decision?: any;
-  verification?: {
-    pass: boolean;
-    checks: Record<string, { pass: boolean; expected: any; actual: any }>;
-  };
-}
-
 type StreamLine = {
   ts?: number;
   action?: string;
@@ -323,6 +551,32 @@ type StreamLine = {
   aiActionType?: string;
   riskScore?: number;
   confidence?: number;
+};
+
+// Minimal API response typing for latest decision endpoint
+type LatestDecisionResponse = {
+  decision?: {
+    ts?: number;
+    rollingHash?: string;
+    featureHash?: string;
+    featureHashV2?: string;
+    aiRationaleHash?: string;
+    actionType?: string;
+    aiActionType?: string;
+    riskScore?: number;
+    aiRiskScore?: number;
+    confidence?: number;
+    aiConfidence?: number;
+    modelHash?: string;
+    rawScore?: number;
+    logitZ?: number;
+    mappingVersion?: string;
+    weightsUsedHash?: string;
+  } | null;
+  verification?: {
+    pass: boolean;
+    checks: Record<string, { pass: boolean }>;
+  } | null;
 };
 
 const formatTime = (t?: number) => (t ? new Date(t).toLocaleTimeString() : "—");
@@ -354,10 +608,12 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
   );
   const hyperEnabled = useMemo(() => {
     try {
-      const p = new URLSearchParams(window.location.search).get('hyper');
+      const p = new URLSearchParams(window.location.search).get("hyper");
       if (p === null) return true; // default on
-      return p !== '0';
-    } catch { return true }
+      return p !== "0";
+    } catch {
+      return true;
+    }
   }, []);
   const [latest, setLatest] = useState<LatestDecisionResponse | null>(null);
   const [streamLines, setStreamLines] = useState<StreamLine[]>([]);
@@ -584,11 +840,8 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
           gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
         }}
       >
-        {/* Envio protocol metrics panel */}
-        <ProtocolMetricsPanel apiBase={base} />
-
-  {/* HyperIndex snapshot panel (optional) */}
-  {hyperEnabled && <HyperIndexPanel apiBase={base} />}
+        {/* HyperIndex snapshot panel (optional) */}
+        {hyperEnabled && <HyperIndexPanel apiBase={base} />}
         <div
           style={{
             border: "1px solid #ddd",
@@ -694,11 +947,14 @@ export const AiDashboard: React.FC<{ apiBase?: string }> = ({ apiBase }) => {
                 fontFamily: "monospace",
               }}
             >
-              {Object.entries(latest.verification.checks).map(([k, v]) => (
-                <div key={k} style={{ color: v.pass ? "#093" : "#b00" }}>
-                  {v.pass ? "✓" : "✗"} {k}
-                </div>
-              ))}
+              {Object.entries(latest.verification.checks).map(([k, v]) => {
+                const vv = v as { pass: boolean };
+                return (
+                  <div key={k} style={{ color: vv.pass ? "#093" : "#b00" }}>
+                    {vv.pass ? "✓" : "✗"} {k}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

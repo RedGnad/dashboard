@@ -1,7 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { createConfig, http, WagmiProvider } from "wagmi";
-import { metaMask } from "@wagmi/connectors";
+import { injected } from "@wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createPublicClient } from "viem";
 import App from "./ui/App";
@@ -14,15 +14,12 @@ const monadTestnet = {
     default: { http: ["https://testnet-rpc.monad.xyz"] },
     public: { http: ["https://testnet-rpc.monad.xyz"] },
   },
-  blockExplorers: {
-    default: { name: "Monad Explorer", url: "https://testnet.monadexplorer.com" },
-  },
 } as const;
 
 const config = createConfig({
   chains: [monadTestnet],
   ssr: true,
-  connectors: [metaMask({ dappMetadata: { name: "DCA Dashboard" } })],
+  connectors: [injected()],
   transports: { [monadTestnet.id]: http(monadTestnet.rpcUrls.default.http[0]) },
 });
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import AiConsole from "./AiConsole";
 import AiDashboard from "./AiDashboard";
+import Protocols from "./Protocols";
 import {
   useAccount,
   useConnect,
@@ -129,7 +130,9 @@ export default function App() {
     try {
       const ai = new URLSearchParams(window.location.search).get("ai");
       return ai === "1";
-    } catch { return false }
+    } catch {
+      return false;
+    }
   }, []);
   useEffect(() => {
     if (!aiEnabled) return;
@@ -161,7 +164,9 @@ export default function App() {
       }
     }
     poll();
-    return () => { active = false };
+    return () => {
+      active = false;
+    };
   }, [apiBase, saPanel?.delegator?.address, aiEnabled]);
 
   function renderPriceBadge() {
@@ -221,10 +226,14 @@ export default function App() {
     );
   }
 
-  const injectedConnector = useMemo(() => injected({
-    // Prefer MetaMask in multi-injected environments; wagmi will pick window.ethereum.providers entry with isMetaMask
-    shimDisconnect: true,
-  }), []);
+  const injectedConnector = useMemo(
+    () =>
+      injected({
+        // Prefer MetaMask in multi-injected environments; wagmi will pick window.ethereum.providers entry with isMetaMask
+        shimDisconnect: true,
+      }),
+    []
+  );
 
   // Helper: format balance where undefined => '?', null => '?', numeric/parsable 0 => '0'
   function fmtBalance(v: any): string {
@@ -2034,6 +2043,9 @@ export default function App() {
           )}
         </div>
       )}
+      {/* Protocol metrics (separate feature) */}
+      <Protocols apiBase={apiBase} />
+
       {/* AI Console (historique décisions) */}
       <AiConsole apiBase={apiBase} />
       <AiDashboard apiBase={apiBase} />

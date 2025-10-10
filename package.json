@@ -41,8 +41,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "js-sha3": "^0.9.3",
-    "viem": "^2.21.0",
-    "@switchboard-xyz/on-demand": "^0.1.0"
+    "viem": "^2.21.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
