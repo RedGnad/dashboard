@@ -1,0 +1,1213 @@
+[
+  {
+    "ts": 1759764401680,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x9e6f856bb8796211753074808352c7890c90b8c0623d52ad2195c53bec99b6ae",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759764418313,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xcc8a7920d48e93dd9489a9eaca6e71b7867cd9212611e37ee294ae799e1c1f2c",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759764480043,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xcd69767b3a9b20cbf8d711dfcc3e0e3ea2ebcc265dc1d62b9dcf40a4cecc57c2",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759764828729,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xc79b3d5e76f129f91b6e4082b043f7d212980129ea695ee6f07d8fdf3d3e5800",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759767068533,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x67d56341be256a7acbb3d0a4a31d01b918b948e766fbaf4a106e65d9f5a0dbfc",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759767090098,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x40d356693bbf62327a6efaf752dbf9d35cf0a5795139ad177168cf448e5aa8e8",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759774921659,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x18417313103770db4966d688aa474551b5af8ef7154f4467ca7d52a4544d3450",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759775995941,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x127c9fad5841f4d38ac00a50e0ff778b7628bf4a5de4282f19e43d1848e1f0dc",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759779410552,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xf1cc5f558d193390e5a723645687ec9442306cabda5625fce98333ee58ce2c78",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759780479937,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x914ab1c2eac1837c2eee7d1e315b713c01533aa61e7d16e99d5772f086221068",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759782565714,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x52d08600f0f28a204846db1e727b8eacc0db0b6968b67570f9cc2746af07c7da",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759782972377,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "3076429579188665006",
+    "unwrap": false,
+    "userOperationHash": "0xa7ed3a0c43b13c0c2002902903d4e5a746f21dd5f3baa0ec4ac3ebdcbbf72fa1",
+    "strategy": "withdraw-native"
+  },
+  {
+    "ts": 1759784107346,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x26dc157c04b1614b546235fb4f4b1f3c9c06fc23e06dab40599dcf4044e34d5d",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759784116511,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "308654597045992908",
+    "unwrap": false,
+    "userOperationHash": "0x2a619addd956d161d871caba5c61a53078ec051e709c2bda4f221eb4c1a54890",
+    "strategy": "withdraw-native"
+  },
+  {
+    "ts": 1759784359486,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xa5dafbd61cf1296713326476beb6a62512543de7cd0eedd5823e4d14862fc629",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759784366260,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "308653935860741106",
+    "unwrap": false,
+    "userOperationHash": "0x5ff277f7f21213e8b5d4cf38c58cadb2c282d6edfa0f06669402d840ceff8010",
+    "strategy": "withdraw-native"
+  },
+  {
+    "ts": 1759784646931,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x995ff177b9c2ecf588b329821aed2ae61b1842841b1124198b176f0f3b771a55",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759784655842,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "308653664818288666",
+    "unwrap": false,
+    "userOperationHash": "0x4da590adbfe4fed35173bb7700a1d6b92c71215cf67a343d8d8aeb7afd98fc44",
+    "strategy": "withdraw-native"
+  },
+  {
+    "ts": 1759785105369,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x0c975b07505fffc6e36e4bd274b5f94e12171ba056f55a1fae8255020286330f",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759785115529,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "308652982373241977",
+    "unwrap": false,
+    "userOperationHash": "0xfb660e8437408b8c9496596352beede7b4e6d4a16a61e2035d46d75300598e7d",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759785884307,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x912252458b7321536a6c3e0cc5d18477a70a2999ee1edcf5a250c47a2640e1d3",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759785892220,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "308547305781483800",
+    "unwrap": false,
+    "userOperationHash": "0x6c833c5dbc417ad2b1ca9996f3e16183214a23a6a0c1f4a49f60dddbe1acc3c2",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759786604478,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xb52f3a51ba126ef2aa62f131c4ba35562a57f642081bce335fb9d17639725f10",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759786613111,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "308546647944886337",
+    "unwrap": false,
+    "userOperationHash": "0xdd239ca5a5fcdcf741f785bd8bff14b0046cb97e3ac904ecf6935bfe19109606",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759787679444,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xa98eb0ef99f0a51f61ff970bb870904fe3869c8ddab090daf8ea0735b6e81c4a",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759787739348,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x5172d493b7bba5cfbca9d15508cead6a0d7f85be977c9b609dbf9d76dfde4964",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759787748052,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "617096049565437708",
+    "unwrap": false,
+    "userOperationHash": "0x2d6b52d60738202a7f9edaae276abc7eaf4aa307a9849102ee770ca2bbe8f109",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759788179758,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x162ee31878f65c67ec6ceef9556f21c053e7959840bc99a9080b8479a1b54e53",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759788191128,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x08d933951390117ca27ccb6af5c195ea979d9a3e7f5d3f6715636fbd313abb52",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759788208837,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "1260233658227657222",
+    "unwrap": false,
+    "userOperationHash": "0xafc9de15234ca9fbcf348ec65db764e1b04a690e66f016ad927c2b7dffa9b9b5",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759789090792,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x1cf2d669937352763730762ff8112721349d90f6663272935b3d3376ccb5dcb3",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759789100769,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x9dd502421b7b398fe925cfa9b56ff47ca43db099e669db45e78bd8d3e63a511d",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759789110045,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "661146704277758912",
+    "unwrap": false,
+    "userOperationHash": "0x80da5c95a3e9c1faac75cf3bc27a5b0b52a48ba0e1a8d70a9e2188d5b542b340",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759790208033,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x8752b8ed12c52bb94c80637646cd2f419b1fee6ee3cd992cfd51738427a720a2",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759790216092,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "308548825504910692",
+    "unwrap": false,
+    "userOperationHash": "0xb18e0c4017ac37c3f861ddbb242fa9925ae716080ce122cf76e104af04b7d9a5",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759790875591,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xd698185c20f8b16cc23915c8c90c5c586d059bcc1f916e9189eca72b9d6c24f5",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759790881237,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "308548851361676488",
+    "unwrap": false,
+    "userOperationHash": "0x8629056ca78a1fdc20177d742b613d650de89f73560017c9d68a1ce2e507b37f",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759795017504,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x7dbd4128604865a947e776160eb70554d64ccb36f7df3c3196b307e1030c787f",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759795028182,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x95bd7e6f6b1cb67603613a45c6dbafcd89e47a3dadee93661830715a83988c5b",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759795038164,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "631633934143466296",
+    "unwrap": false,
+    "userOperationHash": "0x88d3e6db84790d7c5bef8efe27dea968d22a4b56f8461db45e370ba97d83b148",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759855544087,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x384c77938e88a399fbf7eef55922a9c9cd8ece2f9fe19a5211cf355aa97ebe9b",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759855556577,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x16899e16ed79d5897a5e945a6b035f2968a1748ff6f36eabcd8e3265a3cd63f3",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759855572575,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "623790180978084466",
+    "unwrap": false,
+    "userOperationHash": "0xea728ef21bfe4a32156674ef2208893110872ab3534f8c1aa11243ff0462f2c4",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759857313179,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xa58ee64d05e2fbd934c222a8eaf3727cac0fb8f71219c1da7aab6323e1cc0287",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759861423126,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x7f40963c451b4c67943c2a86f4b55d7eebdc0f3b1019d5e309d9f096140f67d1",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759864873335,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x619dee459eda28f3aea2bffca6b90ef575a69b376e560ab616173b89592afa54",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759864882863,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "924643799995787777",
+    "unwrap": false,
+    "userOperationHash": "0xb728e34e81508fa125a87878945a53c777c3892db3d92ec6dd0d6dad16ca3779",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759878734905,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x58b7892cab0cd42e7219df5ad394a64bf2dc9c4f199fa9f1a40f5b516a2a2fb0",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759878740753,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "308450606446769460",
+    "unwrap": false,
+    "userOperationHash": "0xe2db8f03f9446740b9cb785ffe492afc4c04b1d43b4fcf273d34292613eeaabb",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759936554334,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x93d802d0fae60447ffc47ce83be8062ef643bb6afac0fd6f9cfbb773bc7a9263",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759936574920,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xcdfacc620fbdb7dc50f59c7bc64db61fb029164f4bc80ddd4c669e28757a78dc",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759936616167,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "632177166147747762",
+    "unwrap": false,
+    "userOperationHash": "0x886ac33f83c7ca9999bea7c8f45ba96c4010e1e3c59b12e3387da33adcb72681",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1759941907240,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0xe358d7bf6cf8478be3048ee038e65517d1c4748330d9e875c8f1510ea74b4c18",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1759941938476,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "306964976193095944",
+    "unwrap": false,
+    "userOperationHash": "0x6ec3a1806fefbd213efd50c31915e67faa90ed4900973a0c97f8ba0fbed51d8d",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1760023482065,
+    "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x6a3d145a6723d69dfc2f256c308dc03a293e219ec6525ba3642f6b640f26aa41",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760198850758,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0xd2aabf179b68bcdfa94712d0abba86bedf91034f0ac1535ae6dae310bdf8cba5",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760210283860,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0xc827f8b96de49798d13a77529438364e341a7032c6345714fe3304c79e3ad9ed",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760211630821,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x824ed2d5a729fcbfd88ea2aeabe79f3e5734b520045d259f47e495f8a000ca51",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760211823815,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x005ac53f4d01f23bdfc3688934ba389651b7c3050b3ca6fec2c5e73b5566a89c",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760215396153,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "1501192968759089429",
+    "unwrap": false,
+    "userOperationHash": "0x37fc89e67b912f16f7af2853b5b8686cc28504f924e0609e32b41784ca46dc3b",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1760215780745,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x62cc4003e00d8b3ff2dd4a267000c6796d13fb33809daa4d581cdc8051ce134b",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760215840355,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x6aebe9bc173e216d493261ab3fc641adeff342b2758576e7c26e8c7f7eb6050d",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760215887029,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x5c4e96903ac331e6cf9a5ac7e94459d4b27c4889473fbf165e52469a2174b2d9",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760216658037,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1600000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0xa5704d32334fc87b88d9114dbca80cc56fa6d55c6c7b0cd1bd61f2ef87399f70",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760216717950,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1440000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x5a9d2acfb1f556b96430fe4e3ba60e26645cf7cfce809c32cfb1de2dba30d463",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760217933538,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1296000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x7735b0da24597e34cb7084c1bafd76e5ffb0bb7303ffc09dafefd1b795317c9f",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760217995568,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1166400",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0x3e19982ae2d79a3b180aebbcd5897b030186c6069b7561000363594b638d4aeb",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760218055466,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1049760",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "userOperationHash": "0xb45d4d070b154680eb0ed2b08521065c2010e0df0c19e58df2adc2990fce8340",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760218147685,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x260abd9a5f33641c4d9db380a1108dfb22705f229d4e14eee24bc81fe21d1a7e",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760218209116,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x3ec4db5ce8826b5a07ab760f71c3ff5b423d11b7b1983b2bcea2023e91c045a6",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760218699527,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "744784",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x3b5db53dbbf369da019616bf7c3c352d5cb2b89f56beb4f2f1bac5bbf2005fa7",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760218762197,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "670305",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x6af828a5beb234229d6ac6702d8a678ba4a38a488fd984f232162a3f3c52e80e",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760218820951,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "603275",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x0c2dd38b0a6fe2ec95741bffdfc5600d4214e720c0bc6d59211a9220c858036c",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760218880528,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "542947",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x3e5f8b338a2fa1a5a3e9863db8ba80605d039416fee54e8564d43f6d0d42a1b2",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760218940749,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "488652",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "userOperationHash": "0x491ba3d3933c92f39a47f28f11dc2fa4b98bb4688affc92fd99d837169cf7aff",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760219024741,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "4457750081034204526",
+    "unwrap": false,
+    "userOperationHash": "0x972ee204be081a9498b619dccfc85684ad1624070e082b8a3c9a037199311d25",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1760219872647,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "633978",
+    "amountIntendedUSDC": "633978",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "ai": {},
+    "sizing": {
+      "basePct": 0.01,
+      "effectivePct": 0.01
+    },
+    "balanceAtRunUSDC": "63397877",
+    "baselineManualUSDC": "633978",
+    "userOperationHash": "0x162477ce1f2ecb6bf12628e0eb2b48c30d79d4cbb0ebf90f1db6989e5ff93b05",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760220240935,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "627638",
+    "amountIntendedUSDC": "627638",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "ai": {},
+    "sizing": {
+      "basePct": 0.01,
+      "effectivePct": 0.01
+    },
+    "balanceAtRunUSDC": "62763899",
+    "baselineManualUSDC": "627638",
+    "userOperationHash": "0x5ff42899533a2af55a6620e2a23338555a99bb174310fec2a78c9d3fdc9bd469",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760220303207,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "621362",
+    "amountIntendedUSDC": "621362",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "ai": {},
+    "sizing": {
+      "basePct": 0.01,
+      "effectivePct": 0.01
+    },
+    "balanceAtRunUSDC": "62136261",
+    "baselineManualUSDC": "621362",
+    "userOperationHash": "0x08792998b56476d6f0248b49e89fee9a8824f6455c625dc3b766c4be7e695c01",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760222335416,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountIntendedUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {},
+    "balanceAtRunUSDC": "61514899",
+    "baselineManualUSDC": "1000000",
+    "userOperationHash": "0xb6b55df10f4f6d9898bad9f8463d18c68841985a87e4518e1d0f4cee223419ec",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760222374161,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "605148",
+    "amountIntendedUSDC": "605148",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {
+      "basePct": 0.01,
+      "effectivePct": 0.01
+    },
+    "balanceAtRunUSDC": "60514899",
+    "baselineManualUSDC": "605148",
+    "userOperationHash": "0x9ffc63ebf5f883ee2f9816ac9a7fd900a3c6385d80acc8475f609b71ba477809",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760222384420,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "599097",
+    "amountIntendedUSDC": "599097",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "ai": {},
+    "sizing": {
+      "basePct": 0.01,
+      "effectivePct": 0.01
+    },
+    "balanceAtRunUSDC": "59909751",
+    "baselineManualUSDC": "599097",
+    "userOperationHash": "0xc8db4371ee883e3511eceeac1923a44bbdc312a70f1c0aa754ba23bce9ee4abf",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760222394457,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "0",
+    "amountOutToken": "1360482039461360254",
+    "unwrap": false,
+    "userOperationHash": "0x5dff84846b0a686cec2b1647196dbad16a8b1377747ad9825411fa246a946e91",
+    "strategy": "withdraw-native",
+    "structHashes": [
+      "0xf7e96f97115a20d82acb2d8e3ff122dea45c5ad41b04b8b21a0ce1953a4e0933"
+    ]
+  },
+  {
+    "ts": 1760222446335,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "593106",
+    "amountIntendedUSDC": "593106",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "ai": {},
+    "sizing": {
+      "basePct": 0.01,
+      "effectivePct": 0.01
+    },
+    "balanceAtRunUSDC": "59310654",
+    "baselineManualUSDC": "593106",
+    "userOperationHash": "0x2fa64dca2ead516119c2a34f48bd872c205fd5f467eb0d7ab365ed6656e5fdaa",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760222506610,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "587175",
+    "amountIntendedUSDC": "587175",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "ai": {},
+    "sizing": {
+      "basePct": 0.01,
+      "effectivePct": 0.01
+    },
+    "balanceAtRunUSDC": "58717548",
+    "baselineManualUSDC": "587175",
+    "userOperationHash": "0x43fc470428754ea0985776ffc0e02f2bddd698fd8eacb17d35f3d2a6235a133f",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760222566304,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "581303",
+    "amountIntendedUSDC": "581303",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "ai": {},
+    "sizing": {
+      "basePct": 0.01,
+      "effectivePct": 0.01
+    },
+    "balanceAtRunUSDC": "58130373",
+    "baselineManualUSDC": "581303",
+    "userOperationHash": "0x9c1655a723670c20169a9b069084253cd35059256e20701c276cbf5e14fb27bb",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760223755473,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountIntendedUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {},
+    "balanceAtRunUSDC": "57549070",
+    "baselineManualUSDC": "1000000",
+    "userOperationHash": "0x25f5cf18ceb0da59b23f8291894934d33883c2597f8e7972b4a03bd678ef2d48",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760223765095,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "1000000",
+    "amountIntendedUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {},
+    "balanceAtRunUSDC": "56549070",
+    "baselineManualUSDC": "1000000",
+    "userOperationHash": "0x6d8feefe182506dfe2168f0827a8829a2bffcaa2160b5259991532ed515ca957",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760224676350,
+    "delegator": "0x022b39bc36eacf22360f61247487e956812afe5e",
+    "amountInUSDC": "555490",
+    "amountIntendedUSDC": "555490",
+    "amountOutToken": "0",
+    "unwrap": true,
+    "ai": {},
+    "sizing": {
+      "basePct": 0.01,
+      "effectivePct": 0.01
+    },
+    "balanceAtRunUSDC": "55549070",
+    "baselineManualUSDC": "555490",
+    "userOperationHash": "0xc30c9a83a5546338f9c2a7251059c3f6523d6257ce8384bb71fca19419bffcbf",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  }
+]

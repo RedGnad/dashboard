@@ -1,0 +1,14 @@
+{
+  "version": "1",
+  "arch": "logistic_v1",
+  "weights": {
+    "balanceStableRatio": -0.2,
+    "balanceTargetRatio": 0.35,
+    "allocationDeviation": -1.1,
+    "timeSinceLastTradeMins": 0.04,
+    "executionsLast24h": -0.15,
+    "volatilitySimple": -0.3
+  },
+  "bias": -0.1,
+  "meta": { "notes": "seed deterministic model" }
+}

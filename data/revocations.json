@@ -1,0 +1,17 @@
+{
+  "revocations": [],
+  "streaks": {
+    "0x1111111111111111111111111111111111111111": {
+      "abnormalHyperIndex": 0,
+      "lastUpdated": 1760158265190
+    },
+    "0x022b39bc36eacf22360f61247487e956812afe5e": {
+      "abnormalHyperIndex": 0,
+      "lastUpdated": 1760246414119
+    },
+    "0x": {
+      "abnormalHyperIndex": 0,
+      "lastUpdated": 1760026538914
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": false,
+    "outDir": "dist",
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": "."
+  },
+  "include": ["src/**/*", "scripts/**/*", "types/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

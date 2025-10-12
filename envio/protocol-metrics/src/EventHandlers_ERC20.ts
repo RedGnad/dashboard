@@ -15,6 +15,7 @@ const IMPORTANT_ADDRESSES = [
 /**
  * ERC20 Transfer handler with wildcard indexing
  * Tracks all ERC20 transfers but focuses on USDC/WMON for AI features
+ * Also captures native MON transfers via transaction value
  */
 ERC20.Transfer.handler(
   async ({ event, context }) => {
@@ -32,7 +33,7 @@ ERC20.Transfer.handler(
       return;
     }
 
-    // Create transfer record
+    // Create ERC20 transfer record
     const transferId = `${event.chainId}_${event.block.number}_${event.logIndex}`;
     
     context.TokenTransfer.set({
@@ -48,6 +49,30 @@ ERC20.Transfer.handler(
       gasUsed: event.transaction.gasUsed || 0n,
       gasPrice: event.transaction.effectiveGasPrice || 0n,
     });
+
+    // BONUS: Also capture native MON transfers if this transaction has native value
+    // This aggregates MON + WMON activity in the same dataset
+    if (event.transaction.value && event.transaction.value > 0n && event.transaction.from) {
+      const nativeTransferId = `native_${event.chainId}_${event.block.number}_${event.logIndex}`;
+      
+      context.TokenTransfer.set({
+        id: nativeTransferId,
+        tokenAddress: "0x0000000000000000000000000000000000000000", // Native token address
+        from: event.transaction.from,
+        to: to, // Use the recipient from the ERC20 transfer event
+        value: event.transaction.value, // Native MON amount
+        blockNumber: event.block.number,
+        blockTimestamp: event.block.timestamp,
+        transactionHash: event.transaction.hash,
+        logIndex: event.logIndex + 1000, // Offset to avoid ID conflicts
+        gasUsed: event.transaction.gasUsed || 0n,
+        gasPrice: event.transaction.effectiveGasPrice || 0n,
+      });
+
+      context.log.info(
+        `Captured native MON transfer: ${event.transaction.value} MON in tx ${event.transaction.hash}`
+      );
+    }
 
     // Update token metrics for tracked tokens
     if (isTrackedToken) {

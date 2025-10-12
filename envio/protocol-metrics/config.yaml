@@ -69,6 +69,7 @@ contracts:
             - hash
             - from
             - to
+            - value  # Include transaction value for native MON tracking
             - gasUsed
             - effectiveGasPrice
   # Universal Router swaps for DEX metrics
@@ -81,6 +82,7 @@ contracts:
           transaction_fields:
             - hash
             - from
+            - value  # Include native value for MON/WMON correlation
 networks:
 - id: 10143
   start_block: 0
