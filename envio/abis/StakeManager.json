@@ -1,0 +1,8 @@
+{
+  "address": "0x2c9C959516e9AAEdB2C748224a41249202ca8BE7",
+  "targetAddress": "0x2c9C959516e9AAEdB2C748224a41249202ca8BE7",
+  "cborBytesHex": "0xa26469706673582212208a28f8aa68e8089be0cfd4512c1936e88734e462b561e18f1e14f0d3aec7462664736f6c634300081a",
+  "ipfsBytesHex": "0x12208a28f8aa68e8089be0cfd4512c1936e88734e462b561e18f1e14f0d3aec74626",
+  "ipfsCidV0": "QmXdyCxw6Zbtxfo7ePtaiGBtXmSKBLT9VgFHqArDJ7n7k9",
+  "metadataError": "HTTP 504 for https://w3s.link/ipfs/QmXdyCxw6Zbtxfo7ePtaiGBtXmSKBLT9VgFHqArDJ7n7k9"
+}
