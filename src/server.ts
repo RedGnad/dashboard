@@ -33,6 +33,7 @@ import { Address, encodeFunctionData as viemEncodeFunctionData } from 'viem'
 import { readRunHistory, summarizeRunHistory } from './utils/history'
 import { loadGuardrails, getGuardrailsConfigHash } from './guardrails'
 import { listAdapters, getAdapter } from './source-adapter'
+import { TOKENS, getToken } from './tokens'
 // --- Simple in-memory auth (personal_sign) state ---
 // NOTE: Nonces & sessions are ephemeral (reset on server restart). Adequate for gating UI today.
 // Future hardening: persist sessions, add rate limits, bind to user agent.
@@ -154,6 +155,13 @@ const MIN_ERC20_ABI = [
     inputs: [{ name: 'owner', type: 'address' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
+  {
+    name: 'allowance',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [ { name: 'owner', type: 'address' }, { name: 'spender', type: 'address' } ],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
 ] as const
 const UNISWAP_V2_ROUTER_MIN_ABI = [
   {
@@ -164,6 +172,21 @@ const UNISWAP_V2_ROUTER_MIN_ABI = [
     outputs: [{ name: 'amounts', type: 'uint256[]' }],
   },
 ] as const
+
+// Tiny retry helper for transient 429s / gateway issues
+async function withRetry<T>(fn: () => Promise<T>, opts?: { retries?: number; delayMs?: number }): Promise<T> {
+  const retries = Math.max(0, opts?.retries ?? 2)
+  const delayMs = Math.max(0, opts?.delayMs ?? 200)
+  let lastErr: any
+  for (let i = 0; i <= retries; i++) {
+    try { return await fn() } catch (e: any) {
+      lastErr = e
+      // simple backoff
+      if (i < retries) await new Promise(r => setTimeout(r, delayMs * (i + 1)))
+    }
+  }
+  throw lastErr
+}
 
 // Helper to read ERC20 balance with minimal typing friction (viem strict params variant simplified)
 async function readErc20Balance(token: Address, owner: Address): Promise<bigint> {
@@ -372,6 +395,25 @@ app.get('/', (_req, res) => {
   res.json({ ok: true, name: 'DCA API', endpoints: ['/api/health', '/api/delegate', '/api/diag'] })
 })
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
+
+// Quick native value scope check: returns whether the current stored delegation allows native msg.value transfers.
+// Heuristic: match textual marker in terms, or known enforcer addresses (allow-list), and emit maxAmount if terms encodes a uint256.
+// GET /api/delegations/native-scope/:delegator
+app.get('/api/delegations/native-scope/:delegator', (req, res) => {
+  try {
+    const delegator = String(req.params.delegator || '').toLowerCase()
+    if (!/^0x[0-9a-f]{40}$/.test(delegator)) return res.status(400).json({ ok: false, error: 'invalid_delegator' })
+    const file = join(process.cwd(), 'data', 'delegations', `${delegator}.json`)
+    if (!existsSync(file)) return res.json({ ok: true, hasDelegation: false, hasNativeScope: false })
+    let json: any
+    try { json = JSON.parse(readFileSync(file, 'utf8')) } catch { return res.status(500).json({ ok: false, error: 'parse_failed' }) }
+    const caveats: any[] = json?.signedDelegation?.delegation?.caveats || []
+    const det = detectNativeValueScope(caveats)
+    return res.json({ ok: true, hasDelegation: true, hasNativeScope: det.hasNativeScope, enforcer: det.enforcer, maxAmount: det.maxAmount })
+  } catch (e:any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'native_scope_check_failed' })
+  }
+})
 // Protocol metrics (registry + daily via RPC quick scan)
 app.get('/api/metrics/protocols/registry', (_req, res) => {
   try { return res.json({ ok: true, registry: loadRegistry() }) } catch (e:any) { return res.status(500).json({ ok: false, error: e?.message || 'registry_failed' }) }
@@ -679,17 +721,36 @@ app.get('/api/strategy/preview', async (req, res) => {
   const profileQ = String(req.query.profile || '').toLowerCase()
   const forceQ = String(req.query.force || '').toLowerCase() // 'buy' | 'sell' for test only
   const providerQ = String(req.query.provider || '').toLowerCase() // e.g. 'openai' | 'opengradient'
+    // New: optional tokens=SYMA,SYMB,... to preview multi-asset targets
+    const tokensQ = String(req.query.tokens || '').trim()
     console.log('[strategy] preview request', { delegator })
   const feat = await computeCoreFeaturesAsync(delegator)
   const snapshotPrice = (feat as any).snapshotPrice ?? null
   const priceSource = (feat as any).priceSource || 'unknown'
   const snapshotPriceTs = (feat as any).snapshotPriceTs ?? null
   const momentumShortMinusLong = (feat as any).momentumShortMinusLong ?? null
+    // Build targets: if tokensQ provided, map to targets (exclude stables); else default to WMON
+    let targets: { symbol: string; weightBps: number }[] = [ { symbol: 'WMON', weightBps: 5000 } ]
+    try {
+      if (tokensQ) {
+        const { getToken } = await import('./tokens')
+        const syms = tokensQ.split(',').map(s => s.trim()).filter(Boolean)
+        const tradables = syms
+          .map(sym => getToken(sym))
+          .filter((t: any) => t && !t.isStable)
+          .map((t: any) => t.symbol.toUpperCase())
+        if (tradables.length) {
+          // Equal weights for preview; engine uses only the first primary for now
+          const w = Math.floor(10_000 / tradables.length)
+          targets = tradables.map(s => ({ symbol: s, weightBps: w }))
+        }
+      }
+    } catch {}
     const ctx = {
       timestamp: Date.now(),
       delegator,
       balances: {},
-      targets: [ { symbol: 'WMON', weightBps: 5000 } ],
+      targets,
       prices: { USDC: '1', WMON: '0' },
       recentExecutions: [],
       riskParams: { maxSlippageBps: 80, maxSingleUsd: 100 },
@@ -818,11 +879,12 @@ app.get('/api/strategy/preview', async (req, res) => {
       salt: '0x',
       warnings: [],
       signatureModel: 'UNKNOWN',
-      aiRationaleHash,
+    aiRationaleHash,
       aiRiskScore: decision.riskScore,
       aiConfidence: decision.confidence,
       strategyEngineVersion: strategyEngine.version(),
-      aiActionType: decision.actionType,
+    aiActionType: decision.actionType,
+    aiTargetSymbol: Array.isArray(decision.steps) && decision.steps[0]?.to ? decision.steps[0].to : undefined,
       featureHash,
       featureHashV2,
       featureSchemaVersion: feat.schemaVersion,
@@ -1824,6 +1886,7 @@ app.get('/api/strategy/run-history', (req, res) => {
               } catch {}
               return {
                 ts: d.ts,
+                delegator, // ensure required field for DcaRunEvent
                 amountInUSDC: '0',
                 amountIntendedUSDC: undefined,
                 skipped: true,
@@ -2010,7 +2073,16 @@ app.post('/api/scheduler/start', (req, res) => {
           // Default SELL enabled unless explicitly disabled
           json.job.allowSellExecution = true
         }
-        // amount policy: 'pctBalance' or fixed amountUSDC
+        // optional target token override (symbol)
+        if (typeof req.body?.targetSymbol === 'string' && req.body.targetSymbol) {
+          json.job.targetSymbol = String(req.body.targetSymbol).toUpperCase()
+        }
+        // source token for scheduled DCA: 'USDC' (default) or 'MON'
+        if (typeof req.body?.source === 'string') {
+          const s = String(req.body.source).toUpperCase()
+          json.job.source = s === 'MON' ? 'MON' : 'USDC'
+        }
+        // amount policy: 'pctBalance' or fixed amount in chosen source
         const policy = String(req.body?.amountPolicy || '').toLowerCase()
         if (policy === 'pctbalance') {
           json.job.amountPolicy = 'pctBalance'
@@ -2020,10 +2092,20 @@ app.post('/api/scheduler/start', (req, res) => {
           if (typeof req.body?.maxUSDC === 'number') json.job.maxUSDC = Number(req.body.maxUSDC)
           // Ignore fixed amount when pctBalance selected
           delete json.job.amountUSDC
+          delete json.job.amountMON
         } else if (policy === 'fixed') {
           delete json.job.amountPolicy
-          const amt = Number(req.body?.amountUSDC)
-          if (Number.isFinite(amt) && amt > 0) json.job.amountUSDC = amt
+          const src = (json.job.source || 'USDC').toUpperCase()
+          if (src === 'MON') {
+            const amtMon = Number(req.body?.amountMON)
+            if (Number.isFinite(amtMon) && amtMon > 0) {
+              json.job.amountMON = amtMon
+              delete json.job.amountUSDC
+            }
+          } else {
+            const amt = Number(req.body?.amountUSDC)
+            if (Number.isFinite(amt) && amt > 0) json.job.amountUSDC = amt
+          }
         }
         // Optional slippageBps passthrough
         if (typeof req.body?.slippageBps === 'number') json.job.slippageBps = Math.max(0, Math.min(5000, Number(req.body.slippageBps)))
@@ -2473,9 +2555,9 @@ app.get('/api/diag', async (req, res) => {
     try {
       if (cachedDelegate?.sa) {
         const [balMon, balToken, balWmon] = await Promise.all([
-          publicClient.getBalance({ address: cachedDelegate.sa as `0x${string}` }),
-          readErc20Balance(USDC as Address, cachedDelegate.sa as Address),
-          readErc20Balance(WMON as Address, cachedDelegate.sa as Address),
+          withRetry(() => publicClient.getBalance({ address: cachedDelegate.sa as `0x${string}` })),
+          withRetry(() => readErc20Balance(USDC as Address, cachedDelegate.sa as Address)),
+          withRetry(() => readErc20Balance(WMON as Address, cachedDelegate.sa as Address)),
         ])
         out.delegateBalances = { mon: balMon.toString(), usdc: (balToken as bigint).toString(), wmon: (balWmon as bigint).toString() }
       }
@@ -2494,9 +2576,9 @@ app.get('/api/diag', async (req, res) => {
       out.delegator = delegator
       try {
         const [balMon, balToken, balWmon] = await Promise.all([
-          publicClient.getBalance({ address: delegator }),
-          readErc20Balance(USDC as Address, delegator as Address),
-          readErc20Balance(WMON as Address, delegator as Address),
+          withRetry(() => publicClient.getBalance({ address: delegator })),
+          withRetry(() => readErc20Balance(USDC as Address, delegator as Address)),
+          withRetry(() => readErc20Balance(WMON as Address, delegator as Address)),
         ])
         out.delegatorBalances = { mon: balMon.toString(), usdc: (balToken as bigint).toString(), wmon: (balWmon as bigint).toString() }
       } catch (e: any) {
@@ -2505,13 +2587,13 @@ app.get('/api/diag', async (req, res) => {
     }
     // Paymaster-independent router quote (if pool exists)
     try {
-      const amounts = await publicClient.readContract({
+      const amounts = await withRetry(() => publicClient.readContract({
         address: UNISWAP_V2_ROUTER02,
         authorizationList: [] as any,
         abi: UNISWAP_V2_ROUTER_MIN_ABI as any,
         functionName: 'getAmountsOut',
         args: [amount, [USDC as Address, WMON as Address]],
-      }) as bigint[]
+      }) as Promise<bigint[]>)
       out.quote = { in: amount.toString(), out: (amounts?.[1] as bigint | undefined)?.toString() }
     } catch (e: any) {
       out.quoteError = String(e?.message || e)
@@ -2519,6 +2601,247 @@ app.get('/api/diag', async (req, res) => {
   return res.json(out)
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || 'diag failed' })
+  }
+})
+
+// List known tokens (symbol, address, decimals, isStable)
+app.get('/api/tokens', (_req, res) => {
+  try {
+    return res.json({ ok: true, tokens: TOKENS })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'tokens_failed' })
+  }
+})
+
+// Get balances for a given address across native MON and all registered tokens
+// GET /api/balances?address=0x...
+app.get('/api/balances', async (req, res) => {
+  try {
+    const address = String(req.query.address || '').toLowerCase()
+    if (!/^0x[0-9a-f]{40}$/.test(address)) return res.status(400).json({ ok: false, error: 'invalid_address' })
+    const out: any = { ok: true, address }
+    // Native MON
+    let mon = '0'
+    try { mon = (await publicClient.getBalance({ address: address as Address })).toString() } catch {}
+    out.MON = mon
+    // ERC20 balances for each token in registry
+    const entries = Object.entries(TOKENS)
+    const balances: Record<string, string> = {}
+    for (const [sym, meta] of entries) {
+      try {
+        const bal = await readErc20Balance(meta.address as Address, address as Address)
+        balances[sym] = bal.toString()
+      } catch {
+        balances[sym] = '0'
+      }
+    }
+    out.tokens = balances
+    return res.json(out)
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'balances_failed' })
+  }
+})
+
+// Manual DCA: swap native MON -> selected token(s) directly using UniswapV2 router
+// Body: { delegatorSA, targets: string[] (symbols), amountMon?: string (wei), slippageBps?: number }
+// Flow: split native MON equally across targets and perform swapExactETHForTokens for each, with fallback paths;
+// Only when target is WMON do we wrap (deposit) instead of swapping.
+app.post('/api/manual/dca', async (req, res) => {
+  try {
+    let { delegatorSA, targets, amountMon, slippageBps } = req.body || {}
+    if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
+    if (!delegatorSA || !/^0x[0-9a-f]{40}$/.test(delegatorSA)) return res.status(400).json({ ok: false, error: 'invalid_delegator' })
+    if (!Array.isArray(targets) || targets.length === 0) return res.status(400).json({ ok: false, error: 'targets_required' })
+    const symbols: string[] = Array.from(new Set(targets.map((t: any) => String(t).toUpperCase()).filter(Boolean)))
+    // Resolve target addresses (filter out USDC as target since we're swapping from MON; allow WMON)
+    const resolved = symbols.map((s) => ({ sym: s, meta: getToken(s) }))
+    const bad = resolved.filter((r) => !r.meta)
+    if (bad.length) return res.status(400).json({ ok: false, error: 'unknown_tokens', symbols: bad.map((b) => b.sym) })
+    const dests = resolved.map((r) => r.meta!.address as Address)
+    const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
+    if (!pk) return res.status(500).json({ ok: false, error: 'missing_delegate_key' })
+    const eoa = privateKeyToAccount(pk)
+    const env = getDeleGatorEnvironment(monadTestnet.id)
+    const sa = await toMetaMaskSmartAccount({
+      client: asToolkitClient(),
+      implementation: Implementation.Hybrid,
+      deployParams: [eoa.address, [], [], []],
+      deploySalt: '0x',
+      signer: { account: eoa },
+      environment: env as any,
+    })
+    const { encodeFunctionData } = await import('viem')
+    // Determine amount to use: default = full MON balance
+    let monBal: bigint = 0n
+    try { monBal = await publicClient.getBalance({ address: delegatorSA as Address }) } catch {}
+    let toUse = amountMon != null ? BigInt(String(amountMon)) : monBal
+    if (toUse <= 0n) return res.status(400).json({ ok: false, error: 'no_mon_to_swap' })
+    // Build execution sequence (scope-aware)
+    const execs: { target: Address; value: bigint; callData: `0x${string}` }[] = []
+    // Determine if delegation allows native value transfers; if not, we'll first wrap then route via tokens
+    let hasNative = false
+    try {
+      const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+      if (existsSync(file)) {
+        const json = JSON.parse(readFileSync(file, 'utf8'))
+        const caveats: any[] = json?.signedDelegation?.delegation?.caveats || []
+        hasNative = detectNativeValueScope(caveats).hasNativeScope
+      }
+    } catch {}
+    // Split amount equally and swap/deposit for each target
+    const n = dests.length
+    const part = toUse / BigInt(n)
+    const slip = BigInt(Number.isFinite(Number(slippageBps)) ? Number(slippageBps) : 100)
+    if (hasNative) {
+      for (const dest of dests) {
+        // If destination is WMON: perform a native deposit (wrap) of the split value
+        if (String(dest).toLowerCase() === String(WMON).toLowerCase()) {
+          const depositData = encodeFunctionData({
+            abi: [ { name: 'deposit', type: 'function', stateMutability: 'payable', inputs: [], outputs: [] } ] as any,
+            functionName: 'deposit',
+            args: [],
+          }) as `0x${string}`
+          execs.push({ target: WMON as Address, value: part, callData: depositData })
+          continue
+        }
+        // Else: quote best route from MON via WMON hub
+        const candidates: Address[][] = []
+        const isUsdc = String(dest).toLowerCase() === String(USDC).toLowerCase()
+        if (isUsdc) {
+          candidates.push([WMON as Address, USDC as Address])
+        } else {
+          candidates.push([WMON as Address, dest])
+          candidates.push([WMON as Address, USDC as Address, dest])
+        }
+        let chosen: Address[] | null = null
+        let bestOut: bigint = 0n
+        for (const path of candidates) {
+          try {
+            const out = await publicClient.readContract({
+              address: UNISWAP_V2_ROUTER02 as Address,
+              abi: UNISWAP_V2_ROUTER_MIN_ABI as any,
+              functionName: 'getAmountsOut',
+              authorizationList: [] as any,
+              args: [part, path],
+            }) as bigint[]
+            if (Array.isArray(out) && out.length >= 2) {
+              const last = out[out.length - 1]
+              if (last > bestOut) { bestOut = last; chosen = path }
+            }
+          } catch {}
+        }
+        const path = chosen || candidates[0]
+        let minOut: bigint = 0n
+        if (bestOut > 0n) {
+          minOut = bestOut - (bestOut * slip / 10_000n)
+          if (minOut < 0n) minOut = 0n
+        }
+        // swapExactETHForTokens(amountOutMin, path, to, deadline) with msg.value=part
+        const swapData = encodeFunctionData({
+          abi: [ { name: 'swapExactETHForTokens', type: 'function', stateMutability: 'payable', inputs: [ { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' } ], outputs: [ { name: 'amounts', type: 'uint256[]' } ] } ] as any,
+          functionName: 'swapExactETHForTokens',
+          args: [minOut, path, delegatorSA as Address, BigInt(Math.floor(Date.now()/1000) + 1200)],
+        }) as `0x${string}`
+        execs.push({ target: UNISWAP_V2_ROUTER02 as Address, value: part, callData: swapData })
+      }
+    } else {
+      // Fallback: no native scope → wrap once then token swaps (approve+swapExactTokensForTokens)
+      // 1) Wrap total MON to WMON
+      const depositData = encodeFunctionData({
+        abi: [ { name: 'deposit', type: 'function', stateMutability: 'payable', inputs: [], outputs: [] } ] as any,
+        functionName: 'deposit',
+        args: [],
+      }) as `0x${string}`
+      execs.push({ target: WMON as Address, value: toUse, callData: depositData })
+      // 2) Approve router for total WMON if needed
+      try {
+        const allowance = await publicClient.readContract({
+          address: WMON as Address,
+          abi: MIN_ERC20_ABI as any,
+          functionName: 'allowance',
+          authorizationList: [] as any,
+          args: [delegatorSA as Address, UNISWAP_V2_ROUTER02 as Address],
+        }) as bigint
+        if (allowance < toUse) {
+          const approveData = encodeFunctionData({
+            abi: [ { name: 'approve', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' } ], outputs: [ { name: '', type: 'bool' } ] } ] as any,
+            functionName: 'approve',
+            args: [UNISWAP_V2_ROUTER02 as Address, toUse],
+          }) as `0x${string}`
+          execs.push({ target: WMON as Address, value: 0n, callData: approveData })
+        }
+      } catch {}
+      // 3) Perform per-target token swaps from WMON
+      for (const dest of dests) {
+        if (String(dest).toLowerCase() === String(WMON).toLowerCase()) {
+          // Already wrapped; skip
+          continue
+        }
+        const candidates: Address[][] = []
+        const isUsdc = String(dest).toLowerCase() === String(USDC).toLowerCase()
+        if (isUsdc) {
+          candidates.push([WMON as Address, USDC as Address])
+        } else {
+          candidates.push([WMON as Address, dest])
+          candidates.push([WMON as Address, USDC as Address, dest])
+        }
+        let chosen: Address[] | null = null
+        let bestOut: bigint = 0n
+        for (const path of candidates) {
+          try {
+            const out = await publicClient.readContract({
+              address: UNISWAP_V2_ROUTER02 as Address,
+              abi: UNISWAP_V2_ROUTER_MIN_ABI as any,
+              functionName: 'getAmountsOut',
+              authorizationList: [] as any,
+              args: [part, path],
+            }) as bigint[]
+            if (Array.isArray(out) && out.length >= 2) {
+              const last = out[out.length - 1]
+              if (last > bestOut) { bestOut = last; chosen = path }
+            }
+          } catch {}
+        }
+        const path = chosen || candidates[0]
+        let minOut: bigint = 0n
+        if (bestOut > 0n) {
+          minOut = bestOut - (bestOut * slip / 10_000n)
+          if (minOut < 0n) minOut = 0n
+        }
+        const swapData = encodeFunctionData({
+          abi: [ { name: 'swapExactTokensForTokens', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' } ], outputs: [ { name: 'amounts', type: 'uint256[]' } ] } ] as any,
+          functionName: 'swapExactTokensForTokens',
+          args: [part, minOut, path, delegatorSA as Address, BigInt(Math.floor(Date.now()/1000) + 1200)],
+        }) as `0x${string}`
+        execs.push({ target: UNISWAP_V2_ROUTER02 as Address, value: 0n, callData: swapData })
+      }
+    }
+    // Encode DelegationManager call
+    const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+    if (!existsSync(file)) return res.status(404).json({ ok: false, error: 'delegation_missing' })
+    const json = JSON.parse(readFileSync(file, 'utf8'))
+    const signed = json.signedDelegation
+    const flat = {
+      delegate: signed.delegation.delegate,
+      delegator: signed.delegation.delegator,
+      authority: signed.delegation.authority,
+      caveats: (signed.delegation.caveats || []).map((c: any) => ({ enforcer: c.enforcer, terms: c.terms, args: c.args })),
+      salt: signed.delegation.salt,
+      signature: signed.signature,
+    }
+    const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
+    const { calldatas, modes } = encodeExecutionCalldatasWithModes(execs.map((e) => [e]))
+    const permissionContexts = execs.map(() => ctx)
+    const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
+    const data = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
+    // Send user operation (paymaster optional)
+    let maxFeePerGas: bigint = 80n * 10n ** 9n
+    let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
+    try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp/2n || 1n } } catch {}
+    const uoHash = await sendUserOpWithOptionalPaymaster({ account: sa, calls: [{ to: env.DelegationManager as Address, data }], maxFeePerGas, maxPriorityFeePerGas })
+    return res.json({ ok: true, userOperationHash: uoHash, steps: execs.length, targets: symbols })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'manual_dca_failed' })
   }
 })
 

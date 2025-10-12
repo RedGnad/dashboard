@@ -5,6 +5,15 @@ export interface GlobalSpotResult { price: number; ts: number; source: string }
 
 let INITIALIZED = false
 
+// Minimal stablecoin classification. We currently only need USDC, but
+// leaving the helper generic allows future extension without refactors.
+const STABLE_SYMBOLS = new Set<string>(['USDC'])
+
+export function isStableSymbol(symbol?: string): boolean {
+  if (!symbol) return false
+  return STABLE_SYMBOLS.has(symbol.toUpperCase())
+}
+
 export function initGlobalPriceInfra() {
   if (INITIALIZED) return
   INITIALIZED = true
@@ -22,6 +31,12 @@ export function initGlobalPriceInfra() {
 }
 
 export function getSpot(symbol: string): GlobalSpotResult | null {
+  // Stablecoins are treated as $1.00 by definition to avoid injecting synthetic
+  // volatility or relying on external feeds for known stables.
+  if (isStableSymbol(symbol)) {
+    const ts = Date.now()
+    return { price: 1, ts, source: 'stable-constant' }
+  }
   const surge = getGlobalSurge()
   if (surge) {
     const symPair = symbol.toUpperCase().endsWith('/USD') ? symbol.toUpperCase() : `${symbol.toUpperCase()}/USD`

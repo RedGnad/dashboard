@@ -92,7 +92,8 @@ export interface DecisionMapping {
 
 export function mapScoreToDecision(score: number, features: Record<string, any>): DecisionMapping {
   const allocDev = typeof features.allocationDeviation === 'number' ? features.allocationDeviation : 0
-  console.log('[DEBUG] mapScoreToDecision:', { allocationDeviation: features.allocationDeviation, allocDev, features: Object.keys(features) })
+  const allocUnknown = features.allocUnknown === 1 || (features.balanceTargetRatio == null && features.balanceStableRatio == null)
+  console.log('[DEBUG] mapScoreToDecision:', { allocationDeviation: features.allocationDeviation, allocDev, allocUnknown, features: Object.keys(features) })
   const hyperVol24h = typeof features.hyper_volatility_24h === 'number' ? features.hyper_volatility_24h : undefined
   const momentum = typeof features.hyper_momentum === 'number' ? features.hyper_momentum : undefined
   const profile = (features.strategyProfile || 'default') as 'default' | 'conservative' | 'aggressive'
@@ -126,7 +127,20 @@ export function mapScoreToDecision(score: number, features: Record<string, any>)
     // Soften allocationDeviation gates slightly to allow actions when underweight/overweight is modest
     if (allocDev < -0.02 && score > buyThreshold) action = 'DCA_SWAP'
     else if (allocDev > 0.04 && score > sellThreshold) action = 'SELL'
+    // NEW: If allocation is unknown (indexer down or zero funds), allow a very small DCA when score is confident
+    else if (allocUnknown && score >= 0.75 && process.env.ALLOW_TRADES_WITH_UNKNOWN_ALLOC === '1') action = 'DCA_SWAP'
   }
+
+  // Stable-aware damping (only affects BUY into a stable target when strategy requests it via flag)
+  // If the chosen target upstream is a stable (e.g., rotating into USDC), require higher conviction to avoid
+  // always-buying safety. This is minimal and can be extended later when SELL path is enabled.
+  try {
+    const targetIsStable = String(features.targetSymbol || '').toUpperCase() === 'USDC'
+    if (targetIsStable && action === 'DCA_SWAP') {
+      // Require stronger signal: larger underweight or higher score
+      if (!(allocDev < -0.05 && score > (buyThreshold + 0.06))) action = 'SKIP'
+    }
+  } catch {}
 
   // Base magnitude (5% - 25%) modulée par volatilité 24h (si très élevée, réduire)
   const rawMag = Math.min(0.25, Math.max(0.04, Math.abs(allocDev)))
@@ -136,8 +150,9 @@ export function mapScoreToDecision(score: number, features: Record<string, any>)
     volFactor = Math.max(0.4, Math.min(1, 0.8 / (1 + (hyperVol24h - 0.2))))
   }
   // If test override, ensure a sensible minimum size so l'effet est visible
-  const minSize = testForceAction ? 0.10 : 0.0
-  const magnitude = Math.max(minSize, rawMag * volFactor * sizeMultiplier)
+  const minSize = testForceAction ? 0.10 : (allocUnknown && process.env.ALLOW_TRADES_WITH_UNKNOWN_ALLOC === '1' ? 0.02 : 0.0)
+  // When allocation is unknown (and allowed), cap magnitude to a conservative ceiling (e.g., 3%)
+  const magnitude = Math.min(allocUnknown && process.env.ALLOW_TRADES_WITH_UNKNOWN_ALLOC === '1' ? 0.03 : 1, Math.max(minSize, rawMag * volFactor * sizeMultiplier))
   const sizePct = Number(magnitude.toFixed(4))
   // Risk: allocate ~ scaled positive combination (simulate volatility weighting if present)
   const executions = features.executionsLast24h || 0
@@ -147,6 +162,6 @@ export function mapScoreToDecision(score: number, features: Record<string, any>)
   const baseRisk = Math.min(100, Math.round((Math.abs(allocDev) * 50) + (vol * 10) + executions * 0.5 + hyperVolComponent))
   const riskScore = baseRisk
   const confidence = Number((0.5 + (score * 0.45)).toFixed(4)) // 0.5 -> 0.95
-  const rationale = `score=${score.toFixed(4)} allocDev=${allocDev.toFixed(4)} action=${action} hyperVol24h=${hyperVol24h ?? 'null'} momentum=${momentum ?? 'null'}${testForceAction ? ` override=${testForceAction}` : ''}`
-  return { actionType: action, sizePct, rationale, riskScore, confidence, meta: { allocDev, executions, vol, score, hyperVol24h, momentum, profile, testForceAction: testForceAction || undefined, magnitude, sizeMultiplier, rawMag, volFactor } }
+  const rationale = `score=${score.toFixed(4)} allocDev=${allocDev.toFixed(4)} action=${action} hyperVol24h=${hyperVol24h ?? 'null'} momentum=${momentum ?? 'null'}${testForceAction ? ` override=${testForceAction}` : ''}${allocUnknown ? ' allocUnknown=1' : ''}`
+  return { actionType: action, sizePct, rationale, riskScore, confidence, meta: { allocDev, executions, vol, score, hyperVol24h, momentum, profile, testForceAction: testForceAction || undefined, magnitude, sizeMultiplier, rawMag, volFactor, allocUnknown } }
 }

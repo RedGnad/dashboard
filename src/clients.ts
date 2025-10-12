@@ -18,7 +18,13 @@ export const monadTestnet = defineChain({
 
 export const publicClient = createPublicClient({
   chain: monadTestnet,
-  transport: http(process.env.RPC_URL ?? 'https://testnet-rpc.monad.xyz'),
+  transport: http(process.env.RPC_URL ?? 'https://testnet-rpc.monad.xyz', {
+    // Gentle retry policy for bursty 429s
+    retryCount: Math.max(2, Number(process.env.RPC_RETRY_COUNT || 3)),
+    retryDelay: Number(process.env.RPC_RETRY_DELAY_MS || 250),
+    // Optionally send extra headers to avoid some gateways classifying as bots
+    // fetchOptions: { headers: { 'User-Agent': 'dca-autonomous-wallet/0.1' } },
+  }),
 });
 
 // A distinct “bare” client for Delegation Toolkit to avoid account typing conflicts
@@ -39,7 +45,10 @@ try {
 // Casting publicClient for AA bundler to avoid intersection narrowing issues introduced by toolkit typings.
 export const bundlerClient = createBundlerClient({
   client: publicClient as any,
-  transport: http(process.env.ZERO_DEV_BUNDLER_RPC!),
+  transport: http(process.env.ZERO_DEV_BUNDLER_RPC!, {
+    retryCount: Math.max(2, Number(process.env.RPC_RETRY_COUNT || 3)),
+    retryDelay: Number(process.env.RPC_RETRY_DELAY_MS || 250),
+  }),
 });
 
 const paymasterRpc = process.env.ZERO_DEV_PAYMASTER_RPC ?? process.env.PIMLICO_PAYMASTER_RPC
@@ -47,5 +56,8 @@ if (!paymasterRpc) {
   console.warn('[AA] No PAYMASTER RPC configured. Set ZERO_DEV_PAYMASTER_RPC or PIMLICO_PAYMASTER_RPC.')
 }
 export const paymasterClient = createPaymasterClient({
-  transport: http(paymasterRpc ?? ''),
+  transport: http(paymasterRpc ?? '', {
+    retryCount: Math.max(2, Number(process.env.RPC_RETRY_COUNT || 3)),
+    retryDelay: Number(process.env.RPC_RETRY_DELAY_MS || 250),
+  }),
 });

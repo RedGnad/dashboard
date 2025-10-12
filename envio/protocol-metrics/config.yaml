@@ -99,7 +99,10 @@ networks:
         - 0x8462c247356d7deB7e26160dbFab16B351Eef242
     # ERC20 wildcard - no address needed, will track ALL ERC20 transfers
     - name: ERC20
-      # No address - wildcard indexing
+      # Explicit token contract addresses (disable wildcard to reduce volume)
+      address:
+        - 0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701  # WMON
+        - 0xf817257fed379853cDe0fa4F97AB987181B1E5Ea  # USDC
     # Universal Router contract for swap tracking
     - name: UniversalRouter
       address:

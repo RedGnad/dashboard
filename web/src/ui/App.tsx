@@ -85,6 +85,8 @@ export default function App() {
   const jobPollRef = useRef<number | null>(null);
   const [hasDelegation, setHasDelegation] = useState<boolean>(false);
   const [amount, setAmount] = useState("1");
+  const [schedulerSource, setSchedulerSource] = useState<'USDC' | 'MON'>('USDC')
+  const [schedulerTargetSymbol, setSchedulerTargetSymbol] = useState<string>('WMON')
   const [slippageBps, setSlippageBps] = useState("100");
   const [unwrapToMon, setUnwrapToMon] = useState(false);
   const [topupStatus, setTopupStatus] = useState<string>("");
@@ -457,8 +459,69 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected]);
 
+  // Fetch tokens registry once
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${apiBase || ""}/api/tokens`).then((x) =>
+          x.json()
+        );
+        if (r && r.ok && r.tokens) {
+          setTokensMeta(r.tokens || {});
+        }
+      } catch {}
+    })();
+  }, [apiBase]);
+
+  // Fetch balances for all tokens when delegator SA known
+  useEffect(() => {
+    (async () => {
+      const addr = saPanel?.delegator?.address;
+      if (!addr) return;
+      try {
+        const url = new URL("/api/balances", apiBase || window.location.origin);
+        url.searchParams.set("address", addr);
+        const r = await fetch(url.toString()).then((x) => x.json());
+        if (r && (r.ok || r.address)) {
+          setAllBalances({ MON: r.MON, tokens: r.tokens || {} });
+        }
+      } catch {}
+    })();
+  }, [apiBase, saPanel?.delegator?.address]);
+
+  // Helper: refresh all balances on demand (used by poller and after actions)
+  const refreshAllBalances = useRef<() => Promise<void>>();
+  refreshAllBalances.current = async () => {
+    const addr = saPanel?.delegator?.address;
+    if (!addr) return;
+    try {
+      const url = new URL("/api/balances", apiBase || window.location.origin);
+      url.searchParams.set("address", addr);
+      const r = await fetch(url.toString()).then((x) => x.json());
+      if (r && (r.ok || r.address)) {
+        setAllBalances({ MON: r.MON, tokens: r.tokens || {} });
+      }
+    } catch {}
+  }
+
   // Désactivation par défaut de la tentative permit (USDC testnet ne supporte pas 2612 ici)
   const [skipPermit, setSkipPermit] = useState(true);
+  // Tokens registry and balances (manual multi-asset + balances table)
+  const [tokensMeta, setTokensMeta] = useState<
+    Record<
+      string,
+      { symbol: string; address: string; decimals: number; isStable?: boolean }
+    >
+  >({});
+  const [allBalances, setAllBalances] = useState<{
+    MON?: string;
+    tokens?: Record<string, string>;
+  }>({});
+  const [manualTargets, setManualTargets] = useState<Record<string, boolean>>(
+    {}
+  );
+  const [manualMonAmount, setManualMonAmount] = useState<string>("0");
+  const [manualSlippageBps, setManualSlippageBps] = useState<string>("100");
 
   async function createAndPostDelegation() {
     if (!address || !publicClient || !walletClient) return;
@@ -1131,6 +1194,10 @@ export default function App() {
       tick += 1;
       // Refresh from server every 3s to catch new lastRunAt / status
       if (tick % 3 === 0) refreshJobStatus();
+      // Refresh balances (MON + tokens) every 5s while scheduler panel is open
+      if (tick % 5 === 0) {
+        try { refreshAllBalances.current?.(); } catch {}
+      }
       // Update countdown locally every second
       setEmissionCountdown(() => {
         const j = jobRef.current as any;
@@ -1153,16 +1220,22 @@ export default function App() {
     if (!saPanel.delegator?.address) return;
     try {
       setBusy(true);
-      const r = await fetch(`${apiBase || ""}/api/jobs/start`, {
+      const r = await fetch(`${apiBase || ""}/api/scheduler/start`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          delegatorSA: saPanel.delegator.address,
+          delegator: saPanel.delegator.address,
           intervalSec: 60,
           durationSec: 24 * 60 * 60,
-          // Activer l'exécution immédiate du premier swap, comme lors de la création de la délégation
           immediate: true,
           unwrapToMon,
+          jobType: 'dca_schedule',
+          source: schedulerSource,
+          targetSymbol: schedulerTargetSymbol,
+          amountPolicy: 'fixed',
+          amountUSDC: schedulerSource === 'USDC' ? Number(amount || '0') : undefined,
+          amountMON: schedulerSource === 'MON' ? Number(amount || '0') : undefined,
+          slippageBps: Number(slippageBps || '100'),
         }),
       });
       const t = await r.text();
@@ -1177,6 +1250,8 @@ export default function App() {
               m ? m + "\n" : ""
             }DCA démarré: premier swap en cours d'exécution…`
         );
+        // Rafraîchir les soldes immédiatement
+        try { await refreshAllBalances.current?.(); } catch {}
       }
     } catch (e: any) {
       setMsg(`Start failed: ${e?.message || e}`);
@@ -1189,10 +1264,10 @@ export default function App() {
     if (!saPanel.delegator?.address) return;
     try {
       setBusy(true);
-      const r = await fetch(`${apiBase || ""}/api/jobs/stop`, {
+      const r = await fetch(`${apiBase || ""}/api/scheduler/stop`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ delegatorSA: saPanel.delegator.address }),
+        body: JSON.stringify({ delegator: saPanel.delegator.address }),
       });
       const t = await r.text();
       const j = t ? JSON.parse(t) : {};
@@ -1440,6 +1515,29 @@ export default function App() {
       );
     } catch (e: any) {
       setMsg(`Top-up direct échoué: ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Direct native MON top-up from EOA to Smart Account (value transfer)
+  async function directTopupMon() {
+    if (!saPanel.delegator?.address || !address || !walletClient) return;
+    try {
+      setBusy(true);
+      const amt = parseFloat(topupAmount || "0");
+      if (!(amt > 0)) {
+        setMsg("Montant MON invalide");
+        return;
+      }
+      const value = BigInt(Math.floor(amt * 1e18));
+      const txHash = await (walletClient as any).sendTransaction({
+        to: saPanel.delegator.address as Address,
+        value,
+      });
+      setMsg(`Top-up natif MON tx: ${txHash} (${amt} MON transférés)`);
+    } catch (e: any) {
+      setMsg(`Top-up natif échoué: ${e?.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -1769,22 +1867,47 @@ export default function App() {
                 <div style={{ wordBreak: "break-all" }}>
                   {saPanel.delegator?.address || "—"}
                 </div>
-                <div style={{ fontSize: 12, color: "#444" }}>
-                  MON:{" "}
-                  {saPanel.delegator?.mon
-                    ? (Number(saPanel.delegator.mon) / 1e18).toFixed(6)
-                    : "?"}
-                  {"  •  "}
-                  USDC:{" "}
-                  {saPanel.delegator?.usdc
-                    ? (Number(saPanel.delegator.usdc) / 1e6).toFixed(2)
-                    : "?"}
-                  {"  •  "}
-                  WMON:{" "}
-                  {saPanel.delegator?.wmon
-                    ? (Number(saPanel.delegator.wmon) / 1e18).toFixed(6)
-                    : "0.000000"}
-                </div>
+                {/* Compact list: balances for all known tokens (non-zero only) */}
+                {(() => {
+                  try {
+                    // Construire une ligne unique et auto-refresh: MON (native) + tous les ERC20 (USDC, WMON, CHOG, ...)
+                    const rows: string[] = []
+                    const emitted = new Set<string>()
+                    // MON (native)
+                    const monRaw = allBalances?.MON
+                    if (monRaw && monRaw !== "0") {
+                      const monNum = Number(monRaw) / 1e18
+                      if (Number.isFinite(monNum) && monNum !== 0) {
+                        rows.push(`MON: ${monNum.toFixed(6)}`)
+                        emitted.add("MON")
+                      }
+                    }
+                    // ERC20 tokens (including USDC, WMON, ...)
+                    const entries = Object.entries(tokensMeta || {}).sort(([a],[b]) => a.localeCompare(b)) as Array<[
+                      string,
+                      { symbol: string; address: string; decimals: number }
+                    ]>
+                    for (const [sym, meta] of entries) {
+                      if (emitted.has(sym)) continue
+                      const raw = allBalances?.tokens?.[sym]
+                      if (!raw || raw === "0") continue
+                      const dec = Number(meta.decimals || 18)
+                      const denom = dec >= 0 ? Math.pow(10, Math.min(18, dec)) : 1
+                      const num = Number(raw) / denom
+                      if (!Number.isFinite(num) || num === 0) continue
+                      rows.push(`${sym}: ${num.toFixed(Math.min(6, dec))}`)
+                      emitted.add(sym)
+                    }
+                    if (rows.length === 0) return null
+                    return (
+                      <div style={{ fontSize: 12, color: "#444", marginTop: 2 }}>
+                        Tokens: {rows.join("  •  ")}
+                      </div>
+                    )
+                  } catch {
+                    return null
+                  }
+                })()}
               </div>
               <div>
                 <div style={{ fontSize: 12, color: "#666" }}>Delegate SA</div>
@@ -1825,7 +1948,7 @@ export default function App() {
           </div>
           <div style={{ display: "grid", gap: 12 }}>
             <label>
-              Amount per DCA (USDC):
+              Amount per DCA ({schedulerSource}):
               <input
                 value={amount}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -1833,6 +1956,23 @@ export default function App() {
                 }
               />
             </label>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <label>
+                Source:
+                <select value={schedulerSource} onChange={(e)=>setSchedulerSource(e.target.value as 'USDC'|'MON')} style={{ marginLeft: 6 }}>
+                  <option value="USDC">USDC</option>
+                  <option value="MON">MON</option>
+                </select>
+              </label>
+              <label>
+                Target token:
+                <select value={schedulerTargetSymbol} onChange={(e)=>setSchedulerTargetSymbol(e.target.value)} style={{ marginLeft: 6 }}>
+                  {Object.keys(tokensMeta || {}).map((sym)=> (
+                    <option key={sym} value={sym}>{sym}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <label>
               Slippage (bps):
               <input
@@ -1996,7 +2136,7 @@ export default function App() {
                   }}
                 >
                   <label style={{ fontSize: "14px" }}>
-                    Montant top-up USDC:
+                    Montant top-up (USDC ou MON):
                     <input
                       type="number"
                       value={topupAmount}
@@ -2021,6 +2161,19 @@ export default function App() {
                     }
                   >
                     Top-up direct USDC (EOA→SA)
+                  </button>
+                  <button
+                    onClick={directTopupMon}
+                    disabled={
+                      busy ||
+                      !saPanel.delegator?.address ||
+                      !address ||
+                      !topupAmount ||
+                      parseFloat(topupAmount) <= 0
+                    }
+                    title="Envoie des MON natifs de l'EOA vers le Smart Account"
+                  >
+                    Top-up natif MON (EOA→SA)
                   </button>
                 </div>
               </div>
@@ -2091,6 +2244,192 @@ export default function App() {
         delegator={saPanel?.delegator?.address || undefined}
       />
       <AiDashboard apiBase={apiBase} />
+      {/* Balances for all configured tokens */}
+      <div
+        style={{
+          marginTop: 16,
+          padding: 12,
+          border: "1px solid #ddd",
+          borderRadius: 8,
+          background: "#fff",
+        }}
+      >
+        <div style={{ fontSize: 12, fontWeight: 600 }}>
+          Soldes (SA) — tous les tokens
+        </div>
+        {saPanel?.delegator?.address ? (
+          <div
+            style={{
+              marginTop: 8,
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+              gap: 8,
+            }}
+          >
+            {/* MON */}
+            <div style={{ fontSize: 12 }}>
+              <strong>MON</strong>:{" "}
+              {allBalances?.MON
+                ? (Number(allBalances.MON) / 1e18).toFixed(6)
+                : "?"}
+            </div>
+            {/* Tokens */}
+            {Object.entries(tokensMeta).map(([sym, meta]) => (
+              <div key={sym} style={{ fontSize: 12 }}>
+                <strong>{sym}</strong>:{" "}
+                {(() => {
+                  try {
+                    const v = allBalances?.tokens?.[sym] || "0";
+                    const dec = Number((meta as any).decimals || 18);
+                    const denom =
+                      dec >= 0 ? Math.pow(10, Math.min(18, dec)) : 1;
+                    return (Number(v) / denom).toFixed(Math.min(6, dec));
+                  } catch {
+                    return "?";
+                  }
+                })()}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+            Connectez-vous pour voir les soldes.
+          </div>
+        )}
+      </div>
+
+      {/* Manual DCA: MON → selected tokens */}
+      <div
+        style={{
+          marginTop: 16,
+          padding: 12,
+          border: "1px solid #ddd",
+          borderRadius: 8,
+          background: "#fcfcfd",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <strong>DCA Manuel: MON → Tokens</strong>
+          {!hasValueDelegation && (
+            <span style={{ fontSize: 11, color: "#a33" }}>
+              Requiert la Value Delegation (native)
+            </span>
+          )}
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: 16,
+            alignItems: "center",
+            marginTop: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <label style={{ fontSize: 12 }}>
+            Montant MON:
+            <input
+              type="number"
+              value={manualMonAmount}
+              onChange={(e) => setManualMonAmount(e.target.value)}
+              min="0"
+              step="0.000001"
+              style={{ marginLeft: 6, width: 120 }}
+            />
+          </label>
+          <label style={{ fontSize: 12 }}>
+            Slippage (bps):
+            <input
+              type="number"
+              value={manualSlippageBps}
+              onChange={(e) => setManualSlippageBps(e.target.value)}
+              min="0"
+              step="1"
+              style={{ marginLeft: 6, width: 90 }}
+            />
+          </label>
+        </div>
+        <div
+          style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}
+        >
+          {Object.keys(tokensMeta).map((sym) => (
+            <label
+              key={sym}
+              style={{
+                fontSize: 12,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={!!manualTargets[sym]}
+                onChange={(e) =>
+                  setManualTargets((m) => ({ ...m, [sym]: e.target.checked }))
+                }
+              />
+              {sym}
+            </label>
+          ))}
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <button
+            disabled={
+              busy ||
+              !saPanel?.delegator?.address ||
+              Object.keys(manualTargets).filter((k) => manualTargets[k])
+                .length === 0 ||
+              !hasDelegation ||
+              !hasValueDelegation ||
+              Number(manualMonAmount) <= 0
+            }
+            onClick={async () => {
+              try {
+                setBusy(true);
+                setMsg((m) => (m ? m + "\n" : "") + "Envoi DCA manuel…");
+                const sel = Object.keys(manualTargets).filter(
+                  (k) => manualTargets[k]
+                );
+                const amtWei = BigInt(
+                  Math.floor(Number(manualMonAmount) * 1e18)
+                );
+                const r = await fetch(`${apiBase || ""}/api/manual/dca`, {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({
+                    delegatorSA: saPanel?.delegator?.address,
+                    targets: sel,
+                    amountMon: amtWei.toString(),
+                    slippageBps: parseInt(manualSlippageBps || "100", 10),
+                  }),
+                }).then((x) => x.json());
+                if (!r?.ok) throw new Error(r?.error || "manual_dca_failed");
+                setLastUserOp({
+                  hash: r.userOperationHash,
+                  polling: true,
+                  countdown: 90,
+                });
+              } catch (e: any) {
+                setMsg(
+                  (m) =>
+                    (m ? m + "\n" : "") +
+                    `DCA manuel échoué: ${e?.message || e}`
+                );
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Exécuter MON → sélection
+          </button>
+        </div>
+      </div>
       <div
         style={{
           marginTop: 16,

@@ -37,6 +37,8 @@ export interface DelegationAuditEntryV1 {
   aiConfidence?: number
   strategyEngineVersion?: string
   aiActionType?: string
+  // Target symbol chosen by the strategy (e.g., WMON, BEAN)
+  aiTargetSymbol?: string
   // Feature hashing (strategy context fingerprint)
   featureHash?: string
   featureSchemaVersion?: number
@@ -120,6 +122,7 @@ export function buildAuditEntry(base: Partial<DelegationAuditEntryV1>): Delegati
     aiConfidence: base.aiConfidence,
     strategyEngineVersion: base.strategyEngineVersion,
     aiActionType: base.aiActionType,
+  aiTargetSymbol: (base as any).aiTargetSymbol,
     featureHash: base.featureHash,
     featureSchemaVersion: base.featureSchemaVersion,
     decisionRollingHash: base.decisionRollingHash,
@@ -217,6 +220,7 @@ export function appendAudit(entry: Partial<DelegationAuditEntryV1>) {
   if (base.aiConfidence !== undefined) finalObj.aiConfidence = base.aiConfidence
   if (base.strategyEngineVersion !== undefined) finalObj.strategyEngineVersion = base.strategyEngineVersion
   if (base.aiActionType !== undefined) finalObj.aiActionType = base.aiActionType
+  if ((base as any).aiTargetSymbol !== undefined) (finalObj as any).aiTargetSymbol = (base as any).aiTargetSymbol
   if (base.featureHash !== undefined) finalObj.featureHash = base.featureHash
   if (base.featureSchemaVersion !== undefined) finalObj.featureSchemaVersion = base.featureSchemaVersion
   if (base.decisionRollingHash !== undefined) finalObj.decisionRollingHash = base.decisionRollingHash

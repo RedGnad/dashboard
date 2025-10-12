@@ -25,12 +25,21 @@ export default function AiActions({
   const [amountPolicy, setAmountPolicy] = useState<"fixed" | "pctBalance">(
     "fixed"
   );
+  // Multi-asset controls for AI autopilot
+  const [source, setSource] = useState<"USDC" | "MON">("USDC");
+  const [targetSymbol, setTargetSymbol] = useState<string>("WMON");
+  const [slippageBps, setSlippageBps] = useState<string>("100");
+  // Optional: tokens CSV for preview to steer multi-asset targeting in preview
+  const [tokensCsv, setTokensCsv] = useState<string>("");
   const [amountFixed, setAmountFixed] = useState("1");
   const [sizePct, setSizePct] = useState("0.10");
   const [minUSDC, setMinUSDC] = useState("0");
   const [maxUSDC, setMaxUSDC] = useState("");
   const [out, setOut] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [tokensMeta, setTokensMeta] = useState<
+    Record<string, { symbol: string; address: string; decimals: number; isStable?: boolean }>
+  >({});
   const [auto, setAuto] = useState<{
     active: boolean;
     interval: string;
@@ -111,6 +120,25 @@ export default function AiActions({
     return () => clearInterval(t);
   }, [base, delegator]);
 
+  // Fetch tokens registry once for target selection
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(base + "/api/tokens").then((x) => x.json());
+        if (r && r.ok && r.tokens) {
+          setTokensMeta(r.tokens || {});
+          if (!r.tokens[targetSymbol]) {
+            if (r.tokens.WMON) setTargetSymbol("WMON");
+            else {
+              const first = Object.keys(r.tokens)[0];
+              if (first) setTargetSymbol(first);
+            }
+          }
+        }
+      } catch {}
+    })();
+  }, [base]);
+
   async function startAutopilot() {
     setBusy(true);
     try {
@@ -126,9 +154,18 @@ export default function AiActions({
           respectAiAction,
           provider,
           allowSellExecution: true,
+          source,
+          targetSymbol,
+          slippageBps: Number.isFinite(Number(slippageBps))
+            ? Number(slippageBps)
+            : undefined,
           amountPolicy,
-          amountUSDC:
-            amountPolicy === "fixed" ? Number(amountFixed || "1") : undefined,
+          // Fixed amount in selected source; pctBalance uses sizePct/min/max USDC
+          ...(amountPolicy === "fixed"
+            ? source === "MON"
+              ? { amountMON: Number(amountFixed || "1") }
+              : { amountUSDC: Number(amountFixed || "1") }
+            : {}),
           sizePct:
             amountPolicy === "pctBalance" ? Number(sizePct || "0") : undefined,
           minUSDC:
@@ -306,6 +343,41 @@ export default function AiActions({
           </select>
         </label>
         <label style={{ fontSize: 12 }}>
+          Source:
+          <select
+            value={source}
+            onChange={(e) => setSource(e.target.value as any)}
+            style={{ marginLeft: 6 }}
+          >
+            <option value="USDC">USDC</option>
+            <option value="MON">MON</option>
+          </select>
+        </label>
+        <label style={{ fontSize: 12 }}>
+          Target token:
+          <select
+            value={targetSymbol}
+            onChange={(e) => setTargetSymbol(e.target.value)}
+            style={{ marginLeft: 6, minWidth: 100 }}
+          >
+            {Object.keys(tokensMeta)
+              .sort()
+              .map((sym) => (
+                <option key={sym} value={sym}>
+                  {sym}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label style={{ fontSize: 12 }}>
+          Slippage (bps):
+          <input
+            value={slippageBps}
+            onChange={(e) => setSlippageBps(e.target.value)}
+            style={{ marginLeft: 6, width: 70 }}
+          />
+        </label>
+        <label style={{ fontSize: 12 }}>
           Unwrap to MON:
           <input
             type="checkbox"
@@ -338,7 +410,7 @@ export default function AiActions({
         </label>
         {amountPolicy === "fixed" ? (
           <label style={{ fontSize: 12 }}>
-            Amount (USDC):
+            Amount ({source}):
             <input
               value={amountFixed}
               onChange={(e) => setAmountFixed(e.target.value)}
@@ -400,6 +472,16 @@ export default function AiActions({
         >
           Provider
         </button>
+        <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center" }}>
+          Tokens (preview):
+          <input
+            value={tokensCsv}
+            onChange={(e) => setTokensCsv(e.target.value)}
+            placeholder="WMON,BEAN,CHOG"
+            title="Aide la prévisualisation IA à considérer ces tokens (séparés par des virgules). L'exécution DCA IA utilisera la cible choisie au-dessus."
+            style={{ marginLeft: 6, width: 240 }}
+          />
+        </label>
         <button
           disabled={busy}
           onClick={() =>
@@ -409,7 +491,11 @@ export default function AiActions({
                   delegator
                 )}&profile=${encodeURIComponent(
                   profile
-                )}&provider=${encodeURIComponent(provider)}`
+                )}&provider=${encodeURIComponent(provider)}${
+                  tokensCsv.trim()
+                    ? `&tokens=${encodeURIComponent(tokensCsv.trim())}`
+                    : ""
+                }`
             )
           }
         >
@@ -424,7 +510,11 @@ export default function AiActions({
                   delegator
                 )}&profile=${encodeURIComponent(
                   profile
-                )}&force=buy&provider=${encodeURIComponent(provider)}`
+                )}&force=buy&provider=${encodeURIComponent(provider)}${
+                  tokensCsv.trim()
+                    ? `&tokens=${encodeURIComponent(tokensCsv.trim())}`
+                    : ""
+                }`
             )
           }
         >
@@ -439,7 +529,11 @@ export default function AiActions({
                   delegator
                 )}&profile=${encodeURIComponent(
                   profile
-                )}&force=sell&provider=${encodeURIComponent(provider)}`
+                )}&force=sell&provider=${encodeURIComponent(provider)}${
+                  tokensCsv.trim()
+                    ? `&tokens=${encodeURIComponent(tokensCsv.trim())}`
+                    : ""
+                }`
             )
           }
         >

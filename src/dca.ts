@@ -11,6 +11,10 @@ export type DcaParams = {
   amountOutMin?: bigint;
   // Optional amount to unwrap (defaults to amountOutMin when unwrapToMon=true).
   withdrawAmount?: bigint;
+  // Optional custom swap path; defaults to [USDC, WMON]
+  path?: Address[];
+  // Optional custom token to approve for spending (defaults to USDC)
+  approveToken?: Address;
 };
 
 // Minimal ABIs
@@ -37,14 +41,17 @@ const wmonAbi = [
 ];
 
 export function buildExecutions(params: DcaParams & { recipient: Address }) {
-  const { amountUSDC, unwrapToMon, recipient, amountOutMin, withdrawAmount } = params;
+  const { amountUSDC, unwrapToMon, recipient, amountOutMin, withdrawAmount, path, approveToken } = params;
 
   // If caller did not supply a min-out, fall back to 0 (demo only, not safe in production).
   const minOut = amountOutMin ?? 0n;
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 30); // generous AA deadline
 
+  const tokenIn = approveToken || USDC
+  const swapPath: Address[] = Array.isArray(path) && path.length >= 2 ? path : [USDC, WMON]
+
   const approveRouter = createExecution({
-    target: USDC,
+    target: tokenIn,
     value: 0n,
     callData: encodeFunctionData({ abi: erc20Abi as any, functionName: 'approve', args: [UNISWAP_V2_ROUTER02, amountUSDC] }),
   });
@@ -55,7 +62,7 @@ export function buildExecutions(params: DcaParams & { recipient: Address }) {
     callData: encodeFunctionData({
       abi: routerAbi as any,
       functionName: 'swapExactTokensForTokens',
-      args: [amountUSDC, minOut, [USDC, WMON], recipient, deadline],
+      args: [amountUSDC, minOut, swapPath, recipient, deadline],
     }),
   });
 

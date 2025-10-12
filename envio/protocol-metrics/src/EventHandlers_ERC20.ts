@@ -17,6 +17,7 @@ const IMPORTANT_ADDRESSES = [
  * Tracks all ERC20 transfers but focuses on USDC/WMON for AI features
  * Also captures native MON transfers via transaction value
  */
+// Note: Wildcard disabled in config; handler still filters to tracked tokens/addresses as a safeguard
 ERC20.Transfer.handler(
   async ({ event, context }) => {
     const { from, to, value } = event.params;
@@ -52,26 +53,29 @@ ERC20.Transfer.handler(
 
     // BONUS: Also capture native MON transfers if this transaction has native value
     // This aggregates MON + WMON activity in the same dataset
-    if (event.transaction.value && event.transaction.value > 0n && event.transaction.from) {
+    // Some generated types may omit `transaction.value`; access defensively
+    const tx: any = event.transaction as any
+    const nativeValue: bigint | undefined = tx && typeof tx.value !== 'undefined' ? tx.value : undefined
+    const nativeFrom: string | undefined = tx && typeof tx.from !== 'undefined' ? tx.from : undefined
+
+    if (nativeValue && nativeValue > 0n && nativeFrom) {
       const nativeTransferId = `native_${event.chainId}_${event.block.number}_${event.logIndex}`;
       
       context.TokenTransfer.set({
         id: nativeTransferId,
         tokenAddress: "0x0000000000000000000000000000000000000000", // Native token address
-        from: event.transaction.from,
+        from: nativeFrom,
         to: to, // Use the recipient from the ERC20 transfer event
-        value: event.transaction.value, // Native MON amount
+        value: nativeValue, // Native MON amount
         blockNumber: event.block.number,
         blockTimestamp: event.block.timestamp,
-        transactionHash: event.transaction.hash,
+        transactionHash: tx.hash ?? event.transaction.hash,
         logIndex: event.logIndex + 1000, // Offset to avoid ID conflicts
-        gasUsed: event.transaction.gasUsed || 0n,
-        gasPrice: event.transaction.effectiveGasPrice || 0n,
+        gasUsed: tx.gasUsed ?? event.transaction.gasUsed ?? 0n,
+        gasPrice: tx.effectiveGasPrice ?? event.transaction.effectiveGasPrice ?? 0n,
       });
 
-      context.log.info(
-        `Captured native MON transfer: ${event.transaction.value} MON in tx ${event.transaction.hash}`
-      );
+      context.log.info(`Captured native MON transfer`, { value: String(nativeValue), tx: tx.hash ?? event.transaction.hash });
     }
 
     // Update token metrics for tracked tokens
@@ -88,19 +92,6 @@ ERC20.Transfer.handler(
       block: event.block.number,
       isTracked: isTrackedToken,
     });
-  },
-  {
-    wildcard: true,
-    // Filter to only get transfers involving our tracked tokens OR important addresses
-    eventFilters: [
-      // Transfers FROM tracked tokens
-      { from: Object.values(TRACKED_TOKENS) },
-      // Transfers TO tracked tokens  
-      { to: Object.values(TRACKED_TOKENS) },
-      // Transfers FROM/TO important addresses (DEX, etc.)
-      { from: IMPORTANT_ADDRESSES },
-      { to: IMPORTANT_ADDRESSES },
-    ],
   }
 );
 

@@ -41,6 +41,8 @@
     "respectAiAction": true,
     "inferenceProvider": "openai",
     "allowSellExecution": true,
-    "amountUSDC": 1
+    "targetSymbol": "DAK",
+    "source": "MON",
+    "amountMON": 1
   }
 }

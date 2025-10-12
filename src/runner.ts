@@ -8,6 +8,7 @@ import { Address as AddressType } from 'viem'
 function parseUsePaymasterFlag(v?: string): boolean { return !!v && ['true','1','yes','on','enabled'].includes(v.toLowerCase()) }
 import { buildExecutions } from './dca'
 import { USDC, UNISWAP_V2_ROUTER02, WMON } from './constants'
+import { getToken } from './tokens'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildDebugBundle, summarizeExecutions } from './utils/debug'
@@ -40,7 +41,9 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
     throw new Error('Malformed signedDelegation: missing delegator or signature')
   }
 
+  const jobSource = String(json.job?.source || 'USDC').toUpperCase() // 'USDC' | 'MON'
   let amountUSDC = parseUnits(String(json.job?.amountUSDC ?? '1'), 6)
+  let amountMON: bigint = json.job?.amountMON != null ? parseUnits(String(json.job.amountMON), 18) : 0n
   // Keep a copy of intended amount before any gating to log counterfactuals
   let amountIntendedUSDC: bigint | undefined
   // Telemetry fields for history
@@ -98,7 +101,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       return '0x' as any
     }
   }
-  if (!onChainLimits && typeof json.job?.dailyCapUSDC === 'number') {
+  if (!onChainLimits && jobSource === 'USDC' && typeof json.job?.dailyCapUSDC === 'number') {
     const cap = BigInt(Math.floor(json.job.dailyCapUSDC * 1_000_000))
     const today = new Date().toISOString().slice(0,10)
     const usedDate = json.job._dailyCapDate
@@ -133,8 +136,17 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
   const dailyTopupUSDC = BigInt((json.job?.dailyTopupUSDC ?? 24) * 1_000_000)
   const topupUsed: boolean = Boolean(json.job?.topupUsed)
   let usedTopupThisRun = false
+  // Validate MON source amount when requested
+  if (!executingSell && jobSource === 'MON') {
+    if (amountMON <= 0n) {
+      console.warn('[runner] skip: zero_amount_mon for MON source')
+      try { appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: '0', skipped: true, skipReason: 'zero_amount_mon', strategy: 'dca-basic' }) } catch {}
+      return '0x' as any
+    }
+  }
 
   // Pre-check: ensure delegator has enough USDC to avoid simulation revert (TransferHelper: TRANSFER_FROM_FAILED)
+  // Only applicable when job source is USDC.
   let delegatorUsdcBal: bigint | null = null
   // Helper: read last AI decision from audit for this delegator (to drive dynamic sizing and action gating)
   function getLastAiDecision(): { actionType?: string; rawScore?: number; momentum?: number; risk?: number } | null {
@@ -184,107 +196,109 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       }
     } catch {}
   }
-  try {
-    const erc20Abi = [
-      { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
-    ] as const
-  const bal = (await (publicClient as any).readContract({
-      address: USDC,
-      abi: erc20Abi as any,
-      functionName: 'balanceOf',
-      args: [delegatorSA],
-    })) as bigint
-    delegatorUsdcBal = bal
-    balanceAtRunUSDC = bal
-    // Dynamic sizing: if job.amountPolicy === 'pctBalance', compute amountUSDC = balance * sizePct
+  if (jobSource === 'USDC' && !executingSell) {
     try {
-      const policy = (json.job?.amountPolicy || '').toString().toLowerCase()
-      if (policy === 'pctbalance') {
-        // Base pct from job
-        const pct = Number(json.job?.sizePct ?? 0)
-        const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x))
-        let p = clamp(Number.isFinite(pct) ? pct : 0, 0, 1)
-        sizePctBase = p
-        // Optional dynamic scaling by latest AI signal
-        if (json.job?.dynamicByAI && lastAi) {
-          const score = typeof lastAi.rawScore === 'number' && isFinite(lastAi.rawScore) ? lastAi.rawScore : 0.5
-          const mom = typeof lastAi.momentum === 'number' && isFinite(lastAi.momentum) ? lastAi.momentum : 0
-          // Scale base pct by score in [0.6, 1.4]
-          const scalarScore = 0.6 + 0.8 * clamp(score, 0, 1)
-          // Small momentum tilt: map mom (roughly -0.2..+0.2) to +/-15%
-          const scalarMom = 1 + clamp(mom * 5, -0.15, 0.15)
-          p = clamp(p * scalarScore * scalarMom, 0.001, 0.5)
-        }
-        sizePctEffective = p
-        const ppm = BigInt(Math.floor(p * 1_000_000)) // parts-per-million
-        let dyn = (bal * ppm) / 1_000_000n
-        // Apply min/max bounds if provided (in USDC units)
-        const minU = typeof json.job?.minUSDC === 'number' ? parseUnits(String(json.job.minUSDC), 6) : undefined
-        const maxU = typeof json.job?.maxUSDC === 'number' ? parseUnits(String(json.job.maxUSDC), 6) : undefined
-        if (minU !== undefined && dyn < minU) dyn = minU
-        if (maxU !== undefined && dyn > maxU) dyn = maxU
-        // Avoid zero-amount executions
-        if (dyn > 0n) amountUSDC = dyn
-        // Compute a manual baseline using BASE percentage (pre-AI) with same bounds
-        try {
-          let baseDyn = bal * BigInt(Math.floor((sizePctBase ?? p) * 1_000_000)) / 1_000_000n
-          if (minU !== undefined && baseDyn < minU) baseDyn = minU
-          if (maxU !== undefined && baseDyn > maxU) baseDyn = maxU
-          baselineManualUSDC = baseDyn
-        } catch {}
-      }
-      // If fixed policy, allow AI to modulate around the fixed base amount
-      else if (policy === 'fixed' || policy === '') {
-        // Baseline = fixed amount (unmodulated)
-        baselineManualUSDC = amountUSDC
-        if (json.job?.dynamicByAI && lastAi) {
+      const erc20Abi = [
+        { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
+      ] as const
+      const bal = (await (publicClient as any).readContract({
+        address: USDC,
+        abi: erc20Abi as any,
+        functionName: 'balanceOf',
+        args: [delegatorSA],
+      })) as bigint
+      delegatorUsdcBal = bal
+      balanceAtRunUSDC = bal
+      // Dynamic sizing: if job.amountPolicy === 'pctBalance', compute amountUSDC = balance * sizePct
+      try {
+        const policy = (json.job?.amountPolicy || '').toString().toLowerCase()
+        if (policy === 'pctbalance') {
+          // Base pct from job
+          const pct = Number(json.job?.sizePct ?? 0)
           const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x))
-          const score = typeof lastAi.rawScore === 'number' && isFinite(lastAi.rawScore) ? lastAi.rawScore : 0.5
-          const mom = typeof lastAi.momentum === 'number' && isFinite(lastAi.momentum) ? lastAi.momentum : 0
-          const scalarScore = 0.6 + 0.8 * clamp(score, 0, 1)
-          const scalarMom = 1 + clamp(mom * 5, -0.15, 0.15)
-          const factor = scalarScore * scalarMom
-          // Apply scaling to fixed base amount; clamp to [0.001, 2.0]×base as a safety window
-          const lo = amountUSDC / 1000n // 0.1%
-          const hi = amountUSDC * 2n     // 200%
-          let scaled = BigInt(Math.floor(Number(amountUSDC) * factor))
-          if (scaled < lo) scaled = lo
-          if (scaled > hi) scaled = hi
-          if (scaled > 0n) amountUSDC = scaled
-          // Record an approximate effectivePct relative to balance when known (for telemetry only)
+          let p = clamp(Number.isFinite(pct) ? pct : 0, 0, 1)
+          sizePctBase = p
+          // Optional dynamic scaling by latest AI signal
+          if (json.job?.dynamicByAI && lastAi) {
+            const score = typeof lastAi.rawScore === 'number' && isFinite(lastAi.rawScore) ? lastAi.rawScore : 0.5
+            const mom = typeof lastAi.momentum === 'number' && isFinite(lastAi.momentum) ? lastAi.momentum : 0
+            // Scale base pct by score in [0.6, 1.4]
+            const scalarScore = 0.6 + 0.8 * clamp(score, 0, 1)
+            // Small momentum tilt: map mom (roughly -0.2..+0.2) to +/-15%
+            const scalarMom = 1 + clamp(mom * 5, -0.15, 0.15)
+            p = clamp(p * scalarScore * scalarMom, 0.001, 0.5)
+          }
+          sizePctEffective = p
+          const ppm = BigInt(Math.floor(p * 1_000_000)) // parts-per-million
+          let dyn = (bal * ppm) / 1_000_000n
+          // Apply min/max bounds if provided (in USDC units)
+          const minU = typeof json.job?.minUSDC === 'number' ? parseUnits(String(json.job.minUSDC), 6) : undefined
+          const maxU = typeof json.job?.maxUSDC === 'number' ? parseUnits(String(json.job.maxUSDC), 6) : undefined
+          if (minU !== undefined && dyn < minU) dyn = minU
+          if (maxU !== undefined && dyn > maxU) dyn = maxU
+          // Avoid zero-amount executions
+          if (dyn > 0n) amountUSDC = dyn
+          // Compute a manual baseline using BASE percentage (pre-AI) with same bounds
           try {
-            if (bal > 0n) {
-              sizePctBase = undefined
-              sizePctEffective = Number((Number(amountUSDC) / Number(bal)).toFixed(6))
-            }
+            let baseDyn = bal * BigInt(Math.floor((sizePctBase ?? p) * 1_000_000)) / 1_000_000n
+            if (minU !== undefined && baseDyn < minU) baseDyn = minU
+            if (maxU !== undefined && baseDyn > maxU) baseDyn = maxU
+            baselineManualUSDC = baseDyn
           } catch {}
         }
+        // If fixed policy, allow AI to modulate around the fixed base amount
+        else if (policy === 'fixed' || policy === '') {
+          // Baseline = fixed amount (unmodulated)
+          baselineManualUSDC = amountUSDC
+          if (json.job?.dynamicByAI && lastAi) {
+            const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x))
+            const score = typeof lastAi.rawScore === 'number' && isFinite(lastAi.rawScore) ? lastAi.rawScore : 0.5
+            const mom = typeof lastAi.momentum === 'number' && isFinite(lastAi.momentum) ? lastAi.momentum : 0
+            const scalarScore = 0.6 + 0.8 * clamp(score, 0, 1)
+            const scalarMom = 1 + clamp(mom * 5, -0.15, 0.15)
+            const factor = scalarScore * scalarMom
+            // Apply scaling to fixed base amount; clamp to [0.001, 2.0]×base as a safety window
+            const lo = amountUSDC / 1000n // 0.1%
+            const hi = amountUSDC * 2n     // 200%
+            let scaled = BigInt(Math.floor(Number(amountUSDC) * factor))
+            if (scaled < lo) scaled = lo
+            if (scaled > hi) scaled = hi
+            if (scaled > 0n) amountUSDC = scaled
+            // Record an approximate effectivePct relative to balance when known (for telemetry only)
+            try {
+              if (bal > 0n) {
+                sizePctBase = undefined
+                sizePctEffective = Number((Number(amountUSDC) / Number(bal)).toFixed(6))
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+      amountIntendedUSDC = amountUSDC
+      // Respect AI action gating if requested: skip if last AI says SKIP/SELL (unless SELL execution is allowed)
+      try {
+        const respectAi = json.job?.respectAiAction !== false // default true
+        const aiType = String(lastAi?.actionType || '').toUpperCase()
+        const isSell = aiType === 'SELL' || aiType === 'REBALANCE'
+        if (respectAi && lastAi && lastAi.actionType && aiType !== 'DCA_SWAP' && !(executingSell && isSell)) {
+          const reason = String(lastAi.actionType).toUpperCase() === 'SELL' ? 'ai_sell_action' : 'ai_skip_action'
+          console.log('[runner] skip due to AI action', { actionType: lastAi.actionType })
+          try { appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: '0', amountIntendedUSDC: (amountIntendedUSDC ?? amountUSDC).toString(), skipped: true, skipReason: reason, strategy: 'dca-basic', ai: { actionType: aiActionType, rawScore: aiRawScore, momentum: aiMomentum }, sizing: { basePct: sizePctBase, effectivePct: sizePctEffective }, balanceAtRunUSDC: (balanceAtRunUSDC ?? 0n).toString(), baselineManualUSDC: (baselineManualUSDC ?? 0n).toString() }) } catch {}
+          return '0x' as any
+        }
+      } catch {}
+      if (!executingSell && bal < amountUSDC) {
+        const msg = `Insufficient USDC: have ${bal.toString()}, need ${amountUSDC.toString()}`
+        console.warn('[runner] skip execution:', msg)
+        // We'll try permit + transferFrom if we have an owner and permit
+        if (!ownerEOA || !savedPermit) throw new Error(msg)
       }
-    } catch {}
-    amountIntendedUSDC = amountUSDC
-    // Respect AI action gating if requested: skip if last AI says SKIP/SELL (unless SELL execution is allowed)
-    try {
-      const respectAi = json.job?.respectAiAction !== false // default true
-      const aiType = String(lastAi?.actionType || '').toUpperCase()
-      const isSell = aiType === 'SELL' || aiType === 'REBALANCE'
-      if (respectAi && lastAi && lastAi.actionType && aiType !== 'DCA_SWAP' && !(executingSell && isSell)) {
-        const reason = String(lastAi.actionType).toUpperCase() === 'SELL' ? 'ai_sell_action' : 'ai_skip_action'
-        console.log('[runner] skip due to AI action', { actionType: lastAi.actionType })
-        try { appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: '0', amountIntendedUSDC: (amountIntendedUSDC ?? amountUSDC).toString(), skipped: true, skipReason: reason, strategy: 'dca-basic', ai: { actionType: aiActionType, rawScore: aiRawScore, momentum: aiMomentum }, sizing: { basePct: sizePctBase, effectivePct: sizePctEffective }, balanceAtRunUSDC: (balanceAtRunUSDC ?? 0n).toString(), baselineManualUSDC: (baselineManualUSDC ?? 0n).toString() }) } catch {}
-        return '0x' as any
+    } catch (e) {
+      // If read fails, proceed (bundler may still simulate); but prefer explicit error
+      if (e instanceof Error && /Insufficient USDC/.test(e.message)) {
+        // if missing permit info, rethrow; else continue to attempt pull
+        if (!ownerEOA || !savedPermit) throw e
       }
-    } catch {}
-    if (!executingSell && bal < amountUSDC) {
-      const msg = `Insufficient USDC: have ${bal.toString()}, need ${amountUSDC.toString()}`
-      console.warn('[runner] skip execution:', msg)
-      // We'll try permit + transferFrom if we have an owner and permit
-      if (!ownerEOA || !savedPermit) throw new Error(msg)
-    }
-  } catch (e) {
-    // If read fails, proceed (bundler may still simulate); but prefer explicit error
-    if (e instanceof Error && /Insufficient USDC/.test(e.message)) {
-      // if missing permit info, rethrow; else continue to attempt pull
-      if (!ownerEOA || !savedPermit) throw e
     }
   }
 
@@ -299,34 +313,138 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       }))
     : (await (async () => {
         if (!executingSell) {
-          // BUY path (USDC -> WMON [+ unwrap])
-          let minOut: bigint | undefined = undefined
-          if (wantUnwrapThisRun) {
-            try {
-              const quote = await (publicClient as any).readContract({
-                address: UNISWAP_V2_ROUTER02,
-                abi: [ { name: 'getAmountsOut', type: 'function', stateMutability: 'view', inputs: [ { name: 'amountIn', type: 'uint256' }, { name: 'path', type: 'address[]' } ], outputs: [ { name: 'amounts', type: 'uint256[]' } ] } ] as any,
-                functionName: 'getAmountsOut',
-                args: [amountUSDC, [USDC, WMON]],
-              }) as bigint[]
-              if (Array.isArray(quote) && quote[1] !== undefined) {
-                const q = quote[1]
-                const slip = BigInt(slippageBps)
-                minOut = q - (q * slip / 10_000n)
-                if (minOut < 0n) minOut = 0n
+          // BUY path; support USDC or MON as source per job config
+          // Determine target from job override or last ai_decision (audit); fallback to WMON
+          let targetSymbol = (String(json.job?.targetSymbol || '').toUpperCase() || 'WMON')
+          try {
+            const fs = require('node:fs') as typeof import('node:fs')
+            const path = require('node:path') as typeof import('node:path')
+            const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+            if (fs.existsSync(file)) {
+              const raw = fs.readFileSync(file, 'utf8').trim()
+              if (raw) {
+                const lines = raw.split('\n')
+                for (let i = lines.length - 1; i >= 0 && i >= lines.length - 1000; i--) {
+                  try {
+                    const j = JSON.parse(lines[i])
+                    if (j && j.action === 'ai_decision' && String(j.delegator || '').toLowerCase() === String(delegatorSA).toLowerCase()) {
+                      if (!json.job?.targetSymbol && j.aiTargetSymbol && typeof j.aiTargetSymbol === 'string') {
+                        targetSymbol = String(j.aiTargetSymbol).toUpperCase()
+                      }
+                      break
+                    }
+                  } catch {}
+                }
               }
-            } catch (e) {
-              console.warn('[runner] getAmountsOut failed, falling back to minOut=0 withdraw skipped', e)
+            }
+          } catch {}
+          // Resolve token address
+          const tok = getToken(targetSymbol) || getToken('WMON')!
+          const tokenAddr = (tok?.address || WMON) as Address
+          // Compute path with fallback depending on source
+          let candidates: Address[][] = []
+          if (jobSource === 'MON') {
+            const isWmonTarget = tokenAddr.toLowerCase() === (WMON as string).toLowerCase()
+            if (isWmonTarget) {
+              candidates = [] // will wrap via deposit()
+            } else if (tokenAddr.toLowerCase() === (USDC as string).toLowerCase()) {
+              candidates = [[WMON as Address, USDC as Address]]
+            } else {
+              candidates = [[WMON as Address, tokenAddr], [WMON as Address, USDC as Address, tokenAddr]]
+            }
+          } else {
+            const isUsdcTarget = tokenAddr.toLowerCase() === (USDC as string).toLowerCase()
+            if (isUsdcTarget) {
+              candidates = [[USDC as Address, WMON as Address]]
+            } else {
+              candidates = [[USDC as Address, tokenAddr], [USDC as Address, WMON as Address, tokenAddr]]
             }
           }
-          return buildExecutions({
-            amountUSDC,
-            slippageBps,
-              unwrapToMon: wantUnwrapThisRun,
-            recipient: delegatorSA,
-            amountOutMin: wantUnwrapThisRun ? (minOut ?? 0n) : 0n,
-            withdrawAmount: wantUnwrapThisRun ? (minOut ?? 0n) : undefined,
-          }).executions
+          let chosen: Address[] = candidates[0]
+          let bestOut: bigint = 0n
+          if (candidates.length > 0) {
+            const amtIn = jobSource === 'MON' ? amountMON : amountUSDC
+            for (const p of candidates) {
+              try {
+                const out = await (publicClient as any).readContract({
+                  address: UNISWAP_V2_ROUTER02,
+                  abi: [ { name: 'getAmountsOut', type: 'function', stateMutability: 'view', inputs: [ { name: 'amountIn', type: 'uint256' }, { name: 'path', type: 'address[]' } ], outputs: [ { name: 'amounts', type: 'uint256[]' } ] } ] as any,
+                  functionName: 'getAmountsOut',
+                  args: [amtIn, p],
+                }) as bigint[]
+                if (Array.isArray(out) && out.length >= 2) {
+                  const last = out[out.length - 1]
+                  if (last > bestOut) { bestOut = last; chosen = p }
+                }
+              } catch (e) {
+                // continue trying other candidates
+              }
+            }
+          }
+          const pathAddrs: Address[] = chosen
+          // Quote-derived minOut with slippage
+          let minOut: bigint = 0n
+          if (bestOut > 0n) {
+            try {
+              const slip = BigInt(slippageBps)
+              const m = bestOut - (bestOut * slip / 10_000n)
+              minOut = m > 0n ? m : 0n
+            } catch {}
+          }
+          // If unwrap requested, only unwrap when target is WMON (USDC source only)
+          const doUnwrap = wantUnwrapThisRun && (tokenAddr.toLowerCase() === (WMON as string).toLowerCase())
+          if (jobSource === 'MON') {
+            const execs: { target: Address; value: bigint; callData: `0x${string}` }[] = []
+            const { encodeFunctionData } = await import('viem')
+            // Step 1: wrap MON -> WMON via deposit (always, to avoid swapExactETHForTokens selector)
+            const depositData = encodeFunctionData({
+              abi: [ { name: 'deposit', type: 'function', stateMutability: 'payable', inputs: [], outputs: [] } ] as any,
+              functionName: 'deposit',
+              args: [],
+            }) as `0x${string}`
+            execs.push({ target: WMON as Address, value: amountMON, callData: depositData })
+            // If target is exactly WMON, we're done
+            if (tokenAddr.toLowerCase() === (WMON as string).toLowerCase()) {
+              return execs
+            }
+            // Step 2: approve WMON to router if needed for amountMON
+            try {
+              const allowance = await (publicClient as any).readContract({
+                address: WMON,
+                abi: [ { name: 'allowance', type: 'function', stateMutability: 'view', inputs: [ { name: 'owner', type: 'address' }, { name: 'spender', type: 'address' } ], outputs: [ { name: '', type: 'uint256' } ] } ] as any,
+                functionName: 'allowance',
+                args: [delegatorSA, UNISWAP_V2_ROUTER02],
+              }) as bigint
+              if (allowance < amountMON) {
+                const approveData = encodeFunctionData({
+                  abi: [ { name: 'approve', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' } ], outputs: [ { name: '', type: 'bool' } ] } ] as any,
+                  functionName: 'approve',
+                  args: [UNISWAP_V2_ROUTER02, amountMON],
+                }) as `0x${string}`
+                execs.push({ target: WMON as Address, value: 0n, callData: approveData })
+              }
+            } catch {}
+            // Step 3: swapExactTokensForTokens WMON -> TOKEN along chosen path (which already starts with WMON)
+            const path = pathAddrs && pathAddrs.length > 0 ? pathAddrs : [WMON as Address, tokenAddr]
+            const swapData = encodeFunctionData({
+              abi: [ { name: 'swapExactTokensForTokens', type: 'function', stateMutability: 'nonpayable', inputs: [ { name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' } ], outputs: [ { name: 'amounts', type: 'uint256[]' } ] } ] as any,
+              functionName: 'swapExactTokensForTokens',
+              args: [amountMON, minOut, path, delegatorSA, BigInt(Math.floor(Date.now()/1000) + 1200)],
+            }) as `0x${string}`
+            execs.push({ target: UNISWAP_V2_ROUTER02 as Address, value: 0n, callData: swapData })
+            return execs
+          } else {
+            return buildExecutions({
+              amountUSDC,
+              slippageBps,
+              unwrapToMon: doUnwrap,
+              recipient: delegatorSA,
+              amountOutMin: minOut,
+              withdrawAmount: doUnwrap ? minOut : undefined,
+              path: pathAddrs,
+              approveToken: USDC as Address,
+            }).executions
+          }
         }
         // SELL path (MON -> WMON -> USDC). We'll wrap all native MON (if any) into WMON and then swap total WMON to USDC.
         const { encodeFunctionData } = await import('viem')
@@ -489,7 +607,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
   }
 
   // If SA USDC is insufficient and we have an offchain auth, prepend top-up (one-time per 24h)
-  if (delegatorUsdcBal !== null && delegatorUsdcBal < amountUSDC && ownerEOA && !topupUsed) {
+  if (jobSource === 'USDC' && delegatorUsdcBal !== null && delegatorUsdcBal < amountUSDC && ownerEOA && !topupUsed) {
     // Check allowance first
     try {
       const { encodeFunctionData } = await import('viem')
@@ -698,8 +816,8 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       appendRunEvent({
         ts: Date.now(),
         delegator: delegatorSA,
-        amountInUSDC: executingSell ? '0' : amountUSDC.toString(),
-        amountIntendedUSDC: (amountIntendedUSDC ?? amountUSDC).toString(),
+        amountInUSDC: executingSell ? '0' : (jobSource === 'USDC' ? amountUSDC.toString() : '0'),
+        amountIntendedUSDC: (jobSource === 'USDC' ? (amountIntendedUSDC ?? amountUSDC).toString() : '0'),
         amountOutToken: '0',
         unwrap: wantUnwrapThisRun,
         ai: { actionType: aiActionType, rawScore: aiRawScore, momentum: aiMomentum },
@@ -725,7 +843,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       updated.job = updated.job || {}
       updated.job.runCounter = (runCounter || 0) + 1
       // increment daily cap usage tracking if configured (BUY only)
-      if (!executingSell && typeof updated.job.dailyCapUSDC === 'number') {
+  if (!executingSell && jobSource === 'USDC' && typeof updated.job.dailyCapUSDC === 'number') {
         const today = new Date().toISOString().slice(0,10)
         if (updated.job._dailyCapDate !== today) {
           updated.job._dailyCapDate = today

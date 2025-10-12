@@ -14,6 +14,7 @@ interface AiDecisionLine {
   aiRiskScore?: number
   aiConfidence?: number
   aiActionType?: string
+  aiTargetSymbol?: string
   aiRationaleHash?: string
   featureHash?: string
   featureSchemaVersion?: number | null
@@ -129,7 +130,8 @@ export async function executeFromDecision(opts: { rollingHash?: string; force?: 
       aiRationaleHash: decision.aiRationaleHash,
       aiRiskScore: decision.aiRiskScore,
       aiConfidence: decision.aiConfidence,
-      aiActionType: decision.aiActionType,
+  aiActionType: decision.aiActionType,
+  aiTargetSymbol: (decision as any).aiTargetSymbol,
       featureHash: decision.featureHash,
       featureSchemaVersion: decision.featureSchemaVersion || undefined,
       modelHash: decision.modelHash,
@@ -160,6 +162,7 @@ export async function executeFromDecision(opts: { rollingHash?: string; force?: 
       decisionRollingHash: decision.rollingHash,
       modelHash: decision.modelHash,
       inferenceProvider: decision.inferenceProvider,
+      aiTargetSymbol: (decision as any).aiTargetSymbol,
     })
     return { ok: true, correlationId, status: 'noop', reason: 'ai_decided_skip', decisionRollingHash: decision.rollingHash }
   }
