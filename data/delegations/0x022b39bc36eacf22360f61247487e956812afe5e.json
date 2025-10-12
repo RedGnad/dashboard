@@ -28,7 +28,7 @@
     "slippageBps": 100,
     "intervalSec": 60,
     "durationSec": 86400,
-    "unwrapToMon": true,
+    "unwrapToMon": false,
     "usePaymaster": false,
     "ownerEOA": "0x34c767db7846f03a292D2999f7e8Eb6fD035f7d0",
     "permit": null,
@@ -41,6 +41,6 @@
     "respectAiAction": true,
     "inferenceProvider": "openai",
     "allowSellExecution": true,
-    "amountPolicy": "pctBalance"
+    "amountUSDC": 1
   }
 }

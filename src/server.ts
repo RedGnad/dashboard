@@ -1751,6 +1751,96 @@ app.get('/api/strategy/run-history', (req, res) => {
     if (!/^0x[0-9a-f]{40}$/.test(delegator)) return res.status(400).json({ ok: false, error: 'invalid_delegator' })
     const limit = Math.min(Number(req.query.limit ?? 100), 500)
     const events = readRunHistory(delegator, limit)
+    // Also include AI decision ticks as synthetic points to advance the chart
+    try {
+      const fs = require('node:fs') as typeof import('node:fs')
+      const path = require('node:path') as typeof import('node:path')
+      const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
+      // Load job config (for baseline policy) and current USDC balance once
+      let jobCfg: any = null
+      try {
+        const jf = path.join(process.cwd(), 'data', 'delegations', `${delegator}.json`)
+        if (fs.existsSync(jf)) {
+          const jraw = fs.readFileSync(jf, 'utf8')
+          const j = JSON.parse(jraw)
+          jobCfg = j?.job || null
+        }
+      } catch {}
+      // Capture last known balance from prior run events (avoids async on-chain read here)
+      let lastBalanceUSDC: bigint | null = null
+      try {
+        for (const e of events) {
+          if (e && e.balanceAtRunUSDC) {
+            try { lastBalanceUSDC = BigInt(String(e.balanceAtRunUSDC)) } catch {}
+          }
+        }
+      } catch {}
+      if (fs.existsSync(file)) {
+        const raw = fs.readFileSync(file, 'utf8').trim()
+        if (raw) {
+          const lines = raw.split('\n')
+          const dec: Array<{ ts: number; aiActionType?: string }> = []
+          for (let i = lines.length - 1; i >= 0 && dec.length < limit * 2; i--) {
+            const l = lines[i]
+            if (!l) continue
+            try {
+              const j = JSON.parse(l)
+              if (j && j.action === 'ai_decision' && String(j.delegator || '').toLowerCase() === delegator) {
+                dec.push({ ts: Number(j.ts) || Date.now(), aiActionType: j.aiActionType })
+              }
+            } catch {}
+          }
+          // Merge synthetic events where we don't already have a run event at the same timestamp
+          const existingTs = new Set(events.map((e: any) => Number(e.ts)))
+          // Track last known baseline to carry forward
+          let lastBaseline: string | undefined = undefined
+          for (const e of events) {
+            if (e && e.baselineManualUSDC) lastBaseline = String(e.baselineManualUSDC)
+          }
+          const synthetics = dec
+            .map((d) => {
+              // Compute baseline from jobCfg
+              let baseline: bigint = 0n
+              try {
+                const policy = String(jobCfg?.amountPolicy || '').toLowerCase()
+                if ((policy === 'fixed' || !policy) && typeof jobCfg?.amountUSDC === 'number') {
+                  baseline = BigInt(Math.floor(jobCfg.amountUSDC * 1_000_000))
+                } else if (policy === 'pctbalance' && typeof jobCfg?.sizePct === 'number' && lastBalanceUSDC != null) {
+                  const p = Math.max(0, Math.min(1, Number(jobCfg.sizePct)))
+                  let base = (lastBalanceUSDC * BigInt(Math.floor(p * 1_000_000))) / 1_000_000n
+                  if (typeof jobCfg.minUSDC === 'number') {
+                    const minU = BigInt(Math.floor(jobCfg.minUSDC * 1_000_000))
+                    if (base < minU) base = minU
+                  }
+                  if (typeof jobCfg.maxUSDC === 'number') {
+                    const maxU = BigInt(Math.floor(jobCfg.maxUSDC * 1_000_000))
+                    if (base > maxU) base = maxU
+                  }
+                  baseline = base
+                } else if (lastBaseline) {
+                  // Fallback to carried baseline
+                  baseline = BigInt(lastBaseline)
+                }
+              } catch {}
+              return {
+                ts: d.ts,
+                amountInUSDC: '0',
+                amountIntendedUSDC: undefined,
+                skipped: true,
+                skipReason: 'ai_decision',
+                baselineManualUSDC: baseline ? String(baseline) : lastBaseline,
+                balanceAtRunUSDC: lastBalanceUSDC != null ? String(lastBalanceUSDC) : undefined,
+              }
+            })
+            .filter((e) => !existingTs.has(Number(e.ts)))
+          // Merge, sort by ts, then trim to limit most recent
+          const merged = [...events, ...synthetics].sort((a: any, b: any) => Number(a.ts) - Number(b.ts))
+          while (merged.length > limit) merged.shift()
+          // Replace events array
+          events.splice(0, events.length, ...merged)
+        }
+      }
+    } catch {}
     const summary = summarizeRunHistory(delegator)
     // For convenience, compute minimal dual-series arrays for UI (actual vs manual baseline)
     const series = (() => {
@@ -1884,7 +1974,8 @@ app.post('/api/scheduler/start', (req, res) => {
   try {
     const delegator = String(req.body?.delegator || '').toLowerCase()
     if (!/^0x[0-9a-f]{40}$/.test(delegator)) return res.status(400).json({ ok: false, error: 'invalid_delegator' })
-    const intervalSec = Math.max(5, Number(req.body?.intervalSec ?? 60))
+  const intervalSec = Math.max(5, Number(req.body?.intervalSec ?? 60))
+  const jobType = (req.body?.jobType === 'dca_schedule' ? 'dca_schedule' : 'dca_ai') as 'dca_ai' | 'dca_schedule'
     const durationSec = req.body?.durationSec != null ? Number(req.body.durationSec) : undefined
     const immediate = !!req.body?.immediate
     // Optional job config patching: unwrap + sizing policy
@@ -1941,7 +2032,7 @@ app.post('/api/scheduler/start', (req, res) => {
     } catch (e) {
       console.warn('[scheduler/start] job patch failed', e)
     }
-    const st = startJob(delegator as any, intervalSec, { durationSec, immediate })
+  const st = startJob(delegator as any, intervalSec, { durationSec, immediate, jobType })
     return res.json({ ok: true, job: st })
   } catch (e:any) {
     return res.status(500).json({ ok: false, error: e?.message || 'scheduler_start_failed' })
@@ -3139,7 +3230,7 @@ app.get('/api/userop/:hash', async (req, res) => {
 app.get('/api/jobs', (_req, res) => res.json({ ok: true, jobs: getJobs() }))
 app.post('/api/jobs/start', async (req, res) => {
   try {
-    const { delegatorSA, intervalSec, durationSec, immediate, expiresAtMs, unwrapToMon } = req.body || {}
+  const { delegatorSA, intervalSec, durationSec, immediate, expiresAtMs, unwrapToMon, jobType } = req.body || {}
     if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
     // If unwrapToMon passed, patch delegation JSON job config
     if (typeof unwrapToMon === 'boolean') {
@@ -3162,6 +3253,7 @@ app.post('/api/jobs/start', async (req, res) => {
       durationSec: typeof durationSec === 'number' ? durationSec : undefined,
       immediate: Boolean(immediate),
       expiresAtMs: typeof expiresAtMs === 'number' ? expiresAtMs : undefined,
+      jobType: jobType === 'dca_ai' || jobType === 'dca_schedule' ? jobType : 'dca_schedule',
     })
     return res.json({ ok: true, job: j })
   } catch (e: any) {

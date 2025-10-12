@@ -148,5 +148,5 @@ export function mapScoreToDecision(score: number, features: Record<string, any>)
   const riskScore = baseRisk
   const confidence = Number((0.5 + (score * 0.45)).toFixed(4)) // 0.5 -> 0.95
   const rationale = `score=${score.toFixed(4)} allocDev=${allocDev.toFixed(4)} action=${action} hyperVol24h=${hyperVol24h ?? 'null'} momentum=${momentum ?? 'null'}${testForceAction ? ` override=${testForceAction}` : ''}`
-  return { actionType: action, sizePct, rationale, riskScore, confidence, meta: { allocDev, executions, vol, score, hyperVol24h, momentum, profile, testForceAction: testForceAction || undefined } }
+  return { actionType: action, sizePct, rationale, riskScore, confidence, meta: { allocDev, executions, vol, score, hyperVol24h, momentum, profile, testForceAction: testForceAction || undefined, magnitude, sizeMultiplier, rawMag, volFactor } }
 }

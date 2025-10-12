@@ -65,6 +65,10 @@ export const AutopilotMiniCard: React.FC<{
     null
   );
   const [envioPrices, setEnvioPrices] = React.useState<boolean | null>(null);
+  const [jobMeta, setJobMeta] = React.useState<{
+    ai?: { intervalSec: number };
+    schedule?: { intervalSec: number };
+  } | null>(null);
   const nf2 = React.useMemo(
     () =>
       new Intl.NumberFormat("en-US", {
@@ -82,6 +86,7 @@ export const AutopilotMiniCard: React.FC<{
       url1.searchParams.set("limit", "50");
       const url2 = new URL(apiBase + "/api/diag");
       url2.searchParams.set("delegator", delegator);
+      const urlJobs = new URL(apiBase + "/api/jobs");
       const [r1, r2, rPrev] = await Promise.all([
         fetch(url1.toString())
           .then((x) => x.json())
@@ -121,6 +126,24 @@ export const AutopilotMiniCard: React.FC<{
         if (typeof rPrev.usedEnvioPrices === "boolean")
           setEnvioPrices(!!rPrev.usedEnvioPrices);
       }
+      // Fetch jobs meta to show job types/intervals
+      try {
+        const jr = await fetch(urlJobs.toString()).then((x) => x.json());
+        if (jr && jr.ok && Array.isArray(jr.jobs)) {
+          const dl = String(delegator).toLowerCase();
+          const myJobs = jr.jobs.filter(
+            (j: any) => String(j.delegatorSA || "").toLowerCase() === dl
+          );
+          const meta: any = {};
+          for (const j of myJobs) {
+            if (j.jobType === "dca_ai")
+              meta.ai = { intervalSec: j.intervalSec };
+            if (j.jobType === "dca_schedule")
+              meta.schedule = { intervalSec: j.intervalSec };
+          }
+          setJobMeta(meta);
+        }
+      } catch {}
     } finally {
       setLoading(false);
     }
@@ -130,6 +153,34 @@ export const AutopilotMiniCard: React.FC<{
     let t: number | null = window.setInterval(load, 15000) as any;
     return () => {
       if (t) window.clearInterval(t);
+    };
+  }, [apiBase, delegator]);
+
+  // Live refresh on SSE audit lines related to this delegator (debounced)
+  React.useEffect(() => {
+    if (!delegator) return;
+    const dl = String(delegator).toLowerCase();
+    const es = new EventSource(apiBase + "/api/audit/stream");
+    let last = 0;
+    const onLine = (ev: MessageEvent) => {
+      try {
+        const js = JSON.parse((ev as any).data || "{}");
+        const line = js?.line || js;
+        const del = String(line?.delegator || "").toLowerCase();
+        if (!del || del !== dl) return;
+        const now = Date.now();
+        if (now - last > 2000) {
+          last = now;
+          load();
+        }
+      } catch {}
+    };
+    es.addEventListener("line", onLine);
+    return () => {
+      try {
+        es.removeEventListener("line", onLine as any);
+        es.close();
+      } catch {}
     };
   }, [apiBase, delegator]);
   const usdcPoints = React.useMemo(() => {
@@ -245,6 +296,53 @@ export const AutopilotMiniCard: React.FC<{
       <div
         style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}
       >
+        {/* Legend and job meta */}
+        <div style={{ fontSize: 10, color: "#666", minWidth: 160 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span
+              title="Baseline manuelle (policy fixed ou pctBalance sur le solde)"
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 2,
+                  background: "#c62828",
+                  display: "inline-block",
+                }}
+              />
+              Baseline
+            </span>
+            <span
+              title="Montant réellement exécuté (0 lors d'un SKIP)"
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 2,
+                  background: "#1e88e5",
+                  display: "inline-block",
+                }}
+              />
+              Exécuté
+            </span>
+          </div>
+          {jobMeta && (jobMeta.ai || jobMeta.schedule) ? (
+            <div style={{ marginTop: 6 }}>
+              {jobMeta.ai ? (
+                <div title="Job IA (respecte SKIP)">
+                  IA: toutes {jobMeta.ai.intervalSec}s
+                </div>
+              ) : null}
+              {jobMeta.schedule ? (
+                <div title="Job Scheduler (ignore AI)">
+                  Scheduler: toutes {jobMeta.schedule.intervalSec}s
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         <div style={{ position: "relative" }}>
           {/* When no data, render a visible placeholder instead of an empty block */}
           {manualPoints.length === 0 && usdcPoints.length === 0 ? (

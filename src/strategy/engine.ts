@@ -67,8 +67,15 @@ export class DeterministicDcaStrategy implements StrategyEngine {
     console.log('[DEBUG] Before mapScoreToDecision:', { score, featuresForModel })
     const mapped = mapScoreToDecision(score, featuresForModel)
     const primary = ctx.targets[0] || { symbol: 'WMON', weightBps: 5000 }
-    const baseAmount = '10000000000000000'
-    const steps = mapped.actionType === 'DCA_SWAP' ? [ { from: 'USDC', to: primary.symbol, amount: baseAmount, intentUsd: '10' } ] : []
+    
+    // USE AI-CALCULATED SIZE instead of hardcoded values
+    const aiSizePct = mapped.sizePct || 0.01 // AI-determined size percentage 
+    const intentUsdFloat = aiSizePct * 100 // Convert to USD (sizePct is 0-1, multiply by base portfolio size)
+    const intentUsd = Math.max(1, Math.round(intentUsdFloat * 100) / 100).toString() // Min 1 USD, round to cents
+    const baseAmount = '10000000000000000' // Keep as placeholder for now
+    
+    console.log('[DEBUG] AI sizing:', { sizePct: mapped.sizePct, intentUsd, rawMagnitude: mapped.meta?.magnitude })
+    const steps = mapped.actionType === 'DCA_SWAP' ? [ { from: 'USDC', to: primary.symbol, amount: baseAmount, intentUsd } ] : []
     return {
       actionType: mapped.actionType === 'SELL' ? 'REBALANCE' : (mapped.actionType as any),
       steps,

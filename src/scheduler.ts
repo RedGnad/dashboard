@@ -7,6 +7,7 @@ export type JobStatus = {
   delegatorSA: Address
   intervalSec: number
   active: boolean
+  jobType: 'dca_ai' | 'dca_schedule'
   lastRunAt?: number
   lastOpHash?: `0x${string}`
   lastError?: string
@@ -74,7 +75,7 @@ const jobs: Record<string, InternalJob> = {}
 function schedule(job: InternalJob) {
   if (job._timer) clearInterval(job._timer)
   if (!job.active) return
-  console.log('[scheduler] start', { delegatorSA: job.delegatorSA, intervalSec: job.intervalSec })
+  console.log('[scheduler] start', { delegatorSA: job.delegatorSA, intervalSec: job.intervalSec, jobType: job.jobType })
   const tick = async () => {
     // Auto-stop if expired
     if (job.expiresAt && Date.now() >= job.expiresAt) {
@@ -223,48 +224,66 @@ function schedule(job: InternalJob) {
       return
     }
     if (job._running) return
-    console.log('[scheduler] tick', { delegatorSA: job.delegatorSA })
+    console.log('[scheduler] tick', { delegatorSA: job.delegatorSA, jobType: job.jobType })
     job._running = true
     try {
-      // Pre-tick: generate a fresh AI decision so runner can consult latest action/score from audit
-      try {
-        const fs = await import('node:fs')
-        const path = await import('node:path')
-        const file = path.join(process.cwd(), 'data', 'delegations', `${job.delegatorSA}.json`)
-        let providerOverride: string | undefined
-        if (fs.existsSync(file)) {
-          try { const js = JSON.parse(fs.readFileSync(file, 'utf8')); providerOverride = js?.job?.inferenceProvider } catch {}
-        }
-        const { strategyEngine } = await import('./strategy/engine')
-  const { computeCoreFeaturesAsync } = await import('./features')
-  const feat = await computeCoreFeaturesAsync(job.delegatorSA as string)
-        const ctx: any = {
-          timestamp: Date.now(),
-          delegator: job.delegatorSA,
-          balances: {},
-          targets: [{ symbol: 'WMON', weightBps: 5000 }],
-          prices: { USDC: '1', WMON: '0' },
-          recentExecutions: [],
-          riskParams: { maxSlippageBps: 80, maxSingleUsd: 100 },
-          marketVolatilityScore: typeof feat.features.volatilitySimple === 'number' ? feat.features.volatilitySimple : 0.35,
-          strategyProfile: 'default',
-          inferenceProviderOverride: providerOverride,
-        }
-        const decision = await strategyEngine.decide(ctx)
-        // Persist audit line minimally (reuse server appendAudit typing without pulling heavy deps)
+      if (job.jobType === 'dca_ai') {
+        // Pre-tick: generate a fresh AI decision so runner can consult latest action/score from audit
         try {
-          const { appendAudit } = await import('./audit')
-          const { hashRationale } = await import('./strategy/engine')
-          const aiRationaleHash = hashRationale(decision.rationale)
-          const meta = decision.meta || {}
-          appendAudit({ action: 'ai_decision', ts: ctx.timestamp, delegator: job.delegatorSA, delegate: '0x', role: 'ai', structHash:'0x', digest:'0x', domainSeparator:'0x', caveatsRoot:'0x', salt:'0x', warnings:[], signatureModel:'UNKNOWN', aiRationaleHash, aiRiskScore: decision.riskScore, aiConfidence: decision.confidence, strategyEngineVersion: typeof (strategyEngine as any).version === 'function' ? (strategyEngine as any).version() : 'det-v1', aiActionType: decision.actionType, featureHash: (feat as any).featureHash, featureHashV2: (feat as any).featureHashV2, featureSchemaVersion: (feat as any).schemaVersion, modelHash: meta.modelHash, inferenceProvider: meta.inferenceProvider, featuresCanonical: undefined, inferenceVersion: meta.inferenceVersion, inferenceFeatures: { allocationDeviation: feat.features.allocationDeviation ?? 0, executionsLast24h: feat.features.executionsLast24h ?? 0, volatilitySimple: feat.features.volatilitySimple ?? 0 }, rawScore: meta.rawScore, logitZ: meta.logitZ, mappingVersion: meta.mappingVersion, weightsUsedHash: meta.weightsUsedHash, inferenceProofHash: meta.inferenceProofHash })
-        } catch (e) { console.warn('[scheduler] append ai_decision failed (non-blocking)', (e as any)?.message || e) }
-      } catch (e) { console.warn('[scheduler] pre-tick decision failed (non-blocking)', (e as any)?.message || e) }
-      const hash = await runOnceForDelegator(job.delegatorSA)
-      job.lastRunAt = Date.now()
-      job.lastOpHash = hash
-      job.lastError = undefined
-      job.runsDone = (job.runsDone || 0) + 1
+          const fs = await import('node:fs')
+          const path = await import('node:path')
+          const file = path.join(process.cwd(), 'data', 'delegations', `${job.delegatorSA}.json`)
+          let providerOverride: string | undefined
+          if (fs.existsSync(file)) {
+            try { const js = JSON.parse(fs.readFileSync(file, 'utf8')); providerOverride = js?.job?.inferenceProvider } catch {}
+          }
+          const { strategyEngine } = await import('./strategy/engine')
+          const { computeCoreFeaturesAsync } = await import('./features')
+          const feat = await computeCoreFeaturesAsync(job.delegatorSA as string)
+          const ctx: any = {
+            timestamp: Date.now(),
+            delegator: job.delegatorSA,
+            balances: {},
+            targets: [{ symbol: 'WMON', weightBps: 5000 }],
+            prices: { USDC: '1', WMON: '0' },
+            recentExecutions: [],
+            riskParams: { maxSlippageBps: 80, maxSingleUsd: 100 },
+            marketVolatilityScore: typeof feat.features.volatilitySimple === 'number' ? feat.features.volatilitySimple : 0.35,
+            strategyProfile: 'default',
+            inferenceProviderOverride: providerOverride,
+          }
+          const decision = await strategyEngine.decide(ctx)
+          // Persist audit line minimally (reuse server appendAudit typing without pulling heavy deps)
+          try {
+            const { appendAudit } = await import('./audit')
+            const { hashRationale } = await import('./strategy/engine')
+            const aiRationaleHash = hashRationale(decision.rationale)
+            const meta = decision.meta || {}
+            appendAudit({ action: 'ai_decision', ts: ctx.timestamp, delegator: job.delegatorSA, delegate: '0x', role: 'ai', structHash:'0x', digest:'0x', domainSeparator:'0x', caveatsRoot:'0x', salt:'0x', warnings:[], signatureModel:'UNKNOWN', aiRationaleHash, aiRiskScore: decision.riskScore, aiConfidence: decision.confidence, strategyEngineVersion: typeof (strategyEngine as any).version === 'function' ? (strategyEngine as any).version() : 'det-v1', aiActionType: decision.actionType, featureHash: (feat as any).featureHash, featureHashV2: (feat as any).featureHashV2, featureSchemaVersion: (feat as any).schemaVersion, modelHash: meta.modelHash, inferenceProvider: meta.inferenceProvider, featuresCanonical: undefined, inferenceVersion: meta.inferenceVersion, inferenceFeatures: { allocationDeviation: feat.features.allocationDeviation ?? 0, executionsLast24h: feat.features.executionsLast24h ?? 0, volatilitySimple: feat.features.volatilitySimple ?? 0 }, rawScore: meta.rawScore, logitZ: meta.logitZ, mappingVersion: meta.mappingVersion, weightsUsedHash: meta.weightsUsedHash, inferenceProofHash: meta.inferenceProofHash })
+          } catch (e) { console.warn('[scheduler] append ai_decision failed (non-blocking)', (e as any)?.message || e) }
+
+          // Check AI decision before executing
+          if (decision && decision.actionType === 'SKIP') {
+            console.log('[scheduler] AI decided SKIP, skipping execution for', job.delegatorSA)
+            job.lastRunAt = Date.now()
+            job.lastError = undefined
+            job.runsDone = (job.runsDone || 0) + 1
+            return
+          }
+        } catch (e) { console.warn('[scheduler] pre-tick decision failed (non-blocking)', (e as any)?.message || e) }
+        const hash = await runOnceForDelegator(job.delegatorSA)
+        job.lastRunAt = Date.now()
+        job.lastOpHash = hash
+        job.lastError = undefined
+        job.runsDone = (job.runsDone || 0) + 1
+      } else {
+        // dca_schedule: execute regardless of AI, using ignoreAi flag
+        const hash = await runOnceForDelegator(job.delegatorSA, { ignoreAi: true })
+        job.lastRunAt = Date.now()
+        job.lastOpHash = hash
+        job.lastError = undefined
+        job.runsDone = (job.runsDone || 0) + 1
+      }
     } catch (e: any) {
       job.lastRunAt = Date.now()
       job.lastError = e?.message || String(e)
@@ -278,7 +297,7 @@ function schedule(job: InternalJob) {
 export function startJob(
   delegatorSA: Address,
   intervalSec: number,
-  opts?: { durationSec?: number; immediate?: boolean; expiresAtMs?: number }
+  opts?: { durationSec?: number; immediate?: boolean; expiresAtMs?: number; jobType?: 'dca_ai' | 'dca_schedule' }
 ): JobStatus {
   const key = delegatorSA.toLowerCase()
   const existing = jobs[key]
@@ -286,9 +305,10 @@ export function startJob(
   const expiresAt = opts?.expiresAtMs
     ? opts.expiresAtMs
     : (opts?.durationSec && opts.durationSec > 0 ? now + opts.durationSec * 1000 : undefined)
+  const jobType = opts?.jobType || existing?.jobType || 'dca_ai'
   const job: InternalJob = existing
-    ? { ...existing, intervalSec, active: true, expiresAt }
-    : { delegatorSA, intervalSec, active: true, expiresAt, runsDone: 0 }
+    ? { ...existing, intervalSec, active: true, expiresAt, jobType }
+    : { delegatorSA, intervalSec, active: true, expiresAt, runsDone: 0, jobType }
   jobs[key] = job
   // Toujours réinitialiser lastRunAt lors d'un nouveau start pour un timer cohérent
   // Sauf si immediate=true, auquel cas on laisse runOnceForDelegator le mettre à jour
@@ -305,9 +325,27 @@ export function startJob(
     Promise.resolve().then(async () => {
       if (!job.active) return
       try {
-        const hash = await runOnceForDelegator(job.delegatorSA)
+        if (job.jobType === 'dca_ai') {
+          // For AI job, do not force execution if AI would SKIP
+          const { strategyEngine } = await import('./strategy/engine')
+          const { computeCoreFeaturesAsync } = await import('./features')
+          const feat = await computeCoreFeaturesAsync(job.delegatorSA as string)
+          const ctx: any = { timestamp: Date.now(), delegator: job.delegatorSA, balances: {}, targets: [{ symbol: 'WMON', weightBps: 5000 }], prices: { USDC: '1', WMON: '0' }, recentExecutions: [], riskParams: { maxSlippageBps: 80, maxSingleUsd: 100 }, marketVolatilityScore: typeof feat.features.volatilitySimple === 'number' ? feat.features.volatilitySimple : 0.35, strategyProfile: 'default' }
+          const decision = await strategyEngine.decide(ctx)
+          if (decision?.actionType === 'SKIP') {
+            console.log('[scheduler] immediate: AI decided SKIP, skipping execution for', job.delegatorSA)
+            job.lastRunAt = Date.now()
+            job.lastError = undefined
+            job.runsDone = (job.runsDone || 0) + 1
+            return
+          }
+          const hash = await runOnceForDelegator(job.delegatorSA)
+          job.lastOpHash = hash
+        } else {
+          const hash = await runOnceForDelegator(job.delegatorSA, { ignoreAi: true })
+          job.lastOpHash = hash
+        }
         job.lastRunAt = Date.now()
-        job.lastOpHash = hash
         job.lastError = undefined
         job.runsDone = (job.runsDone || 0) + 1
       } catch (e: any) {
@@ -339,7 +377,7 @@ export function runNow(delegatorSA: Address): Promise<JobStatus | null> {
   if (!job) return Promise.resolve(null)
   return (async () => {
     try {
-      const hash = await runOnceForDelegator(job.delegatorSA)
+      const hash = await runOnceForDelegator(job.delegatorSA, { ignoreAi: job.jobType === 'dca_schedule' })
       job.lastRunAt = Date.now()
       job.lastOpHash = hash
       job.lastError = undefined
@@ -356,6 +394,6 @@ export function getJobs(): JobStatus[] {
 }
 
 function publicStatus(job: InternalJob): JobStatus {
-  const { delegatorSA, intervalSec, active, lastRunAt, lastOpHash, lastError, expiresAt, runsDone } = job
-  return { delegatorSA, intervalSec, active, lastRunAt, lastOpHash, lastError, expiresAt, runsDone }
+  const { delegatorSA, intervalSec, active, jobType, lastRunAt, lastOpHash, lastError, expiresAt, runsDone } = job
+  return { delegatorSA, intervalSec, active, jobType, lastRunAt, lastOpHash, lastError, expiresAt, runsDone }
 }

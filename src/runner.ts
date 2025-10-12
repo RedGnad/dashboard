@@ -15,7 +15,8 @@ import { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithMo
 import { appendRunEvent } from './utils/history'
 import { appendAudit, newRunId } from './audit'
 
-export async function runOnceForDelegator(delegatorSA: Address, opts?: { runIndex?: number }) {
+export async function runOnceForDelegator(delegatorSA: Address, opts?: { runIndex?: number; ignoreAi?: boolean }) {
+  console.log('[DEBUG] runOnceForDelegator called with SKIP logic enabled:', delegatorSA)
   const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
   if (!pk) throw new Error('Missing DELEGATE_PRIVATE_KEY')
 
@@ -163,10 +164,17 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
     return null
   }
   const lastAi = getLastAiDecision()
-  if (lastAi) {
+  let aiDecidedSkip = false
+  if (!opts?.ignoreAi && lastAi) {
     aiActionType = lastAi.actionType
     if (typeof lastAi.rawScore === 'number') aiRawScore = lastAi.rawScore
     if (typeof lastAi.momentum === 'number') aiMomentum = lastAi.momentum
+    
+    // CRITICAL FIX: Respect AI SKIP decisions but defer until after computing baseline/balance
+    if (lastAi.actionType === 'SKIP') {
+      aiDecidedSkip = true
+    }
+    
     // If AI says SELL and job allows it, mark flow as SELL
     try {
       const allowSell = json.job?.allowSellExecution === true

@@ -141,6 +141,28 @@ export async function executeFromDecision(opts: { rollingHash?: string; force?: 
     })
     return { ok: true, correlationId, status: 'blocked', reason: evalResult.reason, decisionRollingHash: decision.rollingHash }
   }
+  // Respect AI SKIP decision
+  if (decision.aiActionType === 'SKIP') {
+    appendAudit({
+      action: 'execute',
+      ts: Date.now(),
+      delegator: decision.delegator,
+      delegate: '0x',
+      role: 'orchestrator',
+      structHash: '0x',
+      digest: '0x',
+      domainSeparator: '0x',
+      caveatsRoot: '0x',
+      salt: '0x',
+      warnings: ['AI decided SKIP'],
+      signatureModel: 'UNKNOWN',
+      runId: correlationId,
+      decisionRollingHash: decision.rollingHash,
+      modelHash: decision.modelHash,
+      inferenceProvider: decision.inferenceProvider,
+    })
+    return { ok: true, correlationId, status: 'noop', reason: 'ai_decided_skip', decisionRollingHash: decision.rollingHash }
+  }
   // Trigger actual run
   let userOperationHash: string | undefined
   try {

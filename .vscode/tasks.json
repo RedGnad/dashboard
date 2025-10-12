@@ -121,6 +121,12 @@
 			"label": "Web: Build",
 			"type": "shell",
 			"command": "cd web && npm run build --silent"
+		},
+		{
+			"label": "TypeScript build",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
 		}
 	]
 }
