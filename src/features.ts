@@ -86,6 +86,7 @@ async function readBalancesUSDOnChain(delegator: string): Promise<BalancesLike> 
   try {
     const addr = (delegator || '').toLowerCase()
     if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return { stable: 0, target: 0, other: 0 }
+    console.log('[readBalancesUSDOnChain] Reading for:', addr.slice(0,10) + '...')
     const { publicClient } = await import('./clients')
     const { USDC, WMON } = await import('./constants')
     const erc20Abi = [
@@ -102,8 +103,12 @@ async function readBalancesUSDOnChain(delegator: string): Promise<BalancesLike> 
     const usdc = Number(usdcRaw) / 1_000_000
     const monTotal = Number(wmonRaw) / 1e18 + Number(monRaw) / 1e18
     const targetUsd = price > 0 ? monTotal * price : 0
-    return { stable: Number(usdc.toFixed(8)), target: Number(targetUsd.toFixed(8)), other: 0 }
-  } catch {
+    const result = { stable: Number(usdc.toFixed(8)), target: Number(targetUsd.toFixed(8)), other: 0 }
+    console.log('[readBalancesUSDOnChain] Raw values:', { usdc: usdcRaw.toString(), wmon: wmonRaw.toString(), mon: monRaw.toString() })
+    console.log('[readBalancesUSDOnChain] Final result:', result)
+    return result
+  } catch (err) {
+    console.log('[readBalancesUSDOnChain] Error:', err)
     return { stable: 0, target: 0, other: 0 }
   }
 }
@@ -125,13 +130,21 @@ function loadBalances(delegator: string): BalancesLike {
         other: Number.isFinite(parsed.other) ? Number(parsed.other) : 0,
       }
     }
-    // Fallback: opportunistic on-chain sampling (sync wrapper)
+    // ENHANCED: Force on-chain reading for all real users instead of fallback to zero
+    console.log('[loadBalances] No file found, trying on-chain for:', delegator.slice(0,10) + '...')
     try {
       const fallback = awaitMaybe(readBalancesUSDOnChain(delegator))
+      console.log('[loadBalances] On-chain result:', fallback)
       if (fallback && ((fallback.stable ?? 0) > 0 || (fallback.target ?? 0) > 0)) {
         return fallback
       }
-    } catch {}
+      // If on-chain returned zeros but call succeeded, use it anyway (user has zero balance)
+      if (fallback) {
+        return fallback
+      }
+    } catch (err) {
+      console.log('[loadBalances] On-chain failed:', err)
+    }
   } catch {}
   return { stable: 0, target: 0, other: 0 }
 }
