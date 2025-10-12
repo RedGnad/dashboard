@@ -1,0 +1,51 @@
+{
+  "delegatorSA": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+  "signedDelegation": {
+    "delegation": {
+      "delegate": "0x0000000000000000000000000000000000000a11",
+      "delegator": "0xa7640957e68DFe5416af725dEdEA2E9e4b5d9C63",
+      "authority": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "caveats": [
+        {
+          "enforcer": "0x7F20f61b1f09b08D970938F6fa563634d65c4EeB",
+          "terms": "0xf817257fed379853cDe0fa4F97AB987181B1E5Eafb8e1c3b833f9e67a71c859a132cf783b645e436760AfE86e5de5fa0Ee542fc7B7B713e1c5425701D20CC1610BB0D0CF0daacb159AB6Cc4787D9e6D4",
+          "args": "0x"
+        },
+        {
+          "enforcer": "0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5",
+          "terms": "0x095ea7b338ed17392e1a7d4dd0e30db0d505accf23b872dda9059cbbe3ee160e",
+          "args": "0x"
+        }
+      ],
+      "salt": "0x",
+      "signature": "0x"
+    },
+    "signature": "0xd6e07f85eebe56a6e760c2db12c0fea84b7ff12411cf47134fc3888ef3e0717113afa8bb6943ff458e5fdf3c9ce452228fa3443ba180f00b8e2dcfa14d89338b1b"
+  },
+  "job": {
+    "createdAtMs": 1760307665761,
+    "unwrapEvery": 24,
+    "amountUSDC": "1",
+    "slippageBps": 100,
+    "intervalSec": 60,
+    "durationSec": 86400,
+    "unwrapToMon": false,
+    "usePaymaster": false,
+    "ownerEOA": "0xD20CC1610BB0D0CF0daacb159AB6Cc4787D9e6D4",
+    "permit": null,
+    "auth3009": null,
+    "dailyTopupUSDC": 1,
+    "executions": [
+      {
+        "target": "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea",
+        "value": "0",
+        "callData": "0x095ea7b3000000000000000000000000fb8e1c3b833f9e67a71c859a132cf783b645e43600000000000000000000000000000000000000000000000000000000000f4240"
+      },
+      {
+        "target": "0xfb8e1c3b833f9e67a71c859a132cf783b645e436",
+        "value": "0",
+        "callData": "0x38ed173900000000000000000000000000000000000000000000000000000000000f4240000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000a7640957e68dfe5416af725dedea2e9e4b5d9c630000000000000000000000000000000000000000000000000000000068ec37de0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000f817257fed379853cde0fa4f97ab987181b1e5ea000000000000000000000000760afe86e5de5fa0ee542fc7b7b713e1c5425701"
+      }
+    ]
+  }
+}

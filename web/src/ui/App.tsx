@@ -85,8 +85,11 @@ export default function App() {
   const jobPollRef = useRef<number | null>(null);
   const [hasDelegation, setHasDelegation] = useState<boolean>(false);
   const [amount, setAmount] = useState("1");
-  const [schedulerSource, setSchedulerSource] = useState<'USDC' | 'MON'>('USDC')
-  const [schedulerTargetSymbol, setSchedulerTargetSymbol] = useState<string>('WMON')
+  const [schedulerSource, setSchedulerSource] = useState<"USDC" | "MON">(
+    "USDC"
+  );
+  const [schedulerTargetSymbol, setSchedulerTargetSymbol] =
+    useState<string>("WMON");
   const [slippageBps, setSlippageBps] = useState("100");
   const [unwrapToMon, setUnwrapToMon] = useState(false);
   const [topupStatus, setTopupStatus] = useState<string>("");
@@ -502,7 +505,7 @@ export default function App() {
         setAllBalances({ MON: r.MON, tokens: r.tokens || {} });
       }
     } catch {}
-  }
+  };
 
   // Désactivation par défaut de la tentative permit (USDC testnet ne supporte pas 2612 ici)
   const [skipPermit, setSkipPermit] = useState(true);
@@ -900,12 +903,13 @@ export default function App() {
         value: e.value.toString(),
         callData: e.callData,
       }));
-      const res = await fetch(`${apiBase || ""}/api/delegations`, {
+      const res = await fetch(`${apiBase || ""}/api/delegations/submit`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           delegatorSA: smart.address,
           signedDelegation: { delegation, signature },
+          role: "core",
           job: {
             amountUSDC: amount,
             slippageBps: Number(slippageBps),
@@ -1196,7 +1200,9 @@ export default function App() {
       if (tick % 3 === 0) refreshJobStatus();
       // Refresh balances (MON + tokens) every 5s while scheduler panel is open
       if (tick % 5 === 0) {
-        try { refreshAllBalances.current?.(); } catch {}
+        try {
+          refreshAllBalances.current?.();
+        } catch {}
       }
       // Update countdown locally every second
       setEmissionCountdown(() => {
@@ -1229,13 +1235,15 @@ export default function App() {
           durationSec: 24 * 60 * 60,
           immediate: true,
           unwrapToMon,
-          jobType: 'dca_schedule',
+          jobType: "dca_schedule",
           source: schedulerSource,
           targetSymbol: schedulerTargetSymbol,
-          amountPolicy: 'fixed',
-          amountUSDC: schedulerSource === 'USDC' ? Number(amount || '0') : undefined,
-          amountMON: schedulerSource === 'MON' ? Number(amount || '0') : undefined,
-          slippageBps: Number(slippageBps || '100'),
+          amountPolicy: "fixed",
+          amountUSDC:
+            schedulerSource === "USDC" ? Number(amount || "0") : undefined,
+          amountMON:
+            schedulerSource === "MON" ? Number(amount || "0") : undefined,
+          slippageBps: Number(slippageBps || "100"),
         }),
       });
       const t = await r.text();
@@ -1251,7 +1259,9 @@ export default function App() {
             }DCA démarré: premier swap en cours d'exécution…`
         );
         // Rafraîchir les soldes immédiatement
-        try { await refreshAllBalances.current?.(); } catch {}
+        try {
+          await refreshAllBalances.current?.();
+        } catch {}
       }
     } catch (e: any) {
       setMsg(`Start failed: ${e?.message || e}`);
@@ -1871,41 +1881,48 @@ export default function App() {
                 {(() => {
                   try {
                     // Construire une ligne unique et auto-refresh: MON (native) + tous les ERC20 (USDC, WMON, CHOG, ...)
-                    const rows: string[] = []
-                    const emitted = new Set<string>()
+                    const rows: string[] = [];
+                    const emitted = new Set<string>();
                     // MON (native)
-                    const monRaw = allBalances?.MON
+                    const monRaw = allBalances?.MON;
                     if (monRaw && monRaw !== "0") {
-                      const monNum = Number(monRaw) / 1e18
+                      const monNum = Number(monRaw) / 1e18;
                       if (Number.isFinite(monNum) && monNum !== 0) {
-                        rows.push(`MON: ${monNum.toFixed(6)}`)
-                        emitted.add("MON")
+                        rows.push(`MON: ${monNum.toFixed(6)}`);
+                        emitted.add("MON");
                       }
                     }
                     // ERC20 tokens (including USDC, WMON, ...)
-                    const entries = Object.entries(tokensMeta || {}).sort(([a],[b]) => a.localeCompare(b)) as Array<[
-                      string,
-                      { symbol: string; address: string; decimals: number }
-                    ]>
+                    const entries = Object.entries(tokensMeta || {}).sort(
+                      ([a], [b]) => a.localeCompare(b)
+                    ) as Array<
+                      [
+                        string,
+                        { symbol: string; address: string; decimals: number }
+                      ]
+                    >;
                     for (const [sym, meta] of entries) {
-                      if (emitted.has(sym)) continue
-                      const raw = allBalances?.tokens?.[sym]
-                      if (!raw || raw === "0") continue
-                      const dec = Number(meta.decimals || 18)
-                      const denom = dec >= 0 ? Math.pow(10, Math.min(18, dec)) : 1
-                      const num = Number(raw) / denom
-                      if (!Number.isFinite(num) || num === 0) continue
-                      rows.push(`${sym}: ${num.toFixed(Math.min(6, dec))}`)
-                      emitted.add(sym)
+                      if (emitted.has(sym)) continue;
+                      const raw = allBalances?.tokens?.[sym];
+                      if (!raw || raw === "0") continue;
+                      const dec = Number(meta.decimals || 18);
+                      const denom =
+                        dec >= 0 ? Math.pow(10, Math.min(18, dec)) : 1;
+                      const num = Number(raw) / denom;
+                      if (!Number.isFinite(num) || num === 0) continue;
+                      rows.push(`${sym}: ${num.toFixed(Math.min(6, dec))}`);
+                      emitted.add(sym);
                     }
-                    if (rows.length === 0) return null
+                    if (rows.length === 0) return null;
                     return (
-                      <div style={{ fontSize: 12, color: "#444", marginTop: 2 }}>
+                      <div
+                        style={{ fontSize: 12, color: "#444", marginTop: 2 }}
+                      >
                         Tokens: {rows.join("  •  ")}
                       </div>
-                    )
+                    );
                   } catch {
-                    return null
+                    return null;
                   }
                 })()}
               </div>
@@ -1956,19 +1973,38 @@ export default function App() {
                 }
               />
             </label>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
               <label>
                 Source:
-                <select value={schedulerSource} onChange={(e)=>setSchedulerSource(e.target.value as 'USDC'|'MON')} style={{ marginLeft: 6 }}>
+                <select
+                  value={schedulerSource}
+                  onChange={(e) =>
+                    setSchedulerSource(e.target.value as "USDC" | "MON")
+                  }
+                  style={{ marginLeft: 6 }}
+                >
                   <option value="USDC">USDC</option>
                   <option value="MON">MON</option>
                 </select>
               </label>
               <label>
                 Target token:
-                <select value={schedulerTargetSymbol} onChange={(e)=>setSchedulerTargetSymbol(e.target.value)} style={{ marginLeft: 6 }}>
-                  {Object.keys(tokensMeta || {}).map((sym)=> (
-                    <option key={sym} value={sym}>{sym}</option>
+                <select
+                  value={schedulerTargetSymbol}
+                  onChange={(e) => setSchedulerTargetSymbol(e.target.value)}
+                  style={{ marginLeft: 6 }}
+                >
+                  {Object.keys(tokensMeta || {}).map((sym) => (
+                    <option key={sym} value={sym}>
+                      {sym}
+                    </option>
                   ))}
                 </select>
               </label>

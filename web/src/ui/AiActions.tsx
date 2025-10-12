@@ -38,7 +38,10 @@ export default function AiActions({
   const [out, setOut] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [tokensMeta, setTokensMeta] = useState<
-    Record<string, { symbol: string; address: string; decimals: number; isStable?: boolean }>
+    Record<
+      string,
+      { symbol: string; address: string; decimals: number; isStable?: boolean }
+    >
   >({});
   const [auto, setAuto] = useState<{
     active: boolean;
@@ -472,7 +475,9 @@ export default function AiActions({
         >
           Provider
         </button>
-        <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center" }}>
+        <label
+          style={{ fontSize: 12, display: "inline-flex", alignItems: "center" }}
+        >
           Tokens (preview):
           <input
             value={tokensCsv}
