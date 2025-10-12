@@ -111,6 +111,10 @@ async function readBalancesUSDOnChain(delegator: string): Promise<BalancesLike> 
 // Load balances from snapshot file if present for determinism (future: on-chain viem integration).
 // Expected JSON: { "stable": number, "target": number, "other": number }
 function loadBalances(delegator: string): BalancesLike {
+  // TEMP FIX: Use test balances for delegator='0x' to test AI decisions 
+  if (delegator.toLowerCase() === '0x') {
+    return { stable: 970, target: 30, other: 0 } // 97% USDC, 3% WMON = -47% deviation
+  }
   try {
     const file = path.join(process.cwd(), 'data', 'balances', `${delegator.toLowerCase()}.json`)
     if (fs.existsSync(file)) {

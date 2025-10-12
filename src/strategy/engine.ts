@@ -64,6 +64,7 @@ export class DeterministicDcaStrategy implements StrategyEngine {
     const z = inf.z ?? 0
     // weightsUsedHash: si provider ne fournit pas, fallback au model local (pour cohérence structure audit)
     const weightsUsedHash = inf.weightsUsedHash || model.modelHash // model.modelHash as placeholder
+    console.log('[DEBUG] Before mapScoreToDecision:', { score, featuresForModel })
     const mapped = mapScoreToDecision(score, featuresForModel)
     const primary = ctx.targets[0] || { symbol: 'WMON', weightBps: 5000 }
     const baseAmount = '10000000000000000'

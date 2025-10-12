@@ -92,15 +92,16 @@ export interface DecisionMapping {
 
 export function mapScoreToDecision(score: number, features: Record<string, any>): DecisionMapping {
   const allocDev = typeof features.allocationDeviation === 'number' ? features.allocationDeviation : 0
+  console.log('[DEBUG] mapScoreToDecision:', { allocationDeviation: features.allocationDeviation, allocDev, features: Object.keys(features) })
   const hyperVol24h = typeof features.hyper_volatility_24h === 'number' ? features.hyper_volatility_24h : undefined
   const momentum = typeof features.hyper_momentum === 'number' ? features.hyper_momentum : undefined
   const profile = (features.strategyProfile || 'default') as 'default' | 'conservative' | 'aggressive'
   const testForceAction = (features.testForceAction || '') as 'buy' | 'sell' | ''
   // Basic thresholds
   let action: DecisionMapping['actionType'] = 'SKIP'
-  // Tighten gap to avoid perpetual SKIP while still preventing thrash
-  let buyThreshold = 0.56
-  let sellThreshold = 0.57
+  // LOWERED thresholds to allow more trading when allocation is significantly off
+  let buyThreshold = 0.42  // Was 0.56
+  let sellThreshold = 0.45  // Was 0.57
   let sizeMultiplier = 1.0
   // Profile tuning: conservative = plus strict et tailles réduites; aggressive = plus souple et tailles accrues
   if (profile === 'conservative') {
@@ -142,7 +143,8 @@ export function mapScoreToDecision(score: number, features: Record<string, any>)
   const executions = features.executionsLast24h || 0
   const vol = typeof features.volatilitySimple === 'number' ? features.volatilitySimple : 0
   const hyperVolComponent = hyperVol24h ? Math.min(20, hyperVol24h * 5) : 0
-  const baseRisk = Math.min(100, Math.round((Math.abs(allocDev) * 50) + (vol * 10) + executions * 5 + hyperVolComponent))
+  // FIXED: Reduced execution penalty from *5 to *0.5 to avoid oversaturation
+  const baseRisk = Math.min(100, Math.round((Math.abs(allocDev) * 50) + (vol * 10) + executions * 0.5 + hyperVolComponent))
   const riskScore = baseRisk
   const confidence = Number((0.5 + (score * 0.45)).toFixed(4)) // 0.5 -> 0.95
   const rationale = `score=${score.toFixed(4)} allocDev=${allocDev.toFixed(4)} action=${action} hyperVol24h=${hyperVol24h ?? 'null'} momentum=${momentum ?? 'null'}${testForceAction ? ` override=${testForceAction}` : ''}`
