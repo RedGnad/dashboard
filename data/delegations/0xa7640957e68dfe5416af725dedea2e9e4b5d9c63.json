@@ -23,7 +23,7 @@
     "signature": "0xd6e07f85eebe56a6e760c2db12c0fea84b7ff12411cf47134fc3888ef3e0717113afa8bb6943ff458e5fdf3c9ce452228fa3443ba180f00b8e2dcfa14d89338b1b"
   },
   "job": {
-    "createdAtMs": 1760371862933,
+    "createdAtMs": 1760373980989,
     "unwrapEvery": 24,
     "slippageBps": 100,
     "intervalSec": 60,

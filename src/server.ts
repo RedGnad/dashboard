@@ -3598,7 +3598,7 @@ app.post('/api/jobs/run', async (req, res) => {
   return res.json({ ok: true, job: j })
 })
 
-// Manual unwrap endpoint: executes WMON.withdraw for the delegator SA under existing delegation
+// Manual unwrap endpoint: executes WMON.withdraw for the delegator SA
 app.post('/api/unwrap', async (req, res) => {
   try {
     let { delegatorSA, amount, percent } = req.body || {}

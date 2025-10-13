@@ -23,7 +23,7 @@
     "signature": "0x898c4366fb0cd71cc6028e3e43f7d694f8ea549b9f7856b6c2da41d4af32e60e077beecd70cfb413f0e0fbae0a3ee1f482adc14c1ee3880c312c4f2ad10cddbb1b"
   },
   "job": {
-    "createdAtMs": 1760371802592,
+    "createdAtMs": 1760373535322,
     "unwrapEvery": 24,
     "slippageBps": 100,
     "intervalSec": 60,
@@ -35,7 +35,7 @@
     "auth3009": null,
     "dailyTopupUSDC": 1,
     "allowSellExecution": true,
-    "targetSymbol": "DAKIMAKURA",
+    "targetSymbol": "CHOG",
     "source": "MON",
     "amountMON": 1
   }

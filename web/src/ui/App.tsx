@@ -1365,30 +1365,82 @@ export default function App() {
     }
   }
 
+  async function wrapMonAll() {
+    if (!saPanel.delegator?.address) return;
+    try {
+      setBusy(true);
+      const r = await fetch(`${apiBase || ""}/api/wrap`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ delegatorSA: saPanel.delegator.address }),
+      });
+      const t = await r.text();
+      const j = t ? JSON.parse(t) : {};
+      if (!j?.ok) {
+        if (j?.code === "delegation_missing") {
+          setHasDelegation(false);
+          setMsg("Wrap impossible: délégation absente (créez-la d'abord).");
+        } else {
+          setMsg(`Wrap échoué: ${j?.error || "inconnu"}`);
+        }
+      } else setMsg(`Wrap userOperationHash: ${j.userOperationHash}`);
+    } catch (e: any) {
+      setMsg(`Wrap échoué: ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function convertAllToWmonThenWrap() {
     if (!saPanel.delegator?.address) return;
     try {
       setBusy(true);
-      setMsg((m) => (m ? m + "\n" : "") + "Converting all tokens to WMON then wrapping...");
-      const r = await fetch(`${apiBase || ""}/api/convert-all-to-wmon`, {
+      setMsg((m) => (m ? m + "\n" : "") + "Step 1/2: Unwrapping all WMON to MON...");
+      
+      // Step 1: Unwrap WMON to MON
+      const unwrapRes = await fetch(`${apiBase || ""}/api/unwrap`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          delegatorSA: saPanel.delegator.address,
+          percent: 100,
+        }),
+      });
+      const unwrapData = await unwrapRes.text();
+      const unwrapJson = unwrapData ? JSON.parse(unwrapData) : {};
+      
+      if (!unwrapJson?.ok) {
+        setMsg((m) => (m ? m + "\n" : "") + `Unwrap failed: ${unwrapJson?.error || "unknown"}`);
+        return;
+      }
+      
+      setMsg((m) => (m ? m + "\n" : "") + `Unwrapped WMON, userOp: ${unwrapJson.userOperationHash}`);
+      
+      // Wait a bit for the first tx
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // Step 2: Wrap all MON to WMON
+      setMsg((m) => (m ? m + "\n" : "") + "Step 2/2: Wrapping all MON to WMON...");
+      const wrapRes = await fetch(`${apiBase || ""}/api/wrap`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           delegatorSA: saPanel.delegator.address,
         }),
       });
-      const t = await r.text();
-      const j = t ? JSON.parse(t) : {};
-      if (!j?.ok) {
-        setMsg((m) => (m ? m + "\n" : "") + `Convert to WMON failed: ${j?.error || "unknown"}`);
+      const wrapData = await wrapRes.text();
+      const wrapJson = wrapData ? JSON.parse(wrapData) : {};
+      
+      if (!wrapJson?.ok) {
+        setMsg((m) => (m ? m + "\n" : "") + `Wrap failed: ${wrapJson?.error || "unknown"}`);
       } else {
-        setMsg((m) => (m ? m + "\n" : "") + `Convert to WMON userOperationHash: ${j.userOperationHash}`);
-        if (j.userOperationHash) {
-          startUserOpPolling(j.userOperationHash, 60);
+        setMsg((m) => (m ? m + "\n" : "") + `✅ Wrapped all MON, userOp: ${wrapJson.userOperationHash}`);
+        if (wrapJson.userOperationHash) {
+          startUserOpPolling(wrapJson.userOperationHash, 60);
         }
       }
     } catch (e: any) {
-      setMsg((m) => (m ? m + "\n" : "") + `Convert to WMON failed: ${e?.message || e}`);
+      setMsg((m) => (m ? m + "\n" : "") + `Process failed: ${e?.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -2165,6 +2217,20 @@ export default function App() {
                   }
                 >
                   Wrap MON → WMON
+                </button>
+                <button
+                  onClick={convertAllToWmonThenWrap}
+                  disabled={
+                    busy || !saPanel.delegator?.address || !hasDelegation
+                  }
+                  style={{
+                    background: "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)",
+                    color: "white",
+                    fontWeight: "bold"
+                  }}
+                  title="Convert all tokens to WMON, then unwrap to native MON"
+                >
+                  🔄 All → WMON → MON
                 </button>
                 <div
                   style={{
