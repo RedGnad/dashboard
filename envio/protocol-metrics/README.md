@@ -1,19 +1,30 @@
 # Envio HyperIndex: Protocol Metrics
 
-This folder defines an Envio indexer that aggregates daily protocol metrics for:
+This folder defines an Envio indexer that aggregates metrics for:
 
-- magma (StakeManager)
-- ambient (AmbientCore)
-- curvance (Curvance demo event)
+**Protocols**:
+- magma (StakeManager) - Staking deposits/withdrawals
+- ambient (AmbientCore) - DEX swaps (AMM)
+- curvance (Curvance) - Protocol events
+- kuru (KuruOrderbook) - CLOB orderbook trades
 
-It writes DailyMetrics(protocolId,dateISO,usersDaily,txDaily,txCumulative,avgTxPerUser) that our API reads.
+**Tokens** (8 total):
+- WMON, USDC, BEAN, CHOG, DAK, YAKI, WBTC, DAKIMAKURA
+
+**Data Model**: AGGREGATIONS ONLY (no individual events stored to prevent disk saturation)
+- DailyMetrics: Protocol stats per day
+- TokenMetrics: Token volume/volatility/momentum (for AI)
+- PairMetrics: Trading pair metrics (for AI)
 
 ## Files
 - `config.yaml`: Networks, contracts, events, and handlers
-- `schema.graphql`: Entities including DailyMetrics/DailyUser/ProtocolState
-- `src/EventHandlers.ts`: Magma handlers
-- `src/EventHandlers_Ambient.ts`: Ambient handlers (counting swaps/mints/burns)
+- `schema.graphql`: Entities (DailyMetrics, TokenMetrics, PairMetrics)
+- `src/EventHandlers.ts`: Magma (StakeManager) handlers
+- `src/EventHandlers_Ambient.ts`: Ambient (AMM DEX) handlers
 - `src/EventHandlers_Curvance.ts`: Curvance handlers
+- `src/EventHandlers_Kuru.ts`: Kuru (CLOB orderbook) handlers
+- `src/EventHandlers_ERC20.ts`: Token transfer aggregation (8 tokens)
+- `src/EventHandlers_Swaps.ts`: Swap aggregation (WMON/USDC pair)
 
 ## Local check
 

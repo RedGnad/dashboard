@@ -1365,27 +1365,30 @@ export default function App() {
     }
   }
 
-  async function wrapMonAll() {
+  async function convertAllToWmonThenWrap() {
     if (!saPanel.delegator?.address) return;
     try {
       setBusy(true);
-      const r = await fetch(`${apiBase || ""}/api/wrap`, {
+      setMsg((m) => (m ? m + "\n" : "") + "Converting all tokens to WMON then wrapping...");
+      const r = await fetch(`${apiBase || ""}/api/convert-all-to-wmon`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ delegatorSA: saPanel.delegator.address }),
+        body: JSON.stringify({
+          delegatorSA: saPanel.delegator.address,
+        }),
       });
       const t = await r.text();
       const j = t ? JSON.parse(t) : {};
       if (!j?.ok) {
-        if (j?.code === "delegation_missing") {
-          setHasDelegation(false);
-          setMsg("Wrap impossible: délégation absente (créez-la d'abord).");
-        } else {
-          setMsg(`Wrap échoué: ${j?.error || "inconnu"}`);
+        setMsg((m) => (m ? m + "\n" : "") + `Convert to WMON failed: ${j?.error || "unknown"}`);
+      } else {
+        setMsg((m) => (m ? m + "\n" : "") + `Convert to WMON userOperationHash: ${j.userOperationHash}`);
+        if (j.userOperationHash) {
+          startUserOpPolling(j.userOperationHash, 60);
         }
-      } else setMsg(`Wrap userOperationHash: ${j.userOperationHash}`);
+      }
     } catch (e: any) {
-      setMsg(`Wrap échoué: ${e?.message || e}`);
+      setMsg((m) => (m ? m + "\n" : "") + `Convert to WMON failed: ${e?.message || e}`);
     } finally {
       setBusy(false);
     }

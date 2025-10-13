@@ -163,6 +163,199 @@
 			"type": "shell",
 			"command": "npm run build",
 			"group": "build"
+		},
+		{
+			"label": "Web: Start Vite (persist)",
+			"type": "shell",
+			"command": "cd web && npm run dev --silent",
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "Web: Start Vite (persist)",
+			"type": "shell",
+			"command": "cd web && npm run dev --silent",
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "TypeScript build",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "TypeScript build (ad-hoc)",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "TypeScript build (guard check)",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent"
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent"
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent"
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent"
+		},
+		{
+			"label": "Trigger runNow for SA2",
+			"type": "shell",
+			"command": "curl -s -X POST http://127.0.0.1:8787/api/jobs/start -H 'Content-Type: application/json' -d '{\"delegator\":\"0xde62689723de4c0cbcbb7ac7d245771c74cffbb7\",\"intervalSec\":60,\"immediate\":true}' | cat"
+		},
+		{
+			"label": "Run SA2 runNow",
+			"type": "shell",
+			"command": "curl -s -X POST http://127.0.0.1:8787/api/scheduler/start -H 'Content-Type: application/json' -d '{\"delegator\":\"0xde62689723de4c0cbcbb7ac7d245771c74cffbb7\",\"intervalSec\":60,\"immediate\":true,\"durationSec\":120}' | cat"
+		},
+		{
+			"label": "Watch jobs",
+			"type": "shell",
+			"command": "curl -s http://127.0.0.1:8787/api/jobs | jq '.' | sed -e 's/\\\\n/\\n/g' | cat"
+		},
+		{
+			"label": "Run immediate SA2 via /api/jobs/start",
+			"type": "shell",
+			"command": "curl -s -X POST http://127.0.0.1:8787/api/jobs/start -H 'Content-Type: application/json' -d '{\"delegatorSA\":\"0xde62689723de4c0cbcbb7ac7d245771c74cffbb7\",\"intervalSec\":60,\"immediate\":true,\"jobType\":\"dca_schedule\"}' | jq '.' | cat"
+		},
+		{
+			"label": "Poll jobs",
+			"type": "shell",
+			"command": "for i in 1 2 3 4 5; do echo \"--- $(date)\"; curl -s http://127.0.0.1:8787/api/jobs | jq -r '.jobs[] | {delegatorSA, lastRunAt, lastError, runsDone}'; sleep 2; done"
+		},
+		{
+			"label": "Preflight SA2",
+			"type": "shell",
+			"command": "curl -s http://127.0.0.1:8787/api/delegations/preflight/0xde62689723de4c0cbcbb7ac7d245771c74cffbb7 | jq '.' | sed -n '1,200p'"
+		},
+		{
+			"label": "RunNow SA2",
+			"type": "shell",
+			"command": "curl -s -X POST http://127.0.0.1:8787/api/jobs/run -H 'Content-Type: application/json' -d '{\"delegatorSA\":\"0xde62689723de4c0cbcbb7ac7d245771c74cffbb7\"}' | jq '.' | cat"
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent"
+		},
+		{
+			"label": "Manual wrap SA2 1 MON",
+			"type": "shell",
+			"command": "curl -s -X POST http://127.0.0.1:8787/api/wrap -H 'Content-Type: application/json' -d '{\"delegatorSA\":\"0xde62689723de4c0cbcbb7ac7d245771c74cffbb7\",\"amount\":\"1000000000000000000\"}' | jq '.' | cat"
+		},
+		{
+			"label": "TypeScript build (server patch)",
+			"type": "shell",
+			"command": "npm run build --silent"
+		},
+		{
+			"label": "Restart API (apply wrap fix)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent"
+		},
+		{
+			"label": "Wrap SA2 1 MON (fresh)",
+			"type": "shell",
+			"command": "curl -s -X POST http://127.0.0.1:8787/api/wrap -H 'Content-Type: application/json' -d '{\"delegatorSA\":\"0xde62689723de4c0cbcbb7ac7d245771c74cffbb7\",\"amount\":\"1000000000000000000\"}' | jq '.' | sed -n '1,200p'"
+		},
+		{
+			"label": "Restart API (wrap: no paymaster)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent"
+		},
+		{
+			"label": "Restart API (wrap pre-sim)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent"
+		},
+		{
+			"label": "Wrap SA2 1 MON (pre-sim result)",
+			"type": "shell",
+			"command": "curl -s -X POST http://127.0.0.1:8787/api/wrap -H 'Content-Type: application/json' -d '{\"delegatorSA\":\"0xde62689723de4c0cbcbb7ac7d245771c74cffbb7\",\"amount\":\"1000000000000000000\"}' | jq '.' | sed -n '1,140p'"
+		},
+		{
+			"label": "Rebuild + restart API (no DM value)",
+			"type": "shell",
+			"command": "npm run build --silent && pkill -f \"tsx src/index.ts\" || true; npm run start --silent"
+		},
+		{
+			"label": "TypeScript build (check)",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; npm run start --silent"
+		},
+		{
+			"label": "TypeScript build (check)",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Restart API",
+			"type": "shell",
+			"command": "pkill -f \"node .*dist/src/index.js\" || true && npm run start --silent"
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; pkill -f \"node .*dist/src/index.js\" || true; sleep 0.5; npm run start --silent"
+		},
+		{
+			"label": "TypeScript build",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "TypeScript build",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Restart API (hot)",
+			"type": "shell",
+			"command": "pkill -f \"tsx src/index.ts\" || true; pkill -f \"node .*dist/src/index.js\" || true; sleep 0.5; npm run start --silent"
+		},
+		{
+			"label": "TypeScript build",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		},
+		{
+			"label": "Web: Build",
+			"type": "shell",
+			"command": "cd web && npm run build --silent"
+		},
+		{
+			"label": "TypeScript build (check)",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
 		}
 	]
 }

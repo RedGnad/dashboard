@@ -2,6 +2,7 @@ import { Address, encodeFunctionData, zeroAddress, parseUnits } from 'viem';
 import { UNISWAP_V2_ROUTER02, USDC, WMON } from './constants';
 import { createExecution, ExecutionMode } from '@metamask/delegation-toolkit';
 import { DelegationManager } from '@metamask/delegation-toolkit/contracts';
+import { buildSmartSwapExecutions, logSwapRoute, type SwapRoute } from './routing/smart-router';
 
 export type DcaParams = {
   amountUSDC: bigint; // in USDC (6 decimals) smallest units
@@ -15,6 +16,11 @@ export type DcaParams = {
   path?: Address[];
   // Optional custom token to approve for spending (defaults to USDC)
   approveToken?: Address;
+  // Optional: specify tokenIn and tokenOut for exotic pairs
+  tokenIn?: Address;
+  tokenOut?: Address;
+  // Optional: force a specific router (uniswap or kuru)
+  forceRouter?: SwapRoute;
 };
 
 // Minimal ABIs
@@ -40,35 +46,49 @@ const wmonAbi = [
   ], outputs: [] },
 ];
 
-export function buildExecutions(params: DcaParams & { recipient: Address }) {
-  const { amountUSDC, unwrapToMon, recipient, amountOutMin, withdrawAmount, path, approveToken } = params;
+export async function buildExecutions(params: DcaParams & { recipient: Address }) {
+  const { 
+    amountUSDC, 
+    unwrapToMon, 
+    recipient, 
+    amountOutMin, 
+    withdrawAmount, 
+    path, 
+    approveToken,
+    tokenIn: customTokenIn,
+    tokenOut: customTokenOut,
+    forceRouter,
+  } = params;
 
   // If caller did not supply a min-out, fall back to 0 (demo only, not safe in production).
   const minOut = amountOutMin ?? 0n;
-  const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 30); // generous AA deadline
 
-  const tokenIn = approveToken || USDC
-  const swapPath: Address[] = Array.isArray(path) && path.length >= 2 ? path : [USDC, WMON]
+  // Determine tokens (default: USDC -> WMON)
+  const tokenIn = customTokenIn || approveToken || USDC;
+  const tokenOut = customTokenOut || WMON;
+  const amountIn = amountUSDC; // Reuse amountUSDC for now (can be renamed later)
 
-  const approveRouter = createExecution({
-    target: tokenIn,
-    value: 0n,
-    callData: encodeFunctionData({ abi: erc20Abi as any, functionName: 'approve', args: [UNISWAP_V2_ROUTER02, amountUSDC] }),
+  // Use smart router with Kuru fallback
+  const swapResult = await buildSmartSwapExecutions({
+    tokenIn,
+    tokenOut,
+    amountIn,
+    minAmountOut: minOut,
+    recipient,
+    forceRouter,
+    uniswapPath: path,
   });
 
-  const swap = createExecution({
-    target: UNISWAP_V2_ROUTER02,
-    value: 0n,
-    callData: encodeFunctionData({
-      abi: routerAbi as any,
-      functionName: 'swapExactTokensForTokens',
-      args: [amountUSDC, minOut, swapPath, recipient, deadline],
-    }),
-  });
+  // Log the route for debugging
+  logSwapRoute(
+    { tokenIn, tokenOut, amountIn, minAmountOut: minOut, recipient, forceRouter },
+    swapResult
+  );
 
-  const executions = [approveRouter, swap];
+  const executions = swapResult.executions;
 
-  if (unwrapToMon) {
+  // Add unwrap step if needed
+  if (unwrapToMon && tokenOut === WMON) {
     // Withdraw only an amount we are confident exists (withdrawAmount or minOut). Avoids revert on insufficient balance.
     const wad = withdrawAmount ?? minOut;
     if (wad > 0n) {
@@ -81,7 +101,7 @@ export function buildExecutions(params: DcaParams & { recipient: Address }) {
     }
   }
 
-  return { executions };
+  return { executions, router: swapResult.router };
 }
 
 export function encodeRedeemCalldata(signedDelegation: any, executions: any[]) {

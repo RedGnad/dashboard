@@ -1,11 +1,12 @@
-import { UniversalRouter, SwapEvent, PairMetrics } from "../generated";
+import { UniversalRouter, PairMetrics } from "../generated";
 
 // Key trading pairs we want to monitor for momentum/volatility
-const TRACKED_PAIRS = {
+const TRACKED_PAIRS: Record<string, { tokenA: string; tokenB: string }> = {
   "WMON_USDC": {
     tokenA: "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701", // WMON
     tokenB: "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea", // USDC
   },
+  // Add more pairs as needed (e.g., WBTC_USDC, BEAN_USDC, etc.)
 };
 
 /**
@@ -13,9 +14,14 @@ const TRACKED_PAIRS = {
  */
 function getPairKey(tokenIn: string, tokenOut: string): string | null {
   for (const [pairKey, { tokenA, tokenB }] of Object.entries(TRACKED_PAIRS)) {
+    const tokenInLower = tokenIn.toLowerCase();
+    const tokenOutLower = tokenOut.toLowerCase();
+    const tokenALower = tokenA.toLowerCase();
+    const tokenBLower = tokenB.toLowerCase();
+    
     if (
-      (tokenIn.toLowerCase() === tokenA.toLowerCase() && tokenOut.toLowerCase() === tokenB.toLowerCase()) ||
-      (tokenIn.toLowerCase() === tokenB.toLowerCase() && tokenOut.toLowerCase() === tokenA.toLowerCase())
+      (tokenInLower === tokenALower && tokenOutLower === tokenBLower) ||
+      (tokenInLower === tokenBLower && tokenOutLower === tokenALower)
     ) {
       return pairKey;
     }
@@ -31,8 +37,12 @@ function calculateVolatility(priceHistory: number[]): number {
   
   const changes = [];
   for (let i = 1; i < priceHistory.length; i++) {
-    changes.push((priceHistory[i] - priceHistory[i-1]) / priceHistory[i-1]);
+    const prevPrice = priceHistory[i-1];
+    if (prevPrice === 0) continue;
+    changes.push((priceHistory[i] - prevPrice) / prevPrice);
   }
+  
+  if (changes.length === 0) return 0;
   
   const mean = changes.reduce((sum, change) => sum + change, 0) / changes.length;
   const variance = changes.reduce((sum, change) => sum + Math.pow(change - mean, 2), 0) / changes.length;
@@ -44,27 +54,32 @@ function calculateVolatility(priceHistory: number[]): number {
  * Calculate momentum indicators for AI features
  */
 function calculateMomentum(priceHistory: number[]): { shortMomentum: number, longMomentum: number } {
-  if (priceHistory.length < 10) {
+  if (priceHistory.length < 2) {
     return { shortMomentum: 0, longMomentum: 0 };
   }
   
   const current = priceHistory[priceHistory.length - 1];
   
-  // Short-term momentum (last 5 prices vs current)
-  const shortStart = Math.max(0, priceHistory.length - 5);
-  const shortAvg = priceHistory.slice(shortStart, -1).reduce((sum, p) => sum + p, 0) / 4;
-  const shortMomentum = ((current - shortAvg) / shortAvg) * 100;
+  // Short-term momentum (last 5 prices vs current, ~15min if 1 swap/3min)
+  const shortWindow = Math.min(5, priceHistory.length - 1);
+  const shortStart = Math.max(0, priceHistory.length - shortWindow - 1);
+  const shortPrices = priceHistory.slice(shortStart, -1);
+  const shortAvg = shortPrices.reduce((sum, p) => sum + p, 0) / shortPrices.length;
+  const shortMomentum = shortAvg > 0 ? ((current - shortAvg) / shortAvg) * 100 : 0;
   
-  // Long-term momentum (last 20 prices vs current)
-  const longStart = Math.max(0, priceHistory.length - 20);
-  const longAvg = priceHistory.slice(longStart, -1).reduce((sum, p) => sum + p, 0) / Math.min(19, priceHistory.length - 1);
-  const longMomentum = ((current - longAvg) / longAvg) * 100;
+  // Long-term momentum (last 20 prices vs current, ~1h if 1 swap/3min)
+  const longWindow = Math.min(20, priceHistory.length - 1);
+  const longStart = Math.max(0, priceHistory.length - longWindow - 1);
+  const longPrices = priceHistory.slice(longStart, -1);
+  const longAvg = longPrices.reduce((sum, p) => sum + p, 0) / longPrices.length;
+  const longMomentum = longAvg > 0 ? ((current - longAvg) / longAvg) * 100 : 0;
   
   return { shortMomentum, longMomentum };
 }
 
 /**
  * Update aggregated pair metrics for AI feature calculation
+ * OPTIMIZATION: We store hourly aggregations, not individual swaps
  */
 async function updatePairMetrics(
   context: any,
@@ -74,42 +89,74 @@ async function updatePairMetrics(
   volumeOut: bigint,
   timestamp: number
 ) {
-  const hour = Math.floor(timestamp / 3600) * 3600; // Round to hour
-  const metricsId = `${pairKey}_${hour}`;
+  // Use pairKey as ID (one record per pair, continuously updated)
+  const metricsId = pairKey;
 
   let metrics = await context.PairMetrics.get(metricsId);
   
   if (!metrics) {
+    // Initialize new pair metrics
     metrics = {
       id: metricsId,
       pairKey,
-      hour,
-      swapCount: 0,
-      totalVolumeIn: BigInt(0),
-      totalVolumeOut: BigInt(0),
-      highPrice: currentPrice,
-      lowPrice: currentPrice,
-      openPrice: currentPrice,
-      closePrice: currentPrice,
-      lastUpdate: timestamp,
+      currentPrice,
+      previousPrice: currentPrice,
+      priceChange24h: 0,
+      volatility24h: 0,
+      volume24h: 0n,
+      swapCount24h: 0,
+      lastUpdateTime: timestamp,
+      priceHistory: [currentPrice],
+      momentumShort: 0,
+      momentumLong: 0,
     };
+  } else {
+    // Update existing metrics
+    const prevPrice = Number(metrics.currentPrice);
+    
+    // Update price history (keep last 100 prices for calculations)
+    let priceHistory = [...metrics.priceHistory, currentPrice];
+    if (priceHistory.length > 100) {
+      priceHistory = priceHistory.slice(-100); // Keep only last 100
+    }
+    
+    // Calculate 24h metrics (simplified - in production use proper time windows)
+    const timeSinceLastUpdate = timestamp - Number(metrics.lastUpdateTime);
+    const is24hWindow = timeSinceLastUpdate < 86400; // 24 hours
+    
+    metrics.previousPrice = prevPrice;
+    metrics.currentPrice = currentPrice;
+    metrics.priceChange24h = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0;
+    
+    // Reset 24h counters if outside window
+    if (is24hWindow) {
+      metrics.volume24h = BigInt(metrics.volume24h) + volumeIn;
+      metrics.swapCount24h = Number(metrics.swapCount24h) + 1;
+    } else {
+      metrics.volume24h = volumeIn;
+      metrics.swapCount24h = 1;
+    }
+    
+    // Calculate volatility and momentum
+    metrics.volatility24h = calculateVolatility(priceHistory);
+    const momentum = calculateMomentum(priceHistory);
+    metrics.momentumShort = momentum.shortMomentum;
+    metrics.momentumLong = momentum.longMomentum;
+    
+    metrics.priceHistory = priceHistory;
+    metrics.lastUpdateTime = timestamp;
   }
 
-  // Update metrics
-  metrics.swapCount += 1;
-  metrics.totalVolumeIn += volumeIn;
-  metrics.totalVolumeOut += volumeOut;
-  metrics.highPrice = Math.max(metrics.highPrice, currentPrice);
-  metrics.lowPrice = Math.min(metrics.lowPrice, currentPrice);
-  metrics.closePrice = currentPrice;
-  metrics.lastUpdate = timestamp;
-
+  // Store aggregated metrics (NO await needed - in-memory storage per Envio docs)
   context.PairMetrics.set(metrics);
 }
 
 /**
- * Universal Router swap handler
+ * Universal Router swap handler - AGGREGATION ONLY
  * Tracks swaps for calculating price movement, momentum, and volatility metrics
+ * 
+ * OPTIMIZATION: We do NOT store individual SwapEvent entities to prevent disk saturation.
+ * Only aggregated PairMetrics are stored (sustainable for millions of swaps).
  */
 UniversalRouter.SwapExecuted.handler(
   async ({ event, context }) => {
@@ -121,31 +168,17 @@ UniversalRouter.SwapExecuted.handler(
       return; // Skip if not a tracked pair
     }
 
-    const swapId = `${event.chainId}_${event.block.number}_${event.logIndex}`;
-    
     // Calculate price (simple ratio)
     const price = Number(amountOut) / Number(amountIn);
     
-    // Store swap event
-    context.SwapEvent.set({
-      id: swapId,
-      pairKey,
-      tokenIn,
-      tokenOut,
-      amountIn,
-      amountOut,
-      price,
-      recipient,
-      blockNumber: event.block.number,
-      blockTimestamp: event.block.timestamp,
-      transactionHash: event.transaction.hash,
-      logIndex: event.logIndex,
-    });
+    // OPTIMIZATION: Skip individual swap storage (would cause disk explosion)
+    // Only update aggregated metrics below
 
     // Update pair metrics for AI features
     await updatePairMetrics(context, pairKey, price, amountIn, amountOut, event.block.timestamp);
 
-    context.log.info(`Swap processed for AI metrics`, {
+    // Log for monitoring (optional, can be disabled in production)
+    context.log.debug(`Swap aggregated for AI metrics`, {
       pair: pairKey,
       price: price.toFixed(6),
       volume: amountIn.toString(),

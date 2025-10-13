@@ -1,0 +1,156 @@
+[
+  {
+    "ts": 1760309904520,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_wmon_to_target",
+    "strategy": "dca-basic",
+    "ai": {}
+  },
+  {
+    "ts": 1760309957938,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_wmon_to_target",
+    "strategy": "dca-basic",
+    "ai": {}
+  },
+  {
+    "ts": 1760310017886,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_wmon_to_target",
+    "strategy": "dca-basic",
+    "ai": {}
+  },
+  {
+    "ts": 1760310077913,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_wmon_to_target",
+    "strategy": "dca-basic",
+    "ai": {}
+  },
+  {
+    "ts": 1760310137927,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_wmon_to_target",
+    "strategy": "dca-basic",
+    "ai": {}
+  },
+  {
+    "ts": 1760310197863,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_wmon_to_target",
+    "strategy": "dca-basic",
+    "ai": {}
+  },
+  {
+    "ts": 1760310257934,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_wmon_to_target",
+    "strategy": "dca-basic",
+    "ai": {}
+  },
+  {
+    "ts": 1760310318041,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_wmon_to_target",
+    "strategy": "dca-basic",
+    "ai": {}
+  },
+  {
+    "ts": 1760310377922,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_wmon_to_target",
+    "strategy": "dca-basic",
+    "ai": {}
+  },
+  {
+    "ts": 1760310438144,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_wmon_to_target",
+    "strategy": "dca-basic",
+    "ai": {}
+  },
+  {
+    "ts": 1760368563426,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_to_target",
+    "strategy": "dca-basic"
+  },
+  {
+    "ts": 1760368683364,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_to_target",
+    "strategy": "dca-basic"
+  },
+  {
+    "ts": 1760368803373,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_to_target",
+    "strategy": "dca-basic"
+  },
+  {
+    "ts": 1760368863358,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_to_target",
+    "strategy": "dca-basic"
+  },
+  {
+    "ts": 1760368923391,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_to_target",
+    "strategy": "dca-basic"
+  },
+  {
+    "ts": 1760369043374,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_to_target",
+    "strategy": "dca-basic"
+  },
+  {
+    "ts": 1760369103374,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_to_target",
+    "strategy": "dca-basic"
+  },
+  {
+    "ts": 1760369163402,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "skipped": true,
+    "skipReason": "no_route_to_target",
+    "strategy": "dca-basic"
+  }
+]

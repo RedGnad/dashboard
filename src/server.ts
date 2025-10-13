@@ -29,7 +29,7 @@ import { loadRegistry, computeDailyForAllRPC, type DailyProtocolMetrics } from '
 import { fetchDailyMetricsEnvio, listEnvioProtocolIds } from './metrics/envioAdapter'
 import { computeCoreFeatures, computeCoreFeaturesAsync, computeSyntheticPrice } from './features'
 import { startUserOpResolver } from './userop-resolver'
-import { Address, encodeFunctionData as viemEncodeFunctionData } from 'viem'
+import { Address, encodeFunctionData as viemEncodeFunctionData, keccak256 } from 'viem'
 import { readRunHistory, summarizeRunHistory } from './utils/history'
 import { loadGuardrails, getGuardrailsConfigHash } from './guardrails'
 import { listAdapters, getAdapter } from './source-adapter'
@@ -3618,7 +3618,7 @@ app.post('/api/unwrap', async (req, res) => {
       client: asToolkitClient(),
       implementation: Implementation.Hybrid,
       deployParams: [eoa.address, [], [], []],
-      deploySalt: '0x',
+      deploySalt: (keccak256(`0x${(delegatorSA as string).slice(2).padStart(64,'0')}`) as `0x${string}`),
       signer: { account: eoa },
       ...(env ? { environment: env } : {}),
     })
@@ -3827,7 +3827,7 @@ app.post('/api/flush', async (req, res) => {
       client: asToolkitClient(),
       implementation: Implementation.Hybrid,
       deployParams: [eoa.address, [], [], []],
-      deploySalt: '0x',
+      deploySalt: (keccak256(`0x${(delegatorSA as string).slice(2).padStart(64,'0')}`) as `0x${string}`),
       signer: { account: eoa },
       ...(env ? { environment: env } : {}),
     })
@@ -4037,7 +4037,7 @@ app.post('/api/wrap', async (req, res) => {
       client: asToolkitClient(),
       implementation: Implementation.Hybrid,
       deployParams: [eoa.address, [], [], []],
-      deploySalt: '0x',
+      deploySalt: (keccak256(`0x${(delegatorSA as string).slice(2).padStart(64,'0')}`) as `0x${string}`),
       signer: { account: eoa },
       ...(env ? { environment: env } : {}),
     })

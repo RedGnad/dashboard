@@ -83,6 +83,19 @@ contracts:
             - hash
             - from
             - value  # Include native value for MON/WMON correlation
+  # Kuru Orderbook for CLOB trading metrics
+  - name: KuruOrderbook
+    abi_file_path: abis/kuru-orderbook.json
+    handler: src/EventHandlers_Kuru.ts
+    events:
+      - event: Trade
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - status
 networks:
 - id: 10143
   start_block: 0
@@ -97,15 +110,24 @@ networks:
     - name: Curvance
       address:
         - 0x8462c247356d7deB7e26160dbFab16B351Eef242
-    # ERC20 wildcard - no address needed, will track ALL ERC20 transfers
+    # ERC20 explicit addresses (ALL tracked tokens - aggregation only, no individual transfers stored)
     - name: ERC20
-      # Explicit token contract addresses (disable wildcard to reduce volume)
       address:
-        - 0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701  # WMON
-        - 0xf817257fed379853cDe0fa4F97AB987181B1E5Ea  # USDC
+        - 0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701  # WMON (wrapped native)
+        - 0xf817257fed379853cDe0fa4F97AB987181B1E5Ea  # USDC (stablecoin)
+        - 0x268e4e24e0051ec27b3d27a95977e71ce6875a05  # BEAN
+        - 0xe0590015a873bf326bd645c3e1266d4db41c4e6b  # CHOG
+        - 0x0f0bdebf0f83cd1ee3974779bcb7315f9808c714  # DAK
+        - 0xfe140e1dCe99Be9F4F15d657CD9b7BF622270C50  # YAKI
+        - 0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d  # WBTC
+        - 0x0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8  # DAKIMAKURA
     # Universal Router contract for swap tracking
     - name: UniversalRouter
       address:
         - 0x3ae6d8a282d67893e17aa70ebffb33ee5aa65893
+    # Kuru Orderbook (CLOB) - MON/USDC pair
+    - name: KuruOrderbook
+      address:
+        - 0xD3AF145f1Aa1A471b5f0F62c52Cf8fcdc9AB55D3  # MON/USDC orderbook
 unordered_multichain_mode: true
 preload_handlers: true

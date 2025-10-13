@@ -305,7 +305,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
   // Prefer executions passed from the frontend (to match exactExecutionBatch caveat); otherwise build locally.
   const wantUnwrapThisRun = unwrapToMon && (unwrapEvery > 1 ? ((runCounter + 1) % unwrapEvery === 0) : true)
   const usedFrontendExecutions = (Array.isArray(json.job?.executions) && json.job.executions.length > 0)
-  let executions = (usedFrontendExecutions && !executingSell)
+  let executions: { target: Address; value: bigint; callData: `0x${string}` }[] = (usedFrontendExecutions && !executingSell)
     ? (json.job.executions as any[]).map((e) => ({
         target: e.target as Address,
         value: typeof e.value === 'string' ? BigInt(e.value) : BigInt(e.value ?? 0),
@@ -434,7 +434,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
             execs.push({ target: UNISWAP_V2_ROUTER02 as Address, value: 0n, callData: swapData })
             return execs
           } else {
-            return buildExecutions({
+            const result = await buildExecutions({
               amountUSDC,
               slippageBps,
               unwrapToMon: doUnwrap,
@@ -443,7 +443,8 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
               withdrawAmount: doUnwrap ? minOut : undefined,
               path: pathAddrs,
               approveToken: USDC as Address,
-            }).executions
+            });
+            return result.executions;
           }
         }
         // SELL path (MON -> WMON -> USDC). We'll wrap all native MON (if any) into WMON and then swap total WMON to USDC.
@@ -599,7 +600,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       if (violations.length > 0) {
         console.warn('[runner] frontend executions rejected due to whitelist violations', violations)
         try { appendRunEvent({ ts: Date.now(), delegator: delegatorSA, amountInUSDC: amountUSDC.toString(), skipped: true, skipReason: 'whitelist_violation', strategy: 'dca-basic' }) } catch {}
-        return '0x' as any
+        return [] // Return empty array instead of string
       }
     } catch (e) {
       console.warn('[runner] whitelist validation failed (soft pass)', e)

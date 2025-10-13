@@ -1,0 +1,49 @@
+{
+  "delegatorSA": "0x022b39bc36eacf22360f61247487e956812afe5e",
+  "signedDelegation": {
+    "delegation": {
+      "delegate": "0x0000000000000000000000000000000000000a11",
+      "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+      "authority": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "caveats": [
+        {
+          "enforcer": "0x7F20f61b1f09b08D970938F6fa563634d65c4EeB",
+          "terms": "0xf817257fed379853cDe0fa4F97AB987181B1E5Eafb8e1c3b833f9e67a71c859a132cf783b645e436760AfE86e5de5fa0Ee542fc7B7B713e1c542570134c767db7846f03a292D2999f7e8Eb6fD035f7d0",
+          "args": "0x"
+        },
+        {
+          "enforcer": "0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5",
+          "terms": "0x095ea7b338ed17392e1a7d4dd0e30db0d505accf23b872dda9059cbbe3ee160e",
+          "args": "0x"
+        }
+      ],
+      "salt": "0x",
+      "signature": "0x"
+    },
+    "signature": "0x898c4366fb0cd71cc6028e3e43f7d694f8ea549b9f7856b6c2da41d4af32e60e077beecd70cfb413f0e0fbae0a3ee1f482adc14c1ee3880c312c4f2ad10cddbb1b"
+  },
+  "job": {
+    "createdAtMs": 1759764416747,
+    "unwrapEvery": 1,
+    "slippageBps": 100,
+    "intervalSec": 60,
+    "durationSec": 86400,
+    "unwrapToMon": false,
+    "usePaymaster": false,
+    "ownerEOA": "0x34c767db7846f03a292D2999f7e8Eb6fD035f7d0",
+    "permit": null,
+    "auth3009": null,
+    "dailyTopupUSDC": 1,
+    "sizePct": 0.01,
+    "minUSDC": 0,
+    "maxUSDC": 10,
+    "dynamicByAI": true,
+    "respectAiAction": true,
+    "inferenceProvider": "openai",
+    "allowSellExecution": true,
+    "targetSymbol": "CHOG",
+    "source": "USDC",
+    "amountMON": 1,
+    "amountUSDC": 1
+  }
+}

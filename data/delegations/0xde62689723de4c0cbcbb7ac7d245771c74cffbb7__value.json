@@ -1,0 +1,36 @@
+{
+  "delegatorSA": "0xde62689723de4c0cbcbb7ac7d245771c74cffbb7",
+  "signedDelegation": {
+    "delegation": {
+      "delegate": "0x02bBCf5C6A0D3cEEbd99FAb5540164352541b0b2",
+      "delegator": "0xDE62689723dE4c0CBcbB7AC7D245771c74CfFBB7",
+      "authority": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "caveats": [
+        {
+          "enforcer": "0x99F2e9bF15ce5eC84685604836F71aB835DBBdED",
+          "terms": "0x",
+          "args": "0x"
+        },
+        {
+          "enforcer": "0xF71af580b9c3078fbc2BBF16FbB8EEd82b330320",
+          "terms": "0x000000000000000000000000000000000000000000084595161401484a000000",
+          "args": "0x"
+        }
+      ],
+      "salt": "0x",
+      "signature": "0x"
+    },
+    "signature": "0xe08c5754159416947fcb937f293131109e0739c12494800188d4802c043f3c1a3eb92eb7766d39efb90f3e341a01a34cf6485bfc3853ab0fbc6e19e22cbbaaf91b"
+  },
+  "hashes": {
+    "caveatsHash": "0x33e4fbf6bccf333bc3bf4ed123710158e9889e056c040574712f13afbf639fd8",
+    "structHash": "0x1044878ea82341611c312d45fa0e2ca543c6bd3168a10c638466148b99a918e2",
+    "domainSeparator": "0x78c4b063d3a352e54b5152db0adc506282501e78a78a67dbb5ae586d31ec2568",
+    "digest": "0x36d18d5b3cf92a207e5443128f0f60dca0a700c2a6d0a116554804296987798f"
+  },
+  "warnings": [
+    "ZERO_SALT",
+    "SIGNER_MISMATCH"
+  ],
+  "signatureModel": "UNKNOWN"
+}

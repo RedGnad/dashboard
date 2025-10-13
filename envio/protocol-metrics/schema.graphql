@@ -47,30 +47,7 @@ type ProtocolState {
   txCumulative: BigInt!
 }
 
-# Per-tx fee dedup record to avoid double counting when multiple events occur in one tx
-type FeeDedup {
-  id: ID!
-  protocolId: String!
-  txHash: String!
-  processedAt: BigInt!
-}
-
-# NEW: ERC20 Transfer tracking for AI features
-type TokenTransfer {
-  id: ID!
-  tokenAddress: String! @index
-  from: String! @index
-  to: String! @index
-  value: BigInt!
-  blockNumber: Int! @index
-  blockTimestamp: Int! @index
-  transactionHash: String! @index
-  logIndex: Int!
-  gasUsed: BigInt!
-  gasPrice: BigInt!
-}
-
-# NEW: Token metrics for AI momentum/volatility calculation
+# NEW: Token metrics for AI momentum/volatility calculation (AGGREGATION ONLY)
 type TokenMetrics {
   id: ID!
   tokenAddress: String! @index
@@ -84,23 +61,7 @@ type TokenMetrics {
   momentumScore: Float!
 }
 
-# NEW: Swap events for price/volume tracking
-type SwapEvent {
-  id: ID!
-  pairKey: String! @index
-  tokenIn: String! @index
-  tokenOut: String! @index
-  amountIn: BigInt!
-  amountOut: BigInt!
-  price: Float!
-  recipient: String! @index
-  blockNumber: Int! @index
-  blockTimestamp: Int! @index
-  transactionHash: String! @index
-  logIndex: Int!
-}
-
-# NEW: Trading pair metrics for AI features
+# NEW: Trading pair metrics for AI features (AGGREGATION ONLY)
 type PairMetrics {
   id: ID!
   pairKey: String! @index
@@ -115,11 +76,3 @@ type PairMetrics {
   momentumShort: Float! # 15min momentum for AI
   momentumLong: Float!  # 1h momentum for AI
 }
-type DailyTxFeeCounted {
-  id: ID!
-  protocolId: String!
-  dateISO: String!
-  txHash: String!
-  feeWei: BigInt!
-}
-

@@ -19,9 +19,10 @@ export const monadTestnet = defineChain({
 export const publicClient = createPublicClient({
   chain: monadTestnet,
   transport: http(process.env.RPC_URL ?? 'https://testnet-rpc.monad.xyz', {
-    // Gentle retry policy for bursty 429s
-    retryCount: Math.max(2, Number(process.env.RPC_RETRY_COUNT || 3)),
-    retryDelay: Number(process.env.RPC_RETRY_DELAY_MS || 250),
+    // Gentle retry policy for bursty 429s - increased delays for rate limits
+    retryCount: Math.max(3, Number(process.env.RPC_RETRY_COUNT || 5)),
+    retryDelay: Number(process.env.RPC_RETRY_DELAY_MS || 500),
+    timeout: 30000, // 30s timeout
     // Optionally send extra headers to avoid some gateways classifying as bots
     // fetchOptions: { headers: { 'User-Agent': 'dca-autonomous-wallet/0.1' } },
   }),

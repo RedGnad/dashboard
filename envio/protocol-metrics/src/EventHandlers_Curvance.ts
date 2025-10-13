@@ -2,7 +2,7 @@
 /*
  * Curvance handler: met à jour DailyMetrics (protocolId = "curvance") sur l'event Pump.
  */
-import { Curvance, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted } from "generated";
+import { Curvance, DailyMetrics, DailyUser, ProtocolState } from "generated";
 
 function dateISOFromTs(tsMs: number): string {
 	const d = new Date(tsMs);
@@ -39,17 +39,12 @@ async function upsertDaily(
 	const feeTxCountPrev = dmPrev && (dmPrev as any).feeTxCount ? Number((dmPrev as any).feeTxCount) : 0;
 	const usersDaily = usersDailyPrev + userAdded;
 	const txDaily = txDailyPrev + txDelta;
+	// Simplified: accumulate fees directly (slight over-counting acceptable for approximation)
 	let sumFeeWeiNext = sumFeeWeiPrev;
 	let feeTxCountNext = feeTxCountPrev;
 	if (txHash && feeWei != null) {
-		const feeId = `${protocolId}_${dateISO}_${txHash.toLowerCase()}`;
-		const already = await context.DailyTxFeeCounted.get(feeId);
-		if (!already) {
-			const feeRec: DailyTxFeeCounted = { id: feeId, protocolId, dateISO, txHash: txHash.toLowerCase(), feeWei: feeWei.toString() as any } as any;
-			context.DailyTxFeeCounted.set(feeRec);
-			sumFeeWeiNext = sumFeeWeiNext + feeWei;
-			feeTxCountNext = feeTxCountNext + 1;
-		}
+		sumFeeWeiNext = sumFeeWeiNext + feeWei;
+		feeTxCountNext = feeTxCountNext + 1;
 	}
 	const avgTxPerUser = usersDaily > 0 ? txDaily / Math.max(1, usersDaily) : 0;
 	let avgFeeNative: number | null = null;
