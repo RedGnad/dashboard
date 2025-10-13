@@ -4159,8 +4159,8 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
       }
     }
     
-    // Add unwrap WMON -> MON at the end
-    // Get current WMON balance and unwrap it (will include existing + swapped WMON)
+    // Add unwrap WMON -> MON at the end ONLY if current WMON balance > 0
+    // This way user can call button multiple times: once to swap, once to unwrap
     try {
       const wmonBalance = await publicClient.readContract({
         address: WMON as Address,
@@ -4169,23 +4169,13 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
         args: [delegatorSA as Address]
       }) as bigint
       
-      // Always add unwrap even if current balance is 0, because swaps will add WMON
-      // We'll unwrap a reasonable amount (e.g., 1000 WMON = 1000e18)
-      // Or better: always add the unwrap step and let it execute with whatever WMON is available
-      // Actually, we need to calculate expected WMON from swaps, or do a second transaction
-      // Simplest: always unwrap current balance + add a second call later
-      // For now: add unwrap of current balance, user can call again after swaps settle
-      if (wmonBalance > 0n || executions.length > 0) {
-        // If we have swaps, unwrap a large amount (100 WMON). If not, unwrap existing balance
-        const amountToUnwrap = executions.length > 0 ? (wmonBalance + parseUnits('100', 18)) : wmonBalance
-        if (amountToUnwrap > 0n) {
-          const withdrawData = viemEncodeFunctionData({
-            abi: [{ type: 'function', name: 'withdraw', inputs: [{ name: 'wad', type: 'uint256' }] }],
-            functionName: 'withdraw',
-            args: [amountToUnwrap]
-          })
-          executions.push({ target: WMON as Address, value: 0n, callData: withdrawData })
-        }
+      if (wmonBalance > 0n) {
+        const withdrawData = viemEncodeFunctionData({
+          abi: [{ type: 'function', name: 'withdraw', inputs: [{ name: 'wad', type: 'uint256' }] }],
+          functionName: 'withdraw',
+          args: [wmonBalance]
+        })
+        executions.push({ target: WMON as Address, value: 0n, callData: withdrawData })
       }
     } catch (e) {
       console.log('[convert-all] Skip unwrap:', e)
@@ -4230,7 +4220,75 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
       maxPriorityFeePerGas,
     })
     
-    return res.json({ ok: true, userOperationHash: uoHash, conversions: executions.length / 2 })
+    // If we had swaps, wait for confirmation then send a second userOp to unwrap WMON
+    let unwrapHash: string | null = null
+    const hasSwaps = executions.some(e => e.target.toLowerCase() === UNISWAP_V2_ROUTER02.toLowerCase())
+    if (hasSwaps) {
+      try {
+        console.log('[convert-all] Waiting for swap userOp confirmation...')
+        // Wait for userOp to be included (poll receipt)
+        let attempts = 0
+        while (attempts < 30) {
+          try {
+            const receipt = await bundlerClient.getUserOperationReceipt({ hash: uoHash as `0x${string}` })
+            if (receipt) break
+          } catch {}
+          await new Promise(r => setTimeout(r, 2000))
+          attempts++
+        }
+        
+        console.log('[convert-all] Swaps confirmed, checking WMON balance...')
+        await new Promise(r => setTimeout(r, 3000)) // Extra delay for state sync
+        
+        // Read new WMON balance
+        const wmonBalanceAfterSwap = await publicClient.readContract({
+          address: WMON as Address,
+          abi: [{ type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }], stateMutability: 'view' }],
+          functionName: 'balanceOf',
+          args: [delegatorSA as Address]
+        }) as bigint
+        
+        if (wmonBalanceAfterSwap > 0n) {
+          console.log(`[convert-all] Unwrapping ${wmonBalanceAfterSwap.toString()} WMON...`)
+          // Build unwrap execution
+          const unwrapExec = [{
+            target: WMON as Address,
+            value: 0n,
+            callData: viemEncodeFunctionData({
+              abi: [{ type: 'function', name: 'withdraw', inputs: [{ name: 'wad', type: 'uint256' }] }],
+              functionName: 'withdraw',
+              args: [wmonBalanceAfterSwap]
+            })
+          }]
+          
+          const unwrapExecGroups = unwrapExec.map(e => [e])
+          const { calldatas: unwrapCalldatas, modes: unwrapModes } = encodeExecutionCalldatasWithModes(unwrapExecGroups)
+          const unwrapPermissionContexts = unwrapExecGroups.map(() => ctx)
+          const unwrapData = viemEncodeFunctionData({ 
+            abi: DM_REDEEM_ABI as any, 
+            functionName: 'redeemDelegations', 
+            args: [unwrapPermissionContexts as any, unwrapModes as any, unwrapCalldatas as any] 
+          }) as `0x${string}`
+          
+          unwrapHash = await sendUserOpWithOptionalPaymaster({
+            account: sa,
+            calls: [{ to: env.DelegationManager as Address, data: unwrapData }],
+            maxFeePerGas,
+            maxPriorityFeePerGas,
+          })
+          console.log('[convert-all] Unwrap userOp sent:', unwrapHash)
+        }
+      } catch (e) {
+        console.error('[convert-all] Auto-unwrap failed:', e)
+      }
+    }
+    
+    return res.json({ 
+      ok: true, 
+      userOperationHash: uoHash, 
+      unwrapUserOperationHash: unwrapHash,
+      conversions: executions.length / 2 
+    })
   } catch (e: any) {
     console.error('[convert-all-to-mon] Error:', e)
     return res.status(500).json({ ok: false, error: e?.message || 'conversion failed' })
