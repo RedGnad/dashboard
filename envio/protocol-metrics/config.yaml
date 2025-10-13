@@ -1,0 +1,111 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: protocol-metrics
+contracts:
+  - name: StakeManager
+    abi_file_path: abis/0x2c9c959516e9aaedb2c748224a41249202ca8be7.abi.json
+    handler: src/EventHandlers.ts
+    events:
+      - event: Initialized
+      - event: Deposit
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+      - event: Withdraw
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+  - name: AmbientCore
+    abi_file_path: abis/ambient-core.json
+    handler: src/EventHandlers_Ambient.ts
+    events:
+      - event: CrocSwap
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+      - event: CrocMicroSwap
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+  - name: Curvance
+    abi_file_path: abis/curvance.json
+    handler: src/EventHandlers_Curvance.ts
+    events:
+      - event: Pump
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+  # Wildcard indexing for all ERC20 transfers (for momentum/volatility calculation)
+  - name: ERC20
+    handler: src/EventHandlers_ERC20.ts
+    events:
+      - event: Transfer(address indexed from, address indexed to, uint256 value)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - to
+            - value  # Include transaction value for native MON tracking
+            - gasUsed
+            - effectiveGasPrice
+  # Universal Router swaps for DEX metrics
+  - name: UniversalRouter
+    abi_file_path: abis/universal-router.json
+    handler: src/EventHandlers_Swaps.ts
+    events:
+      - event: SwapExecuted(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut, address indexed recipient)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - value  # Include native value for MON/WMON correlation
+networks:
+- id: 10143
+  start_block: 0
+  rpc: https://testnet-rpc.monad.xyz
+  contracts:
+    - name: StakeManager
+      address:
+        - 0x2c9C959516e9AAEdB2C748224a41249202ca8BE7
+    - name: AmbientCore
+      address:
+        - 0x88B96aF200c8a9c35442C8AC6cd3D22695AaE4F0
+    - name: Curvance
+      address:
+        - 0x8462c247356d7deB7e26160dbFab16B351Eef242
+    # ERC20 wildcard - no address needed, will track ALL ERC20 transfers
+    - name: ERC20
+      # Explicit token contract addresses (disable wildcard to reduce volume)
+      address:
+        - 0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701  # WMON
+        - 0xf817257fed379853cDe0fa4F97AB987181B1E5Ea  # USDC
+    # Universal Router contract for swap tracking
+    - name: UniversalRouter
+      address:
+        - 0x3ae6d8a282d67893e17aa70ebffb33ee5aa65893
+unordered_multichain_mode: true
+preload_handlers: true

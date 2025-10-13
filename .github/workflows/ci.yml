@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ smart-account-15, master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm install
+      - name: TypeScript build
+        run: npm run build --if-present
+      - name: Start API (background)
+        run: |
+          nohup npm run start > server-ci.log 2>&1 &
+          echo $! > server.pid
+          # wait a bit for server to boot
+          sleep 4
+      - name: Verify all (hard replay+determinism)
+        env:
+          VERIFY_ALL_HARD_REPLAY: '1'
+          VERIFY_ALL_HARD_DETERMINISM: '1'
+          AUDIT_VERIFY_ON_APPEND: '1'
+          AUDIT_REFUSE_STALE: '1'
+        run: |
+          npm run verify:all
+      - name: Determinism unit tests
+        run: npm test -- --run
+      - name: Upload logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: |
+            server-ci.log
+            data/delegations/audit.log
+            finalRollingHash.json
+            server.pid
