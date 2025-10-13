@@ -11,8 +11,19 @@ import { request, gql } from 'graphql-request';
 const MONAD_TOKENS = {
   USDC: '0xf817257fed379853cde0fa4f97ab987181b1e5ea',
   WMON: '0x760afe86e5de5fa0ee542fc7b7b713e1c5425701',
+  CHOG: '0xe0590015a873bf326bd645c3e1266d4db41c4e6b',
+  YAKI: '0xfe140e1dce99be9f4f15d657cd9b7bf622270c50',
+  DAK: '0x0f0bdebf0f83cd1ee3974779bcb7315f9808c714',
+  BEAN: '0x268e4e24e0051ec27b3d27a95977e71ce6875a05',
+  WBTC: '0xcf5a6076cfa32686c0df13abada2b40dec133f1d',
+  DAKIMAKURA: '0x0569049e527bb151605eec7bf48cfd55bd2bf4c8',
   NATIVE_MON: '0x0000000000000000000000000000000000000000', // Native MON uses zero address
 };
+
+// List of all tracked token symbols for AI queries
+const TRACKED_TOKEN_SYMBOLS = [
+  'USDC', 'WMON', 'CHOG', 'YAKI', 'DAK', 'BEAN', 'WBTC', 'DAKIMAKURA'
+];
 
 // For MON/WMON aggregation we track both WMON ERC20 and native MON transfers
 const MON_ADDRESSES = [
@@ -63,17 +74,26 @@ class EnvioDataAdapter {
   }
 
   /**
-   * Get token metrics for USDC/WMON for AI features
+   * Get metrics for a single token (for per-token AI decisions)
    */
-  async getTokenMetrics(): Promise<TokenMetrics[]> {
-    const cacheKey = 'token_metrics';
+  async getTokenMetric(tokenSymbol: string): Promise<TokenMetrics | null> {
+    const metrics = await this.getTokenMetrics([tokenSymbol]);
+    return metrics.length > 0 ? metrics[0] : null;
+  }
+
+  /**
+   * Get token metrics for ALL tracked tokens for AI features
+   */
+  async getTokenMetrics(tokenSymbols?: string[]): Promise<TokenMetrics[]> {
+    const symbols = tokenSymbols || TRACKED_TOKEN_SYMBOLS;
+    const cacheKey = `token_metrics_${symbols.join('_')}`;
     
     if (this.shouldRefresh(cacheKey)) {
       const query = gql`
-        query GetTokenMetrics {
+        query GetTokenMetrics($symbols: [String!]!) {
           tokenMetrics(
             where: { 
-              tokenSymbol_in: ["USDC", "WMON"] 
+              tokenSymbol_in: $symbols
             }
             orderBy: lastTransferTime
             orderDirection: desc
@@ -93,7 +113,7 @@ class EnvioDataAdapter {
       `;
 
       try {
-        const data = await request(this.config.endpoint, query) as { tokenMetrics: TokenMetrics[] };
+        const data = await request(this.config.endpoint, query, { symbols }) as { tokenMetrics: TokenMetrics[] };
         this.cache.set(cacheKey, data.tokenMetrics);
         this.lastFetch = Date.now();
         
@@ -154,18 +174,25 @@ class EnvioDataAdapter {
 
   /**
    * Get recent token transfers for volume analysis
+   * Now supports querying specific tokens or all tracked tokens
    */
-  async getRecentTransfers(tokenSymbol: string, hours: number = 1): Promise<any[]> {
+  async getRecentTransfers(tokenSymbol?: string, hours: number = 1): Promise<any[]> {
     const timestampThreshold = Math.floor(Date.now() / 1000) - (hours * 3600);
     
+    const whereClause = tokenSymbol 
+      ? `blockTimestamp: {_gte: $timestampThreshold}, tokenSymbol: {_eq: $tokenSymbol}`
+      : `blockTimestamp: {_gte: $timestampThreshold}`;
+    
     const query = gql`
-      query GetRecentTransfers($timestampThreshold: Int!) {
-        TokenTransfer(
+      query GetRecentTransfers($timestampThreshold: Int!${tokenSymbol ? ', $tokenSymbol: String!' : ''}) {
+        tokenTransfers(
           where: { 
-            blockTimestamp: {_gte: $timestampThreshold}
+            blockTimestamp_gte: $timestampThreshold
+            ${tokenSymbol ? 'tokenSymbol: $tokenSymbol' : ''}
           }
-          order_by: {blockTimestamp: desc}
-          limit: 100
+          orderBy: blockTimestamp
+          orderDirection: desc
+          first: 100
         ) {
           id
           tokenAddress
@@ -180,8 +207,11 @@ class EnvioDataAdapter {
     `;
 
     try {
-      const data = await request(this.config.endpoint, query, { timestampThreshold }) as { TokenTransfer: any[] };
-      return data.TokenTransfer;
+      const variables: any = { timestampThreshold };
+      if (tokenSymbol) variables.tokenSymbol = tokenSymbol;
+      
+      const data = await request(this.config.endpoint, query, variables) as { tokenTransfers: any[] };
+      return data.tokenTransfers || [];
     } catch (error) {
       console.error('[Envio] Failed to fetch recent transfers:', error);
       return [];
@@ -314,23 +344,28 @@ class EnvioDataAdapter {
 
   /**
    * Detect whale activity from large transfers
+   * Uses isWhaleMovement flag from Envio indexer
    */
   private detectWhaleActivity(transfers: any[]) {
-    // Define whale threshold (10,000 MON = 10000e18 wei)
-    const whaleThreshold = BigInt('10000000000000000000000');
-    
-    const whaleTransfers = transfers.filter(t => 
-      BigInt(t.value) >= whaleThreshold
-    );
+    // Count transfers marked as whale movements by indexer
+    const whaleTransfers = transfers.filter(t => t.isWhaleMovement === true);
     
     const totalVolume = transfers.reduce((sum, t) => sum + Number(t.value), 0);
     const whaleVolume = whaleTransfers.reduce((sum, t) => sum + Number(t.value), 0);
     const whalePercentage = totalVolume > 0 ? (whaleVolume / totalVolume) * 100 : 0;
     
+    // Also count DEX swaps for market activity
+    const dexSwaps = transfers.filter(t => t.isDexSwap === true);
+    
     return {
       count: whaleTransfers.length,
       score: Math.min(100, whalePercentage),
-      threshold: Number(whaleThreshold)
+      dexActivity: dexSwaps.length,
+      details: {
+        whaleTransfers: whaleTransfers.length,
+        totalTransfers: transfers.length,
+        whaleVolumePercent: whalePercentage.toFixed(2)
+      }
     };
   }
 

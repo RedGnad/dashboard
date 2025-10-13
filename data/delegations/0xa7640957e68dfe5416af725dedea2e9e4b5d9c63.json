@@ -35,7 +35,7 @@
     "auth3009": null,
     "dailyTopupUSDC": 1,
     "allowSellExecution": true,
-    "targetSymbol": "WMON",
+    "targetSymbol": "BEAN",
     "source": "MON",
     "amountMON": 1
   }

@@ -3996,20 +3996,7 @@ app.post('/api/topup', async (req, res) => {
       salt: signed.delegation.salt,
       signature: signed.signature,
     }
-  const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
-    // One mode per execution (SingleDefault), each execution array length=1
-    const execGroups = seq.map((x) => [x])
-    const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
-    const permissionContexts = execGroups.map(() => ctx)
-    const DM_REDEEM_ABI = [ { type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [ { name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' } ], outputs: [] } ] as const
-    const data = encodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
-    // gas basics
-    let maxFeePerGas: bigint = 80n * 10n ** 9n
-    let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
-    try { const gp = await publicClient.getGasPrice(); if (gp > maxFeePerGas) { maxFeePerGas = gp; maxPriorityFeePerGas = gp/2n || 1n } } catch {}
-  console.log('[topup] exec sequence', seq.map((s,i)=>({i,target:s.target,hasData:s.callData!== '0x', selector: s.callData?.slice(0,10)})))
-  console.log('[topup] diagnostics', { owner: ownerAddr, ownerBal: ownerBal.toString(), toPull: toPull.toString(), steps: seq.length })
-  const uoHash = await sendUserOpWithOptionalPaymaster({
+    const uoHash = await sendUserOpWithOptionalPaymaster({
       account: sa,
       calls: [{ to: env.DelegationManager as Address, data }],
       maxFeePerGas,
@@ -4112,84 +4099,18 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
       ...(env ? { environment: env } : {}),
     })
     
-    // List of tokens to convert (use real addresses from tokens.ts)
+    // List of tokens to convert (INCLUDING USDC, excluding only WMON)
     const tokensToConvert = [
+      { symbol: 'USDC', address: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea' },
       { symbol: 'CHOG', address: '0xe0590015a873bf326bd645c3e1266d4db41c4e6b' },
       { symbol: 'YAKI', address: '0xfe140e1dCe99Be9F4F15d657CD9b7BF622270C50' },
       { symbol: 'DAK', address: '0x0f0bdebf0f83cd1ee3974779bcb7315f9808c714' },
       { symbol: 'BEAN', address: '0x268e4e24e0051ec27b3d27a95977e71ce6875a05' },
       { symbol: 'WBTC', address: '0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d' },
       { symbol: 'DAKIMAKURA', address: '0x0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8' },
-    ].filter(t => t.address.toLowerCase() !== USDC.toLowerCase() && t.address.toLowerCase() !== WMON.toLowerCase())
+    ].filter(t => t.address.toLowerCase() !== WMON.toLowerCase())
     
-    const executions: any[] = []
-    
-    // For each token, check balance and add swap if > 0
-    for (const token of tokensToConvert) {
-      try {
-        const balanceData = viemEncodeFunctionData({
-          abi: [{ type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] }],
-          functionName: 'balanceOf',
-          args: [delegatorSA as Address]
-        })
-        const balance = await publicClient.readContract({
-          address: token.address as Address,
-          abi: [{ type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }], stateMutability: 'view' }],
-          functionName: 'balanceOf',
-          args: [delegatorSA as Address]
-        }) as bigint
-        
-        if (balance > 0n) {
-          // Approve router
-          const approveData = viemEncodeFunctionData({
-            abi: [{ type: 'function', name: 'approve', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }] }],
-            functionName: 'approve',
-            args: [UNISWAP_V2_ROUTER02 as Address, balance]
-          })
-          executions.push({ target: token.address as Address, value: 0n, callData: approveData })
-          
-          // Swap token -> WMON
-          const path = [token.address, WMON]
-          const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600)
-          const swapData = viemEncodeFunctionData({
-            abi: [{ type: 'function', name: 'swapExactTokensForTokens', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }] }],
-            functionName: 'swapExactTokensForTokens',
-            args: [balance, 0n, path as Address[], delegatorSA as Address, deadline]
-          })
-          executions.push({ target: UNISWAP_V2_ROUTER02 as Address, value: 0n, callData: swapData })
-        }
-      } catch (e) {
-        console.log(`[convert-all] Skip ${token.symbol}:`, e)
-      }
-    }
-    
-    // Add unwrap WMON -> MON at the end ONLY if current WMON balance > 0
-    // This way user can call button multiple times: once to swap, once to unwrap
-    try {
-      const wmonBalance = await publicClient.readContract({
-        address: WMON as Address,
-        abi: [{ type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }], stateMutability: 'view' }],
-        functionName: 'balanceOf',
-        args: [delegatorSA as Address]
-      }) as bigint
-      
-      if (wmonBalance > 0n) {
-        const withdrawData = viemEncodeFunctionData({
-          abi: [{ type: 'function', name: 'withdraw', inputs: [{ name: 'wad', type: 'uint256' }] }],
-          functionName: 'withdraw',
-          args: [wmonBalance]
-        })
-        executions.push({ target: WMON as Address, value: 0n, callData: withdrawData })
-      }
-    } catch (e) {
-      console.log('[convert-all] Skip unwrap:', e)
-    }
-    
-    if (executions.length === 0) {
-      return res.json({ ok: true, message: 'Aucun token à convertir', userOperationHash: null })
-    }
-    
-    // Execute via delegation
+    // Prepare delegation context and gas prices
     const flat = {
       delegate: signed.delegation.delegate,
       delegator: signed.delegation.delegator,
@@ -4198,14 +4119,7 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
       salt: signed.delegation.salt,
       signature: signed.signature,
     }
-    
     const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
-    // Encode each execution individually (SingleDefault mode) to match enforcer expectations
-    const execGroups = executions.map((e) => [e])
-    const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
-    const permissionContexts = execGroups.map(() => ctx)
-    const DM_REDEEM_ABI = [{ type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [{ name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' }], outputs: [] }] as const
-    const data = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
     
     let maxFeePerGas: bigint = 80n * 10n ** 9n
     let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
@@ -4217,35 +4131,86 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
       }
     } catch {}
     
-    const uoHash = await sendUserOpWithOptionalPaymaster({
-      account: sa,
-      calls: [{ to: env.DelegationManager as Address, data }],
-      maxFeePerGas,
-      maxPriorityFeePerGas,
-    })
+    const DM_REDEEM_ABI = [{ type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [{ name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' }], outputs: [] }] as const
     
-    // If we had swaps, wait for confirmation then send a second userOp to unwrap WMON
-    let unwrapHash: string | null = null
-    const hasSwaps = executions.some(e => e.target.toLowerCase() === UNISWAP_V2_ROUTER02.toLowerCase())
-    if (hasSwaps) {
+    let successCount = 0
+    
+    console.log(`[convert-all] Starting conversion for ${delegatorSA}`)
+    console.log(`[convert-all] Checking ${tokensToConvert.length} tokens:`, tokensToConvert.map(t => t.symbol).join(', '))
+    
+    // Send each token swap as separate userOp (one per token)
+    for (const token of tokensToConvert) {
       try {
-        console.log('[convert-all] Waiting for swap userOp confirmation...')
-        // Wait for userOp to be included (poll receipt)
-        let attempts = 0
-        while (attempts < 30) {
-          try {
-            const receipt = await bundlerClient.getUserOperationReceipt({ hash: uoHash as `0x${string}` })
-            if (receipt) break
-          } catch {}
-          await new Promise(r => setTimeout(r, 2000))
-          attempts++
-        }
+        const balance = await publicClient.readContract({
+          address: token.address as Address,
+          abi: [{ type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }], stateMutability: 'view' }],
+          functionName: 'balanceOf',
+          args: [delegatorSA as Address]
+        }) as bigint
         
-        console.log('[convert-all] Swaps confirmed, checking WMON balance...')
-        await new Promise(r => setTimeout(r, 3000)) // Extra delay for state sync
+        console.log(`[convert-all] ${token.symbol} balance: ${balance.toString()}`)
+        if (balance === 0n) continue
         
-        // Read new WMON balance
-        const wmonBalanceAfterSwap = await publicClient.readContract({
+        console.log(`[convert-all] Converting ${token.symbol}: ${balance.toString()}`)
+        
+        // Build approve + swap for this token
+        const executions = [
+          {
+            target: token.address as Address,
+            value: 0n,
+            callData: viemEncodeFunctionData({
+              abi: [{ type: 'function', name: 'approve', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }] }],
+              functionName: 'approve',
+              args: [UNISWAP_V2_ROUTER02 as Address, balance]
+            })
+          },
+          {
+            target: UNISWAP_V2_ROUTER02 as Address,
+            value: 0n,
+            callData: viemEncodeFunctionData({
+              abi: [{ type: 'function', name: 'swapExactTokensForTokens', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }] }],
+              functionName: 'swapExactTokensForTokens',
+              args: [balance, 0n, [token.address, WMON] as Address[], delegatorSA as Address, BigInt(Math.floor(Date.now() / 1000) + 3600)]
+            })
+          }
+        ]
+        
+        const execGroups = executions.map((e) => [e])
+        const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
+        const permissionContexts = execGroups.map(() => ctx)
+        const data = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
+        
+        await sendUserOpWithOptionalPaymaster({
+          account: sa,
+          calls: [{ to: env.DelegationManager as Address, data }],
+          maxFeePerGas,
+          maxPriorityFeePerGas,
+        })
+        
+        successCount++
+        console.log(`[convert-all] ${token.symbol} swap sent successfully`)
+        await new Promise(r => setTimeout(r, 2000)) // Delay between swaps
+      } catch (e: any) {
+        console.error(`[convert-all] Failed ${token.symbol}:`, e?.shortMessage || e?.message)
+        // Continue to next token even if this one fails
+      }
+    }
+    
+    if (successCount === 0) {
+      return res.json({ ok: true, message: 'Aucun token à convertir' })
+    }
+    
+    console.log(`[convert-all] ${successCount} swaps sent, waiting for confirmations...`)
+    
+    // Wait for swaps to confirm and WMON balance to update (poll up to 30s)
+    let wmonBalanceAfterSwap = 0n
+    let attempts = 0
+    const maxAttempts = 15 // 15 attempts x 2s = 30s max
+    
+    console.log('[convert-all] Polling WMON balance...')
+    while (attempts < maxAttempts) {
+      try {
+        wmonBalanceAfterSwap = await publicClient.readContract({
           address: WMON as Address,
           abi: [{ type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }], stateMutability: 'view' }],
           functionName: 'balanceOf',
@@ -4253,45 +4218,65 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
         }) as bigint
         
         if (wmonBalanceAfterSwap > 0n) {
-          console.log(`[convert-all] Unwrapping ${wmonBalanceAfterSwap.toString()} WMON...`)
-          // Build unwrap execution
-          const unwrapExec = [{
-            target: WMON as Address,
-            value: 0n,
-            callData: viemEncodeFunctionData({
-              abi: [{ type: 'function', name: 'withdraw', inputs: [{ name: 'wad', type: 'uint256' }] }],
-              functionName: 'withdraw',
-              args: [wmonBalanceAfterSwap]
-            })
-          }]
-          
-          const unwrapExecGroups = unwrapExec.map(e => [e])
-          const { calldatas: unwrapCalldatas, modes: unwrapModes } = encodeExecutionCalldatasWithModes(unwrapExecGroups)
-          const unwrapPermissionContexts = unwrapExecGroups.map(() => ctx)
-          const unwrapData = viemEncodeFunctionData({ 
-            abi: DM_REDEEM_ABI as any, 
-            functionName: 'redeemDelegations', 
-            args: [unwrapPermissionContexts as any, unwrapModes as any, unwrapCalldatas as any] 
-          }) as `0x${string}`
-          
-          unwrapHash = await sendUserOpWithOptionalPaymaster({
-            account: sa,
-            calls: [{ to: env.DelegationManager as Address, data: unwrapData }],
-            maxFeePerGas,
-            maxPriorityFeePerGas,
-          })
-          console.log('[convert-all] Unwrap userOp sent:', unwrapHash)
+          console.log(`[convert-all] WMON balance updated: ${wmonBalanceAfterSwap.toString()} (after ${attempts * 2}s)`)
+          break
         }
-      } catch (e) {
-        console.error('[convert-all] Auto-unwrap failed:', e)
+        
+        console.log(`[convert-all] Attempt ${attempts + 1}: WMON balance still 0, waiting...`)
+        await new Promise(r => setTimeout(r, 2000))
+        attempts++
+      } catch (e: any) {
+        console.error(`[convert-all] Error checking WMON balance:`, e?.message)
+        await new Promise(r => setTimeout(r, 2000))
+        attempts++
       }
+    }
+    
+    // Now unwrap WMON -> MON
+    let unwrapHash: string | null = null
+    try {
+      
+      if (wmonBalanceAfterSwap > 0n) {
+        console.log(`[convert-all] Found ${wmonBalanceAfterSwap.toString()} WMON, unwrapping to MON...`)
+        
+        const unwrapExec = [{
+          target: WMON as Address,
+          value: 0n,
+          callData: viemEncodeFunctionData({
+            abi: [{ type: 'function', name: 'withdraw', inputs: [{ name: 'wad', type: 'uint256' }] }],
+            functionName: 'withdraw',
+            args: [wmonBalanceAfterSwap]
+          })
+        }]
+        
+        const unwrapExecGroups = unwrapExec.map(e => [e])
+        const { calldatas: unwrapCalldatas, modes: unwrapModes } = encodeExecutionCalldatasWithModes(unwrapExecGroups)
+        const unwrapPermissionContexts = unwrapExecGroups.map(() => ctx)
+        const unwrapData = viemEncodeFunctionData({ 
+          abi: DM_REDEEM_ABI as any, 
+          functionName: 'redeemDelegations', 
+          args: [unwrapPermissionContexts as any, unwrapModes as any, unwrapCalldatas as any] 
+        }) as `0x${string}`
+        
+        unwrapHash = await sendUserOpWithOptionalPaymaster({
+          account: sa,
+          calls: [{ to: env.DelegationManager as Address, data: unwrapData }],
+          maxFeePerGas,
+          maxPriorityFeePerGas,
+        })
+        console.log('[convert-all] Unwrap userOp sent:', unwrapHash)
+      } else {
+        console.log('[convert-all] No WMON to unwrap (balance: 0)')
+      }
+    } catch (e: any) {
+      console.error('[convert-all] Unwrap failed:', e?.shortMessage || e?.message)
+      // Not critical - user can unwrap manually later
     }
     
     return res.json({ 
       ok: true, 
-      userOperationHash: uoHash, 
-      unwrapUserOperationHash: unwrapHash,
-      conversions: executions.length / 2 
+      conversions: successCount,
+      unwrapUserOperationHash: unwrapHash
     })
   } catch (e: any) {
     console.error('[convert-all-to-mon] Error:', e)
