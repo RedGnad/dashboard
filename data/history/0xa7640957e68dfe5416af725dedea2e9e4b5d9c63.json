@@ -1,0 +1,20 @@
+[
+  {
+    "ts": 1760392355328,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "amountIntendedUSDC": "0",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {},
+    "balanceAtRunUSDC": "0",
+    "baselineManualUSDC": "0",
+    "userOperationHash": "0x0c4f61e90b51a6243f23021c8e2dbfc885d5d369560ef56231c3ebeee21bd884",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  }
+]

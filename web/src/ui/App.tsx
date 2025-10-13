@@ -19,7 +19,9 @@ import {
   encodeFunctionData,
   parseUnits,
   getFunctionSelector,
+  http,
 } from "viem";
+import { createBundlerClient } from "viem/account-abstraction";
 import {
   Implementation,
   toMetaMaskSmartAccount,
@@ -324,6 +326,13 @@ export default function App() {
             environment: env as any,
           });
           delegatorSa = smart.address;
+
+          // Check if SA is deployed
+          const code = await publicClient.getBytecode({
+            address: smart.address,
+          });
+          const isDeployed = code && code !== "0x";
+          console.log(`[SA] ${smart.address} deployed: ${isDeployed}`);
         }
       } catch (e) {
         // fall back to EOA if derivation fails (will be less accurate)
@@ -566,7 +575,53 @@ export default function App() {
         environment: env as any,
       });
 
-      setMsg(`Smart account: ${smart.address}\nCreating delegation…`);
+      setMsg(`Smart account: ${smart.address}\nChecking deployment...`);
+
+      // Check if SA is deployed, if not deploy it first
+      const code = await publicClient.getBytecode({ address: smart.address });
+      const isDeployed = code && code !== "0x";
+
+      if (!isDeployed) {
+        setMsg(`Deploying smart account...`);
+        try {
+          // Send a simple userOp to deploy the SA
+          const bundlerClient = createBundlerClient({
+            client: publicClient,
+            transport: http(
+              "https://rpc.zerodev.app/api/v3/7535339b-9ae3-41bb-ad97-5375bae4a51b/chain/10143"
+            ),
+          });
+
+          const deployHash = await bundlerClient.sendUserOperation({
+            account: smart,
+            calls: [{ to: smart.address, data: "0x" }],
+          });
+
+          setMsg(`Waiting for deployment (${deployHash})...`);
+
+          // Wait for deployment confirmation
+          let attempts = 0;
+          while (attempts < 30) {
+            const deployCode = await publicClient.getBytecode({
+              address: smart.address,
+            });
+            if (deployCode && deployCode !== "0x") break;
+            await new Promise((r) => setTimeout(r, 2000));
+            attempts++;
+          }
+
+          setMsg(`Smart account deployed!\nCreating delegation...`);
+        } catch (deployError: any) {
+          console.error("Deployment error:", deployError);
+          setMsg(
+            `Deployment failed: ${deployError?.message || "unknown error"}`
+          );
+          setBusy(false);
+          return;
+        }
+      } else {
+        setMsg(`Smart account already deployed\nCreating delegation…`);
+      }
 
       // Optionally prepare EIP-2612 permit only if not skipped
       let maybePermit: any = null;
@@ -842,15 +897,15 @@ export default function App() {
       // Official flow only: createOpenDelegation with functionCall scope and selectors/targets. No fallback.
       // Include all tokens for "Convert All to MON" feature
       const targets: Address[] = [
-        USDC, 
-        UNISWAP_V2_ROUTER02, 
+        USDC,
+        UNISWAP_V2_ROUTER02,
         WMON,
-        '0xe0590015a873bf326bd645c3e1266d4db41c4e6b' as Address, // CHOG
-        '0xfe140e1dCe99Be9F4F15d657CD9b7BF622270C50' as Address, // YAKI
-        '0x0f0bdebf0f83cd1ee3974779bcb7315f9808c714' as Address, // DAK
-        '0x268e4e24e0051ec27b3d27a95977e71ce6875a05' as Address, // BEAN
-        '0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d' as Address, // WBTC
-        '0x0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8' as Address, // DAKIMAKURA
+        "0xe0590015a873bf326bd645c3e1266d4db41c4e6b" as Address, // CHOG
+        "0xfe140e1dCe99Be9F4F15d657CD9b7BF622270C50" as Address, // YAKI
+        "0x0f0bdebf0f83cd1ee3974779bcb7315f9808c714" as Address, // DAK
+        "0x268e4e24e0051ec27b3d27a95977e71ce6875a05" as Address, // BEAN
+        "0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d" as Address, // WBTC
+        "0x0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8" as Address, // DAKIMAKURA
       ];
       // Add EOA as permissible target for native MON transfer (needed for flush MON)
       if (address && !targets.includes(address as Address))
@@ -1417,12 +1472,16 @@ export default function App() {
       if (!j?.ok) {
         if (j?.code === "delegation_missing") {
           setHasDelegation(false);
-          setMsg("Conversion impossible: délégation absente (créez-la d'abord).");
+          setMsg(
+            "Conversion impossible: délégation absente (créez-la d'abord)."
+          );
         } else {
           setMsg(`Conversion échouée: ${j?.error || "inconnu"}`);
         }
       } else {
-        setMsg(`✅ Conversion réussie! UserOp: ${j.userOperationHash || 'N/A'}`);
+        setMsg(
+          `✅ Conversion réussie! UserOp: ${j.userOperationHash || "N/A"}`
+        );
       }
     } catch (e: any) {
       setMsg(`Conversion échouée: ${e?.message || e}`);

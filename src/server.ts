@@ -2517,7 +2517,11 @@ app.get('/api/delegate', async (_req, res) => {
         signer: { account: eoa },
         ...(env ? { environment: env } : {}),
       })
-      cachedDelegate = { eoa: eoa.address, sa: sa.address, envSupported: !!env }
+      // Check if delegate SA is deployed
+      const code = await publicClient.getBytecode({ address: sa.address })
+      const isDeployed = code && code !== '0x'
+      cachedDelegate = { eoa: eoa.address, sa: sa.address, envSupported: !!env, deployed: isDeployed }
+      console.log(`[delegate] SA ${sa.address} deployed: ${isDeployed}`)
     }
     return res.json(cachedDelegate)
   } catch (e: any) {

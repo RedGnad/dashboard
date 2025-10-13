@@ -8,7 +8,7 @@
       "caveats": [
         {
           "enforcer": "0x7F20f61b1f09b08D970938F6fa563634d65c4EeB",
-          "terms": "0xf817257fed379853cDe0fa4F97AB987181B1E5Eafb8e1c3b833f9e67a71c859a132cf783b645e436760AfE86e5de5fa0Ee542fc7B7B713e1c5425701D20CC1610BB0D0CF0daacb159AB6Cc4787D9e6D4",
+          "terms": "0xf817257fed379853cDe0fa4F97AB987181B1E5Eafb8e1c3b833f9e67a71c859a132cf783b645e436760AfE86e5de5fa0Ee542fc7B7B713e1c5425701e0590015a873bf326bd645c3e1266d4db41c4e6bfe140e1dCe99Be9F4F15d657CD9b7BF622270C500f0bdebf0f83cd1ee3974779bcb7315f9808c714268e4e24e0051ec27b3d27a95977e71ce6875a05cf5a6076cfa32686c0Df13aBaDa2b40dec133F1d0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8D20CC1610BB0D0CF0daacb159AB6Cc4787D9e6D4",
           "args": "0x"
         },
         {
@@ -20,12 +20,11 @@
       "salt": "0x",
       "signature": "0x"
     },
-    "signature": "0xd6e07f85eebe56a6e760c2db12c0fea84b7ff12411cf47134fc3888ef3e0717113afa8bb6943ff458e5fdf3c9ce452228fa3443ba180f00b8e2dcfa14d89338b1b"
+    "signature": "0x5b082d0d74ac195d093d27e8151de7ad1c7ad594818ed9bea3e8e7bea5a0482e4601037eee3d63897c85ac8e95eb0adea3693f8ee6b381e933191ee7149799001c"
   },
   "job": {
-    "createdAtMs": 1760307665761,
+    "createdAtMs": 1760392347206,
     "unwrapEvery": 24,
-    "amountUSDC": 1,
     "slippageBps": 100,
     "intervalSec": 60,
     "durationSec": 86400,
@@ -37,6 +36,7 @@
     "dailyTopupUSDC": 1,
     "allowSellExecution": true,
     "targetSymbol": "WMON",
-    "source": "USDC"
+    "source": "MON",
+    "amountMON": 1
   }
 }
