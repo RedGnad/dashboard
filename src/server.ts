@@ -1102,14 +1102,44 @@ app.post('/api/strategy/decision/force', async (req,res) => {
       console.warn('[guardrails] eval (force) failed (non-blocking)', e?.message || e)
     }
 
+    const aiTargetSymbol = decision.steps && decision.steps[0] ? decision.steps[0].to : undefined
     appendAudit({
-      action: 'ai_decision', ts: ctx.timestamp, delegator, delegate: '0x', role: 'ai', structHash:'0x', digest:'0x', domainSeparator:'0x', caveatsRoot:'0x', salt:'0x', warnings:[], signatureModel:'UNKNOWN',
-      aiRationaleHash, aiRiskScore: decision.riskScore, aiConfidence: decision.confidence, strategyEngineVersion: strategyEngine.version(), aiActionType: decision.actionType,
-      featureHash, featureHashV2, featureSchemaVersion: feat.schemaVersion, modelHash: meta.modelHash, inferenceProvider: meta.inferenceProvider, featuresCanonical,
-  inferenceVersion: meta.inferenceVersion,
-  inferenceFeatures: { allocationDeviation: feat.features.allocationDeviation ?? 0, executionsLast24h: feat.features.executionsLast24h ?? 0, volatilitySimple: feat.features.volatilitySimple ?? 0 }, rawScore: meta.rawScore, logitZ: meta.logitZ, mappingVersion: meta.mappingVersion, weightsUsedHash: meta.weightsUsedHash, inferenceProofHash: meta.inferenceProofHash,
-      guardrailReason: guardrailEval?.reason,
-      guardrailReasonsAll: guardrailEval?.reasonsAll,
+      action: 'ai_decision',
+      ts: ctx.timestamp,
+      delegator: delegator,
+      delegate: '0x',
+      role: 'ai',
+      structHash: '0x',
+      digest: '0x',
+      domainSeparator: '0x',
+      caveatsRoot: '0x',
+      salt: '0x',
+      warnings: [],
+      signatureModel: 'UNKNOWN',
+      aiRationaleHash,
+      aiRiskScore: decision.riskScore,
+      aiConfidence: decision.confidence,
+      strategyEngineVersion: strategyEngine.version(),
+      aiActionType: decision.actionType,
+      aiTargetSymbol,
+      featureHash,
+      featureHashV2,
+      featureSchemaVersion: feat.schemaVersion,
+      guardrailReasonsAll: guardrailEval?.reasonsAll || [],
+      modelHash: meta.modelHash,
+      inferenceProvider: meta.inferenceProvider,
+      inferenceVersion: meta.inferenceVersion,
+      featuresCanonical,
+      inferenceFeatures: { allocationDeviation: feat.features.allocationDeviation ?? 0, executionsLast24h: feat.features.executionsLast24h ?? 0, volatilitySimple: feat.features.volatilitySimple ?? 0, momentumShortMinusLong },
+      featureHashV2,
+      rawScore: meta.rawScore,
+      logitZ: meta.logitZ,
+      mappingVersion: meta.mappingVersion,
+      weightsUsedHash: meta.weightsUsedHash,
+      inferenceProofHash: meta.inferenceProofHash,
+      snapshotPrice,
+      priceSource,
+      snapshotPriceTs,
     })
   return res.json({ ok: true, rollingHash: 'pending_readback', guardrails: guardrailEval || null, momentumShortMinusLong })
   } catch (e:any) {
@@ -2821,6 +2851,7 @@ app.post('/api/manual/dca', async (req, res) => {
       }
     }
     // Encode DelegationManager call
+    console.log('[manual-dca] Generated executions:', { count: execs.length, hasNative, executions: execs.map(e => ({ target: e.target, value: e.value.toString(), selector: e.callData.slice(0, 10) })) })
     const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
     if (!existsSync(file)) return res.status(404).json({ ok: false, error: 'delegation_missing' })
     const json = JSON.parse(readFileSync(file, 'utf8'))

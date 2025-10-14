@@ -69,21 +69,33 @@ export class DeterministicDcaStrategy implements StrategyEngine {
     // weightsUsedHash: si provider ne fournit pas, fallback au model local (pour cohérence structure audit)
     const weightsUsedHash = inf.weightsUsedHash || model.modelHash // model.modelHash as placeholder
     console.log('[DEBUG] Before mapScoreToDecision:', { score, featuresForModel })
-  const mapped = mapScoreToDecision(score, { ...featuresForModel, targetSymbol: (ctx.targets[0]?.symbol || 'WMON') })
-  // Choose a primary non-stable target if provided; default to WMON
+  // Smart target selection: if multiple targets and positive momentum, pick highest momentum token
+  // Otherwise use first non-stable target
   let primary = ctx.targets.find(t => t && t.symbol && t.symbol.toUpperCase() !== 'USDC') || ctx.targets[0]
   if (!primary) primary = { symbol: 'WMON', weightBps: 5000 }
+  
+  // TODO: In the future, query momentum per token and select best candidate
+  // For now, use provided target or default to WMON
+  const targetSymbol = primary.symbol
+  
+  const mapped = mapScoreToDecision(score, { ...featuresForModel, targetSymbol })
     
-    // USE AI-CALCULATED SIZE instead of hardcoded values
-    const aiSizePct = mapped.sizePct || 0.01 // AI-determined size percentage 
-    const intentUsdFloat = aiSizePct * 100 // Convert to USD (sizePct is 0-1, multiply by base portfolio size)
-    const intentUsd = Math.max(1, Math.round(intentUsdFloat * 100) / 100).toString() // Min 1 USD, round to cents
-    const baseAmount = '10000000000000000' // Keep as placeholder for now
-    
-    console.log('[DEBUG] AI sizing:', { sizePct: mapped.sizePct, intentUsd, rawMagnitude: mapped.meta?.magnitude })
-  // NOTE: For now, we only emit a single step from USDC -> primary.symbol.
-  // Multi-asset could emit multiple steps or choose path via a hub (USDC/WMON) with slippage constraints.
-  const steps = mapped.actionType === 'DCA_SWAP' ? [ { from: 'USDC', to: primary.symbol, amount: baseAmount, intentUsd } ] : []
+  // USE AI-CALCULATED SIZE instead of hardcoded values
+  const aiSizePct = mapped.sizePct || 0.01 // AI-determined size percentage 
+  const intentUsdFloat = aiSizePct * 100 // Convert to USD (sizePct is 0-1, multiply by base portfolio size)
+  const intentUsd = Math.max(1, Math.round(intentUsdFloat * 100) / 100).toString() // Min 1 USD, round to cents
+  const baseAmount = '10000000000000000' // Keep as placeholder for now
+  
+  console.log('[DEBUG] AI sizing:', { sizePct: mapped.sizePct, intentUsd, rawMagnitude: mapped.meta?.magnitude, targetSymbol })
+  
+  // Multi-asset: Determine source token based on allocation state
+  // If allocUnknown (multi-asset rotation), default to MON as source
+  // If classic DCA mode, use USDC
+  const sourceToken = featuresForModel.allocUnknown === 1 ? 'MON' : 'USDC'
+  
+  const steps = mapped.actionType === 'DCA_SWAP' ? [ 
+    { from: sourceToken, to: targetSymbol, amount: baseAmount, intentUsd } 
+  ] : []
     return {
       actionType: mapped.actionType === 'SELL' ? 'REBALANCE' : (mapped.actionType as any),
       steps,

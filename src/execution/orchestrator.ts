@@ -169,7 +169,7 @@ export async function executeFromDecision(opts: { rollingHash?: string; force?: 
   // Trigger actual run
   let userOperationHash: string | undefined
   try {
-    userOperationHash = await runOnceForDelegator(decision.delegator as any)
+    userOperationHash = await runOnceForDelegator(decision.delegator as any, { aiTargetSymbol: (decision as any).aiTargetSymbol })
   } catch (e: any) {
     appendAudit({
       action: 'execute',

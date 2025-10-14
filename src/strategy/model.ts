@@ -124,11 +124,43 @@ export function mapScoreToDecision(score: number, features: Record<string, any>)
   } else if (testForceAction === 'sell') {
     action = 'SELL'
   } else {
-    // Soften allocationDeviation gates slightly to allow actions when underweight/overweight is modest
-    if (allocDev < -0.02 && score > buyThreshold) action = 'DCA_SWAP'
-    else if (allocDev > 0.04 && score > sellThreshold) action = 'SELL'
-    // NEW: If allocation is unknown (indexer down or zero funds), allow a very small DCA when score is confident
-    else if (allocUnknown && score >= 0.75 && process.env.ALLOW_TRADES_WITH_UNKNOWN_ALLOC === '1') action = 'DCA_SWAP'
+    // Multi-asset rotation mode: if allocation is unknown, use momentum/score to decide
+    if (allocUnknown) {
+      const executionsCount = features.executionsLast24h || 0
+      const timeSinceLastTrade = features.timeSinceLastTradeMins ?? 999
+      
+      // Exploration mode: 15% chance of exploratory trade
+      // Dev: no time limit (set to 0 for immediate), prod: set to 1 minute
+      const minTimeBetweenExploratoryTrades = Number(process.env.MIN_EXPLORATORY_TRADE_MINS || 0)
+      const explorationThreshold = 0.15 // 15% chance
+      const shouldExplore = timeSinceLastTrade > minTimeBetweenExploratoryTrades && Math.random() < explorationThreshold
+      
+      // Positive momentum = BUY opportunity (assouplir thresholds)
+      if (momentum && momentum > 0.008 && score > 0.50) {
+        action = 'DCA_SWAP'
+      }
+      // High confidence even with low momentum
+      else if (score > 0.75) {
+        action = 'DCA_SWAP'
+      }
+      // Negative momentum = potential SELL
+      else if (momentum && momentum < -0.012 && score > 0.55) {
+        action = 'SELL'
+      }
+      // Exploratory trade: small random trade to discover opportunities
+      else if (shouldExplore && score > 0.40) {
+        action = 'DCA_SWAP'
+        console.log('[strategy] Exploratory trade triggered (random exploration)')
+      }
+      // Default: SKIP
+      else {
+        action = 'SKIP'
+      }
+    } else {
+      // Classic DCA mode: use allocation deviation
+      if (allocDev < -0.02 && score > buyThreshold) action = 'DCA_SWAP'
+      else if (allocDev > 0.04 && score > sellThreshold) action = 'SELL'
+    }
   }
 
   // Stable-aware damping (only affects BUY into a stable target when strategy requests it via flag)
@@ -142,17 +174,42 @@ export function mapScoreToDecision(score: number, features: Record<string, any>)
     }
   } catch {}
 
-  // Base magnitude (5% - 25%) modulée par volatilité 24h (si très élevée, réduire)
-  const rawMag = Math.min(0.25, Math.max(0.04, Math.abs(allocDev)))
+  // Base magnitude: different logic for multi-asset rotation vs classic DCA
+  let rawMag: number
+  let isExploratoryTrade = false
+  
+  if (allocUnknown) {
+    // Check if this is an exploratory trade (low score/momentum)
+    const timeSinceLastTrade = features.timeSinceLastTradeMins ?? 999
+    const minTimeBetweenExploratoryTrades = Number(process.env.MIN_EXPLORATORY_TRADE_MINS || 0)
+    isExploratoryTrade = action === 'DCA_SWAP' && score < 0.60 && timeSinceLastTrade > minTimeBetweenExploratoryTrades
+    
+    if (isExploratoryTrade) {
+      // Exploratory: very small size (2-5%)
+      rawMag = 0.03
+    } else if (momentum) {
+      // Multi-asset rotation: base size on momentum strength
+      const momentumMag = Math.abs(momentum) * 8 // -0.01 momentum = 8% trade
+      rawMag = Math.min(0.15, Math.max(0.05, momentumMag)) // 5% to 15%
+    } else {
+      rawMag = 0.05 // Default 5% if no momentum
+    }
+  } else {
+    // Classic DCA: base on allocation deviation
+    rawMag = Math.min(0.25, Math.max(0.04, Math.abs(allocDev)))
+  }
+  
   let volFactor = 1
   if (typeof hyperVol24h === 'number' && hyperVol24h > 0) {
-    // Simple dampening: scale down size when vol > 0.5 (arbitrary placeholder)
+    // Simple dampening: scale down size when vol > 0.5
     volFactor = Math.max(0.4, Math.min(1, 0.8 / (1 + (hyperVol24h - 0.2))))
   }
-  // If test override, ensure a sensible minimum size so l'effet est visible
-  const minSize = testForceAction ? 0.10 : (allocUnknown && process.env.ALLOW_TRADES_WITH_UNKNOWN_ALLOC === '1' ? 0.02 : 0.0)
-  // When allocation is unknown (and allowed), cap magnitude to a conservative ceiling (e.g., 3%)
-  const magnitude = Math.min(allocUnknown && process.env.ALLOW_TRADES_WITH_UNKNOWN_ALLOC === '1' ? 0.03 : 1, Math.max(minSize, rawMag * volFactor * sizeMultiplier))
+  
+  // If test override, ensure a sensible minimum size
+  const minSize = testForceAction ? 0.10 : (allocUnknown ? 0.03 : 0.0)
+  // Multi-asset rotation: allow larger trades (up to 15%), exploratory smaller (up to 5%)
+  const maxCap = isExploratoryTrade ? 0.05 : (allocUnknown ? 0.15 : 1)
+  const magnitude = Math.min(maxCap, Math.max(minSize, rawMag * volFactor * sizeMultiplier))
   const sizePct = Number(magnitude.toFixed(4))
   // Risk: allocate ~ scaled positive combination (simulate volatility weighting if present)
   const executions = features.executionsLast24h || 0
@@ -162,6 +219,6 @@ export function mapScoreToDecision(score: number, features: Record<string, any>)
   const baseRisk = Math.min(100, Math.round((Math.abs(allocDev) * 50) + (vol * 10) + executions * 0.5 + hyperVolComponent))
   const riskScore = baseRisk
   const confidence = Number((0.5 + (score * 0.45)).toFixed(4)) // 0.5 -> 0.95
-  const rationale = `score=${score.toFixed(4)} allocDev=${allocDev.toFixed(4)} action=${action} hyperVol24h=${hyperVol24h ?? 'null'} momentum=${momentum ?? 'null'}${testForceAction ? ` override=${testForceAction}` : ''}${allocUnknown ? ' allocUnknown=1' : ''}`
-  return { actionType: action, sizePct, rationale, riskScore, confidence, meta: { allocDev, executions, vol, score, hyperVol24h, momentum, profile, testForceAction: testForceAction || undefined, magnitude, sizeMultiplier, rawMag, volFactor, allocUnknown } }
+  const rationale = `score=${score.toFixed(4)} allocDev=${allocDev.toFixed(4)} action=${action} hyperVol24h=${hyperVol24h ?? 'null'} momentum=${momentum ?? 'null'}${testForceAction ? ` override=${testForceAction}` : ''}${allocUnknown ? ' allocUnknown=1' : ''}${isExploratoryTrade ? ' exploratory=1' : ''}`
+  return { actionType: action, sizePct, rationale, riskScore, confidence, meta: { allocDev, executions, vol, score, hyperVol24h, momentum, profile, testForceAction: testForceAction || undefined, magnitude, sizeMultiplier, rawMag, volFactor, allocUnknown, isExploratoryTrade } }
 }

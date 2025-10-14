@@ -16,7 +16,21 @@ import { encodePermissionContextsFromDelegations, encodeExecutionCalldatasWithMo
 import { appendRunEvent } from './utils/history'
 import { appendAudit, newRunId } from './audit'
 
-export async function runOnceForDelegator(delegatorSA: Address, opts?: { runIndex?: number; ignoreAi?: boolean }) {
+// Detect if delegation allows native MON transfers (for swapExactETHForTokens)
+function detectNativeValueScope(caveats: any[]): boolean {
+  if (!Array.isArray(caveats)) return false
+  // Check for textual marker or known native enforcers
+  for (const c of caveats) {
+    const terms = typeof c?.terms === 'string' ? c.terms : ''
+    if (terms.includes('nativeTokenTransferAmount')) return true
+    // Known native enforcers
+    const enf = (c?.enforcer || '').toLowerCase()
+    if (enf === '0xf71af580b9c3078fbc2bbf16fbb8eed82b330320') return true
+  }
+  return false
+}
+
+export async function runOnceForDelegator(delegatorSA: Address, opts?: { runIndex?: number; ignoreAi?: boolean; aiTargetSymbol?: string }) {
   console.log('[DEBUG] runOnceForDelegator called with SKIP logic enabled:', delegatorSA)
   const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
   if (!pk) throw new Error('Missing DELEGATE_PRIVATE_KEY')
@@ -182,7 +196,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
     if (typeof lastAi.rawScore === 'number') aiRawScore = lastAi.rawScore
     if (typeof lastAi.momentum === 'number') aiMomentum = lastAi.momentum
     
-    // CRITICAL FIX: Respect AI SKIP decisions but defer until after computing baseline/balance
+    // CRITICAL FIX: Respect AI SKIP decisions
     if (lastAi.actionType === 'SKIP') {
       aiDecidedSkip = true
     }
@@ -196,6 +210,24 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       }
     } catch {}
   }
+  
+  // Respect AI SKIP decision for all sources (USDC or MON)
+  if (aiDecidedSkip && !executingSell) {
+    console.log('[runner] skip due to AI SKIP decision')
+    try { 
+      appendRunEvent({ 
+        ts: Date.now(), 
+        delegator: delegatorSA, 
+        amountInUSDC: '0', 
+        skipped: true, 
+        skipReason: 'ai_skip_action', 
+        strategy: 'dca-basic', 
+        ai: { actionType: aiActionType, rawScore: aiRawScore, momentum: aiMomentum } 
+      }) 
+    } catch {}
+    return '0x' as any
+  }
+  
   if (jobSource === 'USDC' && !executingSell) {
     try {
       const erc20Abi = [
@@ -305,6 +337,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
   // Prefer executions passed from the frontend (to match exactExecutionBatch caveat); otherwise build locally.
   const wantUnwrapThisRun = unwrapToMon && (unwrapEvery > 1 ? ((runCounter + 1) % unwrapEvery === 0) : true)
   const usedFrontendExecutions = (Array.isArray(json.job?.executions) && json.job.executions.length > 0)
+  console.log('[runner] Building executions:', { jobSource, executingSell, usedFrontendExecutions, amountMON: amountMON.toString(), amountUSDC: amountUSDC.toString() })
   let executions = (usedFrontendExecutions && !executingSell)
     ? (json.job.executions as any[]).map((e) => ({
         target: e.target as Address,
@@ -314,30 +347,22 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
     : (await (async () => {
         if (!executingSell) {
           // BUY path; support USDC or MON as source per job config
-          // Determine target from job override or last ai_decision (audit); fallback to WMON
-          let targetSymbol = (String(json.job?.targetSymbol || '').toUpperCase() || 'WMON')
-          try {
-            const fs = require('node:fs') as typeof import('node:fs')
-            const path = require('node:path') as typeof import('node:path')
-            const file = path.join(process.cwd(), 'data', 'delegations', 'audit.log')
-            if (fs.existsSync(file)) {
-              const raw = fs.readFileSync(file, 'utf8').trim()
-              if (raw) {
-                const lines = raw.split('\n')
-                for (let i = lines.length - 1; i >= 0 && i >= lines.length - 1000; i--) {
-                  try {
-                    const j = JSON.parse(lines[i])
-                    if (j && j.action === 'ai_decision' && String(j.delegator || '').toLowerCase() === String(delegatorSA).toLowerCase()) {
-                      if (!json.job?.targetSymbol && j.aiTargetSymbol && typeof j.aiTargetSymbol === 'string') {
-                        targetSymbol = String(j.aiTargetSymbol).toUpperCase()
-                      }
-                      break
-                    }
-                  } catch {}
-                }
-              }
-            }
-          } catch {}
+          console.log('[runner] ========= TARGET SELECTION DEBUG =========', { 
+            'opts?.aiTargetSymbol': opts?.aiTargetSymbol, 
+            'json.job?.targetSymbol': json.job?.targetSymbol,
+            'opts': opts
+          })
+          // Priority: 1. aiTargetSymbol from orchestrator, 2. job.targetSymbol, 3. WMON fallback
+          let targetSymbol = 'WMON'
+          if (opts?.aiTargetSymbol) {
+            targetSymbol = String(opts.aiTargetSymbol).toUpperCase()
+            console.log('[runner] Using AI target from orchestrator:', targetSymbol)
+          } else if (json.job?.targetSymbol) {
+            targetSymbol = String(json.job.targetSymbol).toUpperCase()
+            console.log('[runner] Using job target:', targetSymbol)
+          } else {
+            console.log('[runner] No AI/job target, using default:', targetSymbol)
+          }
           // Resolve token address
           const tok = getToken(targetSymbol) || getToken('WMON')!
           const tokenAddr = (tok?.address || WMON) as Address
@@ -396,17 +421,42 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
           if (jobSource === 'MON') {
             const execs: { target: Address; value: bigint; callData: `0x${string}` }[] = []
             const { encodeFunctionData } = await import('viem')
-            // Step 1: wrap MON -> WMON via deposit (always, to avoid swapExactETHForTokens selector)
+            
+            // Check if delegation allows native value scope (like manual DCA)
+            const caveats = json?.signedDelegation?.delegation?.caveats || []
+            const hasNativeScope = detectNativeValueScope(caveats)
+            console.log('[runner] Native scope detection:', { hasNativeScope, target: targetSymbol })
+            
+            // If target is WMON: just wrap (deposit)
+            if (tokenAddr.toLowerCase() === (WMON as string).toLowerCase()) {
+              const depositData = encodeFunctionData({
+                abi: [ { name: 'deposit', type: 'function', stateMutability: 'payable', inputs: [], outputs: [] } ] as any,
+                functionName: 'deposit',
+                args: [],
+              }) as `0x${string}`
+              execs.push({ target: WMON as Address, value: amountMON, callData: depositData })
+              return execs
+            }
+            
+            // If native scope available: use swapExactETHForTokens (like manual DCA)
+            if (hasNativeScope) {
+              const path = pathAddrs && pathAddrs.length > 0 ? pathAddrs : [WMON as Address, tokenAddr]
+              const swapData = encodeFunctionData({
+                abi: [ { name: 'swapExactETHForTokens', type: 'function', stateMutability: 'payable', inputs: [ { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' } ], outputs: [ { name: 'amounts', type: 'uint256[]' } ] } ] as any,
+                functionName: 'swapExactETHForTokens',
+                args: [minOut, path, delegatorSA, BigInt(Math.floor(Date.now()/1000) + 1200)],
+              }) as `0x${string}`
+              execs.push({ target: UNISWAP_V2_ROUTER02 as Address, value: amountMON, callData: swapData })
+              return execs
+            }
+            
+            // Fallback: wrap then approve + swap (for non-native delegations)
             const depositData = encodeFunctionData({
               abi: [ { name: 'deposit', type: 'function', stateMutability: 'payable', inputs: [], outputs: [] } ] as any,
               functionName: 'deposit',
               args: [],
             }) as `0x${string}`
             execs.push({ target: WMON as Address, value: amountMON, callData: depositData })
-            // If target is exactly WMON, we're done
-            if (tokenAddr.toLowerCase() === (WMON as string).toLowerCase()) {
-              return execs
-            }
             // Step 2: approve WMON to router if needed for amountMON
             try {
               const allowance = await (publicClient as any).readContract({
@@ -562,6 +612,25 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
         console.warn('[runner] failed to append withdraw execution', e)
       }
     }
+  }
+  
+  console.log('[runner] Executions built:', { count: executions.length, targets: executions.map(e => e.target) })
+  
+  // Check if executions array is empty
+  if (!executions || executions.length === 0) {
+    console.error('[runner] CRITICAL: No executions generated! Cannot proceed.')
+    try { 
+      appendRunEvent({ 
+        ts: Date.now(), 
+        delegator: delegatorSA, 
+        amountInUSDC: amountUSDC.toString(), 
+        skipped: true, 
+        skipReason: 'no_executions_generated', 
+        strategy: 'dca-basic',
+        ai: { actionType: aiActionType, rawScore: aiRawScore, momentum: aiMomentum }
+      }) 
+    } catch {}
+    throw new Error('No executions generated')
   }
 
   // --- Whitelist Validation (only if executions came from front) ---
@@ -782,6 +851,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
     console.log('[runner] overriding job.usePaymaster=false due to OVERRIDE_JOB_PAYMASTER=1')
     usePm = true
   }
+  console.log('[runner] ===== SENDING USER OPERATION =====')
   console.log('[runner] sending userOp', {
     bundlerSet: !!process.env.ZERO_DEV_BUNDLER_RPC,
     paymasterSet: !!process.env.ZERO_DEV_PAYMASTER_RPC,
@@ -792,6 +862,7 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
     dm: env.DelegationManager,
   maxFeePerGas: String(maxFeePerGas),
   maxPriorityFeePerGas: String(maxPriorityFeePerGas),
+    executionsCount: executions.length,
   })
   let uoHash: `0x${string}`
   try {
