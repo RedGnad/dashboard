@@ -275,7 +275,8 @@ export default function AppModern() {
         "amountUsdc",
         (parseFloat(amount || "1") * 1e6).toFixed(0)
       );
-      const diag = await fetch(diagUrl.toString()).then((r) => r.json());
+      diagUrl.searchParams.set("ts", String(Date.now()));
+      const diag = await fetch(diagUrl.toString(), { cache: "no-store" }).then((r) => r.json());
 
       const next: any = {};
       if (address) next.eoa = address;
@@ -422,7 +423,8 @@ export default function AppModern() {
       try {
         const url = new URL("/api/balances", apiBase || window.location.origin);
         url.searchParams.set("address", addr);
-        const r = await fetch(url.toString()).then((x) => x.json());
+        url.searchParams.set("ts", String(Date.now()));
+        const r = await fetch(url.toString(), { cache: "no-store" }).then((x) => x.json());
         if (r && (r.ok || r.address)) {
           setAllBalances({ MON: r.MON, tokens: r.tokens || {} });
         }
@@ -437,7 +439,8 @@ export default function AppModern() {
       try {
         const url = new URL("/api/balances", apiBase || window.location.origin);
         url.searchParams.set("address", address);
-        const r = await fetch(url.toString()).then((x) => x.json());
+        url.searchParams.set("ts", String(Date.now()));
+        const r = await fetch(url.toString(), { cache: "no-store" }).then((x) => x.json());
         if (r && (r.ok || r.address)) {
           setEoaBalances({ MON: r.MON, tokens: r.tokens || {} });
         }
@@ -453,7 +456,8 @@ export default function AppModern() {
     try {
       const url = new URL("/api/balances", apiBase || window.location.origin);
       url.searchParams.set("address", addr);
-      const r = await fetch(url.toString()).then((x) => x.json());
+      url.searchParams.set("ts", String(Date.now()));
+      const r = await fetch(url.toString(), { cache: "no-store" }).then((x) => x.json());
       if (r && (r.ok || r.address)) {
         setAllBalances({ MON: r.MON, tokens: r.tokens || {} });
       }
@@ -462,7 +466,8 @@ export default function AppModern() {
       if (address) {
         const url2 = new URL("/api/balances", apiBase || window.location.origin);
         url2.searchParams.set("address", address);
-        const r2 = await fetch(url2.toString()).then((x) => x.json());
+        url2.searchParams.set("ts", String(Date.now()));
+        const r2 = await fetch(url2.toString(), { cache: "no-store" }).then((x) => x.json());
         if (r2 && (r2.ok || r2.address)) {
           setEoaBalances({ MON: r2.MON, tokens: r2.tokens || {} });
         }
@@ -1590,7 +1595,14 @@ export default function AppModern() {
         to: saPanel.delegator.address as Address,
         value,
       });
-      setMsg(`Top-up natif MON tx: ${txHash} (${amt} MON transférés)`);
+      try {
+        if (publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash: txHash as Hex });
+        }
+      } catch {}
+      setMsg(`Top-up natif MON confirmé: ${txHash} (${amt} MON)`);
+      try { await refreshAllBalances.current?.(); } catch {}
+      try { await refreshSaPanel(); } catch {}
     } catch (e: any) {
       setMsg(`Top-up natif échoué: ${e?.message || e}`);
     } finally {
@@ -1767,9 +1779,9 @@ export default function AppModern() {
     const eoaMon = Number(eoaBalances?.MON || 0) / 1e18;
     const eoaWmon = Number(eoaBalances?.tokens?.WMON || 0) / 1e18;
     
-    const saUsdc = Number(saPanel?.delegator?.usdc ?? allBalances?.tokens?.USDC ?? "0") / 1e6;
-    const saMon = Number(saPanel?.delegator?.mon ?? allBalances?.MON ?? "0") / 1e18;
-    const saWmon = Number(saPanel?.delegator?.wmon ?? allBalances?.tokens?.WMON ?? "0") / 1e18;
+    const saUsdc = Number(allBalances?.tokens?.USDC ?? saPanel?.delegator?.usdc ?? "0") / 1e6;
+    const saMon = Number(allBalances?.MON ?? saPanel?.delegator?.mon ?? "0") / 1e18;
+    const saWmon = Number(allBalances?.tokens?.WMON ?? saPanel?.delegator?.wmon ?? "0") / 1e18;
     
     const totalEoa = eoaUsdc + eoaMon + eoaWmon;
     const totalSa = saUsdc + saMon + saWmon;
@@ -1834,9 +1846,9 @@ export default function AppModern() {
           icon="shield"
           address={saPanel?.delegator?.address}
           balances={{
-            USDC: fmtToken("USDC", saPanel?.delegator?.usdc ?? allBalances?.tokens?.USDC),
-            MON: fmtToken("MON", saPanel?.delegator?.mon ?? allBalances?.MON),
-            WMON: fmtToken("WMON", saPanel?.delegator?.wmon ?? allBalances?.tokens?.WMON),
+            USDC: fmtToken("USDC", allBalances?.tokens?.USDC ?? saPanel?.delegator?.usdc),
+            MON: fmtToken("MON", allBalances?.MON ?? saPanel?.delegator?.mon),
+            WMON: fmtToken("WMON", allBalances?.tokens?.WMON ?? saPanel?.delegator?.wmon),
           }}
           progressPercentage={calculateSAProgress()}
           gradient="blue"

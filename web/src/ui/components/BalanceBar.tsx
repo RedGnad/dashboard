@@ -32,6 +32,7 @@ export default function BalanceBar({
   onRefresh,
   isRefreshing,
 }: BalanceBarProps) {
+  const [copied, setCopied] = React.useState(false);
   const g = {
     red: 'from-rose-500 to-red-600',
     blue: 'from-sky-500 to-indigo-600',
@@ -59,7 +60,21 @@ export default function BalanceBar({
             </div>
             <div>
               <div className="text-white font-semibold leading-tight">{title}</div>
-              <div className="text-white/60 text-xs font-mono">{shortAddr(address)}</div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!address) return;
+                  try {
+                    await navigator.clipboard.writeText(address);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1200);
+                  } catch {}
+                }}
+                title={address ? 'Click to copy' : ''}
+                className="text-white/60 hover:text-white/80 transition-colors text-xs font-mono underline-offset-2 hover:underline"
+              >
+                {copied ? 'Copied' : shortAddr(address)}
+              </button>
             </div>
           </div>
           {onRefresh && (
