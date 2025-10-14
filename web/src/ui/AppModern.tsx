@@ -1767,9 +1767,9 @@ export default function AppModern() {
     const eoaMon = Number(eoaBalances?.MON || 0) / 1e18;
     const eoaWmon = Number(eoaBalances?.tokens?.WMON || 0) / 1e18;
     
-    const saUsdc = Number(saPanel?.delegator?.usdc ?? allBalances?.tokens?.USDC || 0) / 1e6;
-    const saMon = Number(saPanel?.delegator?.mon ?? allBalances?.MON || 0) / 1e18;
-    const saWmon = Number(saPanel?.delegator?.wmon ?? allBalances?.tokens?.WMON || 0) / 1e18;
+    const saUsdc = Number(saPanel?.delegator?.usdc ?? allBalances?.tokens?.USDC ?? "0") / 1e6;
+    const saMon = Number(saPanel?.delegator?.mon ?? allBalances?.MON ?? "0") / 1e18;
+    const saWmon = Number(saPanel?.delegator?.wmon ?? allBalances?.tokens?.WMON ?? "0") / 1e18;
     
     const totalEoa = eoaUsdc + eoaMon + eoaWmon;
     const totalSa = saUsdc + saMon + saWmon;
