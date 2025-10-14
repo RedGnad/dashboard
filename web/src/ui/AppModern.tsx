@@ -36,6 +36,7 @@ import WalletButton from "./components/WalletButton";
 import ActionFAB from "./components/ActionFAB";
 import Modal from "./components/Modal";
 import DCADashboardModal from "./components/DCADashboardModal";
+import ModelStage from "./components/ModelStage";
 
 // Monad testnet UniswapV2 Router02
 const UNISWAP_V2_ROUTER02 = "0xfb8e1c3b833f9e67a71c859a132cf783b645e436" as Address;
@@ -1800,6 +1801,7 @@ export default function AppModern() {
     return (
       <div className="w-screen h-screen relative overflow-hidden">
         <GradientBackground />
+        <ModelStage />
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center">
             <h1 className="text-5xl font-bold text-white mb-8 drop-shadow-lg">
@@ -1821,6 +1823,7 @@ export default function AppModern() {
   return (
     <div className="w-screen h-screen relative overflow-hidden">
       <GradientBackground />
+      <ModelStage />
       
       {/* Wallet button */}
       <WalletButton />
@@ -1855,18 +1858,18 @@ export default function AppModern() {
           onRefresh={refreshAllBalances.current}
           isRefreshing={false}
         />
-        {/* Other tokens overview */}
-        <div className="backdrop-blur-md bg-white/10 border border-white/20 rounded-2xl shadow-lg p-4">
-          <div className="text-white/90 font-semibold mb-2">Other tokens</div>
-          <div className="grid grid-cols-2 gap-4">
+        {/* Other tokens overview (compact, aligned) */}
+        <div className="w-[380px] backdrop-blur-md bg-white/10 border border-white/20 rounded-2xl shadow-lg p-2">
+          <div className="text-white/90 font-semibold mb-1 text-sm">Other tokens</div>
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <div className="text-white/70 text-xs mb-1">EOA tokens</div>
-              <div className="flex flex-wrap gap-2 text-xs">
+              <div className="text-white/70 text-[11px] mb-1">EOA tokens</div>
+              <div className="flex flex-wrap gap-1 text-[11px]">
                 {Object.entries(eoaBalances?.tokens || {})
                   .filter(([k]) => ["USDC", "WMON"].indexOf(k) === -1)
                   .slice(0, 20)
                   .map(([sym, val]) => (
-                    <div key={`eoa-${sym}`} className="px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-white/90">
+                    <div key={`eoa-${sym}`} className="px-1.5 py-1 rounded bg-white/5 border border-white/10 text-white/90">
                       {sym}: <span className="font-mono">{fmtToken(sym, val)}</span>
                     </div>
                   ))}
@@ -1876,13 +1879,13 @@ export default function AppModern() {
               </div>
             </div>
             <div>
-              <div className="text-white/70 text-xs mb-1">Smart Account tokens</div>
-              <div className="flex flex-wrap gap-2 text-xs">
+              <div className="text-white/70 text-[11px] mb-1">Smart Account tokens</div>
+              <div className="flex flex-wrap gap-1 text-[11px]">
                 {Object.entries(allBalances?.tokens || {})
                   .filter(([k]) => ["USDC", "WMON"].indexOf(k) === -1)
                   .slice(0, 20)
                   .map(([sym, val]) => (
-                    <div key={`sa-${sym}`} className="px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-white/90">
+                    <div key={`sa-${sym}`} className="px-1.5 py-1 rounded bg-white/5 border border-white/10 text-white/90">
                       {sym}: <span className="font-mono">{fmtToken(sym, val)}</span>
                     </div>
                   ))}
