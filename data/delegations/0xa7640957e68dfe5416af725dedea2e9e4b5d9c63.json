@@ -23,7 +23,7 @@
     "signature": "0x5b082d0d74ac195d093d27e8151de7ad1c7ad594818ed9bea3e8e7bea5a0482e4601037eee3d63897c85ac8e95eb0adea3693f8ee6b381e933191ee7149799001c"
   },
   "job": {
-    "createdAtMs": 1760392347206,
+    "createdAtMs": 1760415029413,
     "unwrapEvery": 24,
     "slippageBps": 100,
     "intervalSec": 60,
@@ -35,7 +35,7 @@
     "auth3009": null,
     "dailyTopupUSDC": 1,
     "allowSellExecution": true,
-    "targetSymbol": "BEAN",
+    "targetSymbol": "CHOG",
     "source": "MON",
     "amountMON": 1
   }

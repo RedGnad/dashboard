@@ -313,14 +313,6 @@ export default function AiActions({
         }}
       >
         <label style={{ fontSize: 12 }}>
-          Delegator:
-          <input
-            value={delegator}
-            onChange={(e) => setDelegator(e.target.value)}
-            style={{ marginLeft: 6, width: 360 }}
-          />
-        </label>
-        <label style={{ fontSize: 12 }}>
           Profile:
           <select
             value={profile}
@@ -378,15 +370,6 @@ export default function AiActions({
             value={slippageBps}
             onChange={(e) => setSlippageBps(e.target.value)}
             style={{ marginLeft: 6, width: 70 }}
-          />
-        </label>
-        <label style={{ fontSize: 12 }}>
-          Unwrap to MON:
-          <input
-            type="checkbox"
-            checked={unwrap}
-            onChange={(e) => setUnwrap(e.target.checked)}
-            style={{ marginLeft: 6 }}
           />
         </label>
       </div>

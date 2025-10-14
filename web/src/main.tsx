@@ -4,7 +4,8 @@ import { createConfig, http, WagmiProvider } from "wagmi";
 import { ConnectKitProvider } from "connectkit";
 import { injected } from "@wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import App from "./ui/App";
+import App from "./ui/AppModern";
+import "./styles.css";
 
 const monadTestnet = {
   id: 10143,

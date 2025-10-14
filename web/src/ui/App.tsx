@@ -273,34 +273,7 @@ export default function App() {
     return String(v);
   }
 
-  // --- HyperIndex Proof (mini panel) -------------------------------------------------
-  const [hyperProof, setHyperProof] = useState<any>(null);
-  const [hyperProofErr, setHyperProofErr] = useState<string>("");
-  useEffect(() => {
-    let active = true;
-    async function poll() {
-      try {
-        const r = await fetch(`${apiBase || ""}/api/hyperindex/proof`)
-          .then((r) => r.json())
-          .catch(() => ({}));
-        if (!active) return;
-        if (r?.ok && r.proof) {
-          setHyperProof(r.proof);
-          setHyperProofErr("");
-        } else if (r?.empty) {
-          setHyperProof(null);
-        } else if (r?.error) {
-          setHyperProofErr(r.error);
-        }
-      } finally {
-        if (active) setTimeout(poll, 6000);
-      }
-    }
-    poll();
-    return () => {
-      active = false;
-    };
-  }, [apiBase]);
+  // HyperIndex Proof panel removed per user request
 
   async function refreshSaPanel() {
     try {
@@ -1494,6 +1467,15 @@ export default function App() {
     if (!saPanel.delegator?.address) return;
     try {
       setBusy(true);
+
+      // Créer automatiquement la value delegation si elle n'existe pas
+      if (!hasValueDelegation) {
+        setMsg("Création automatique de la value delegation...");
+        await createValueDelegationNative();
+        // Attendre un peu pour que la délégation soit enregistrée
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
       const r = await fetch(`${apiBase || ""}/api/send-mon`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1504,7 +1486,7 @@ export default function App() {
       if (!j?.ok) {
         if (j?.error === "value_delegation_missing") {
           setMsg(
-            "Délégation 'value' manquante: créez /api/delegations?role=value avant."
+            "Délégation 'value' manquante: réessayez dans quelques secondes."
           );
         } else if (j?.error === "core_delegation_missing") {
           setMsg("Délégation core absente.");
@@ -1864,7 +1846,6 @@ export default function App() {
         }}
       >
         <h1 style={{ margin: 0 }}>Monad Delegatoor</h1>
-        {renderPriceBadge()}
       </div>
       <button
         style={{ position: "absolute", top: 8, right: 8, fontSize: 10 }}
@@ -1906,11 +1887,6 @@ export default function App() {
               2
             )}
           </pre>
-        </div>
-      )}
-      {backendVersion && (
-        <div style={{ fontSize: 12, color: "#666" }}>
-          backend git: {backendVersion}
         </div>
       )}
       {!isConnected ? (
@@ -2025,28 +2001,6 @@ export default function App() {
                   }
                 })()}
               </div>
-              <div>
-                <div style={{ fontSize: 12, color: "#666" }}>Delegate SA</div>
-                <div style={{ wordBreak: "break-all" }}>
-                  {saPanel.delegate?.sa || "—"}
-                </div>
-                <div style={{ fontSize: 12, color: "#444" }}>
-                  MON:{" "}
-                  {saPanel.delegate?.mon
-                    ? (Number(saPanel.delegate.mon) / 1e18).toFixed(6)
-                    : "?"}
-                  {"  •  "}
-                  USDC:{" "}
-                  {saPanel.delegate?.usdc
-                    ? (Number(saPanel.delegate.usdc) / 1e6).toFixed(2)
-                    : "?"}
-                  {"  •  "}
-                  WMON:{" "}
-                  {saPanel.delegate?.wmon
-                    ? (Number(saPanel.delegate.wmon) / 1e18).toFixed(6)
-                    : "0.000000"}
-                </div>
-              </div>
               {saPanel.quote && (
                 <div style={{ fontSize: 12, color: "#444" }}>
                   Quote 1 USDC → WMON:{" "}
@@ -2061,90 +2015,13 @@ export default function App() {
                 </div>
               )}
             </div>
-          </div>
-          <div style={{ display: "grid", gap: 12 }}>
-            <label>
-              Amount per DCA ({schedulerSource}):
-              <input
-                value={amount}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setAmount(e.target.value)
-                }
-              />
-            </label>
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <label>
-                Source:
-                <select
-                  value={schedulerSource}
-                  onChange={(e) =>
-                    setSchedulerSource(e.target.value as "USDC" | "MON")
-                  }
-                  style={{ marginLeft: 6 }}
-                >
-                  <option value="USDC">USDC</option>
-                  <option value="MON">MON</option>
-                </select>
-              </label>
-              <label>
-                Target token:
-                <select
-                  value={schedulerTargetSymbol}
-                  onChange={(e) => setSchedulerTargetSymbol(e.target.value)}
-                  style={{ marginLeft: 6 }}
-                >
-                  {Object.keys(tokensMeta || {}).map((sym) => (
-                    <option key={sym} value={sym}>
-                      {sym}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <label>
-              Slippage (bps):
-              <input
-                value={slippageBps}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setSlippageBps(e.target.value)
-                }
-              />
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={unwrapToMon}
-                onChange={(e) => setUnwrapToMon(e.target.checked)}
-              />{" "}
-              Unwrap to MON
-            </label>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ marginTop: 12 }}>
               <button onClick={createAndPostDelegation} disabled={busy}>
                 {busy ? "Working…" : "Create Core Delegation"}
               </button>
-              <button
-                onClick={createValueDelegationNative}
-                disabled={
-                  busy || !saPanel.delegator?.address || hasValueDelegation
-                }
-                title={
-                  hasValueDelegation
-                    ? "Value delegation (native) déjà existante"
-                    : "Crée et signe la value delegation avec scope natif"
-                }
-              >
-                {hasValueDelegation
-                  ? "Value Delegation OK"
-                  : "Create Value Delegation (native)"}
-              </button>
             </div>
+          </div>
+          <div style={{ display: "grid", gap: 12 }}>
             {/* DCA job controls */}
             <div
               style={{
@@ -2159,6 +2036,64 @@ export default function App() {
                 <strong>DCA Scheduler</strong>
                 <div style={{ fontSize: 12, color: "#666" }}>
                   Interval: 60s • Duration: 24h
+                </div>
+              </div>
+              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                <label style={{ fontSize: 13 }}>
+                  Amount per DCA ({schedulerSource}):
+                  <input
+                    value={amount}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setAmount(e.target.value)
+                    }
+                    style={{ marginLeft: 6, width: 120 }}
+                  />
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <label style={{ fontSize: 13 }}>
+                    Source:
+                    <select
+                      value={schedulerSource}
+                      onChange={(e) =>
+                        setSchedulerSource(e.target.value as "USDC" | "MON")
+                      }
+                      style={{ marginLeft: 6 }}
+                    >
+                      <option value="USDC">USDC</option>
+                      <option value="MON">MON</option>
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 13 }}>
+                    Target token:
+                    <select
+                      value={schedulerTargetSymbol}
+                      onChange={(e) => setSchedulerTargetSymbol(e.target.value)}
+                      style={{ marginLeft: 6 }}
+                    >
+                      {Object.keys(tokensMeta || {}).map((sym) => (
+                        <option key={sym} value={sym}>
+                          {sym}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 13 }}>
+                    Slippage (bps):
+                    <input
+                      value={slippageBps}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setSlippageBps(e.target.value)
+                      }
+                      style={{ marginLeft: 6, width: 80 }}
+                    />
+                  </label>
                 </div>
               </div>
               <div style={{ fontSize: 13, marginTop: 6 }}>
@@ -2215,52 +2150,11 @@ export default function App() {
                   Stop DCA
                 </button>
                 <button
-                  onClick={unwrapNow}
-                  disabled={
-                    busy || !saPanel.delegator?.address || !hasDelegation
-                  }
-                >
-                  Unwrap WMON → MON
-                </button>
-                <button
-                  onClick={() => flushToken("WMON")}
-                  disabled={
-                    busy || !saPanel.delegator?.address || !hasDelegation
-                  }
-                >
-                  Send WMON → EOA
-                </button>
-                <button
                   onClick={sendMonNative}
-                  disabled={
-                    busy ||
-                    !saPanel.delegator?.address ||
-                    !hasDelegation ||
-                    !hasValueDelegation
-                  }
-                  title={
-                    !hasValueDelegation
-                      ? "Créer d'abord la value delegation (native)"
-                      : "Envoie tout le solde MON natif vers l'EOA"
-                  }
+                  disabled={busy || !saPanel.delegator?.address}
+                  title="Envoie tout le solde MON natif vers l'EOA (crée automatiquement la value delegation si nécessaire)"
                 >
                   Retirer MON (natif) → EOA
-                </button>
-                <button
-                  onClick={sendDelegateMonNative}
-                  disabled={busy || !hasValueDelegation}
-                  title="Retire le solde natif MON du delegate smart account vers son EOA"
-                >
-                  Retirer MON delegate SA → delegate EOA
-                </button>
-                {/* Bouton MON supprimé (flush natif désactivé) */}
-                <button
-                  onClick={wrapMonAll}
-                  disabled={
-                    busy || !saPanel.delegator?.address || !hasDelegation
-                  }
-                >
-                  Wrap MON → WMON
                 </button>
                 <button
                   onClick={convertAllToMon}
@@ -2442,239 +2336,6 @@ export default function App() {
         ) : (
           <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
             Connectez-vous pour voir les soldes.
-          </div>
-        )}
-      </div>
-
-      {/* Manual DCA: MON → selected tokens */}
-      <div
-        style={{
-          marginTop: 16,
-          padding: 12,
-          border: "1px solid #ddd",
-          borderRadius: 8,
-          background: "#fcfcfd",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <strong>DCA Manuel: MON → Tokens</strong>
-          {!hasValueDelegation && (
-            <span style={{ fontSize: 11, color: "#a33" }}>
-              Requiert la Value Delegation (native)
-            </span>
-          )}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            gap: 16,
-            alignItems: "center",
-            marginTop: 8,
-            flexWrap: "wrap",
-          }}
-        >
-          <label style={{ fontSize: 12 }}>
-            Montant MON:
-            <input
-              type="number"
-              value={manualMonAmount}
-              onChange={(e) => setManualMonAmount(e.target.value)}
-              min="0"
-              step="0.000001"
-              style={{ marginLeft: 6, width: 120 }}
-            />
-          </label>
-          <label style={{ fontSize: 12 }}>
-            Slippage (bps):
-            <input
-              type="number"
-              value={manualSlippageBps}
-              onChange={(e) => setManualSlippageBps(e.target.value)}
-              min="0"
-              step="1"
-              style={{ marginLeft: 6, width: 90 }}
-            />
-          </label>
-        </div>
-        <div
-          style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}
-        >
-          {Object.keys(tokensMeta).map((sym) => (
-            <label
-              key={sym}
-              style={{
-                fontSize: 12,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={!!manualTargets[sym]}
-                onChange={(e) =>
-                  setManualTargets((m) => ({ ...m, [sym]: e.target.checked }))
-                }
-              />
-              {sym}
-            </label>
-          ))}
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <button
-            disabled={
-              busy ||
-              !saPanel?.delegator?.address ||
-              Object.keys(manualTargets).filter((k) => manualTargets[k])
-                .length === 0 ||
-              !hasDelegation ||
-              !hasValueDelegation ||
-              Number(manualMonAmount) <= 0
-            }
-            onClick={async () => {
-              try {
-                setBusy(true);
-                setMsg((m) => (m ? m + "\n" : "") + "Envoi DCA manuel…");
-                const sel = Object.keys(manualTargets).filter(
-                  (k) => manualTargets[k]
-                );
-                const amtWei = BigInt(
-                  Math.floor(Number(manualMonAmount) * 1e18)
-                );
-                const r = await fetch(`${apiBase || ""}/api/manual/dca`, {
-                  method: "POST",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({
-                    delegatorSA: saPanel?.delegator?.address,
-                    targets: sel,
-                    amountMon: amtWei.toString(),
-                    slippageBps: parseInt(manualSlippageBps || "100", 10),
-                  }),
-                }).then((x) => x.json());
-                if (!r?.ok) throw new Error(r?.error || "manual_dca_failed");
-                setLastUserOp({
-                  hash: r.userOperationHash,
-                  polling: true,
-                  countdown: 90,
-                });
-              } catch (e: any) {
-                setMsg(
-                  (m) =>
-                    (m ? m + "\n" : "") +
-                    `DCA manuel échoué: ${e?.message || e}`
-                );
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            Exécuter MON → sélection
-          </button>
-        </div>
-      </div>
-      <div
-        style={{
-          marginTop: 16,
-          padding: 12,
-          border: "1px solid #ddd",
-          borderRadius: 8,
-          background: "#f9fbff",
-        }}
-      >
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            letterSpacing: 0.5,
-            textTransform: "uppercase",
-            color: "#334",
-          }}
-        >
-          HyperIndex Proof
-        </div>
-        {!hyperProof && !hyperProofErr && (
-          <div style={{ fontSize: 11, marginTop: 4 }}>
-            Aucune donnée (en attente d'événements)…
-          </div>
-        )}
-        {hyperProofErr && (
-          <div style={{ fontSize: 11, color: "#b00" }}>
-            Erreur: {hyperProofErr}
-          </div>
-        )}
-        {hyperProof && (
-          <div style={{ marginTop: 6, fontSize: 11, lineHeight: 1.4 }}>
-            <div>
-              eventSetHash:{" "}
-              <code>{String(hyperProof.eventSetHash).slice(0, 26)}…</code>
-            </div>
-            <div>events(24h): {hyperProof.eventCount}</div>
-            <div>
-              volatility_24h: {hyperProof.hyperMetrics?.volatility_24h ?? "—"}
-            </div>
-            <div>
-              priceChangePct_24h:{" "}
-              {hyperProof.hyperMetrics?.priceChangePct_24h ?? "—"}
-            </div>
-            {typeof hyperProof.hyperMetrics?.events_transfer_24h ===
-              "number" && (
-              <div>
-                transfers_24h: {hyperProof.hyperMetrics.events_transfer_24h}
-              </div>
-            )}
-          </div>
-        )}
-        {hyperProof && (
-          <div style={{ marginTop: 8 }}>
-            <button
-              style={{ fontSize: 11 }}
-              onClick={async () => {
-                try {
-                  const r = await fetch(
-                    `${apiBase || ""}/api/hyperindex/proof?canonical=1`
-                  ).then((r) => r.json());
-                  if (!r.ok) throw new Error(r.error || "fetch_failed");
-                  const canonical = r.proof?.canonical || "";
-                  if (!canonical) {
-                    alert("canonical absent");
-                    return;
-                  }
-                  // simple local keccak via dynamic import
-                  let kf: any;
-                  try {
-                    kf = (await import("js-sha3")).keccak256;
-                  } catch {}
-                  if (!kf) {
-                    alert("js-sha3 indisponible");
-                    return;
-                  }
-                  const local = "0x" + kf(canonical);
-                  if (
-                    local.toLowerCase() ===
-                    String(r.proof.eventSetHash).toLowerCase()
-                  ) {
-                    alert("Verification OK");
-                  } else {
-                    alert(
-                      "Mismatch local=" +
-                        local +
-                        " server=" +
-                        r.proof.eventSetHash
-                    );
-                  }
-                } catch (e: any) {
-                  alert("Erreur: " + (e?.message || e));
-                }
-              }}
-            >
-              Vérifier localement
-            </button>
           </div>
         )}
       </div>
