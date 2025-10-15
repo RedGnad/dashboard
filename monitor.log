@@ -1,0 +1,1733 @@
+[2025-10-15T15:16:32.680Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:16:32.787Z] ✅ Backend health: OK
+[2025-10-15T15:16:33.178Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:16:33.178Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:16:33.179Z]    Deployed: undefined
+[2025-10-15T15:16:33.179Z]    Balance: 0 MON
+[2025-10-15T15:16:33.179Z]    Nonce: 0
+[2025-10-15T15:16:33.179Z]    Bytecode: 0 chars
+[2025-10-15T15:16:33.181Z] 📋 Active delegations: 1
+[2025-10-15T15:16:33.182Z] 📊 === SUMMARY ===
+[2025-10-15T15:16:33.182Z] Backend: ✅ OK
+[2025-10-15T15:16:33.182Z] Delegate SA: ✅ OK
+[2025-10-15T15:16:33.183Z] Delegations: 1 active
+[2025-10-15T15:16:33.183Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:16:33.183Z] ==================================================
+[2025-10-15T15:17:05.094Z] 🚀 Starting continuous monitoring...
+[2025-10-15T15:17:05.104Z] Interval: 10 seconds
+[2025-10-15T15:17:05.104Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:17:05.152Z] ✅ Backend health: OK
+[2025-10-15T15:17:05.617Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:17:05.617Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:17:05.617Z]    Deployed: undefined
+[2025-10-15T15:17:05.618Z]    Balance: 0 MON
+[2025-10-15T15:17:05.618Z]    Nonce: 0
+[2025-10-15T15:17:05.618Z]    Bytecode: 0 chars
+[2025-10-15T15:17:05.620Z] 📋 Active delegations: 1
+[2025-10-15T15:17:05.620Z] 📊 === SUMMARY ===
+[2025-10-15T15:17:05.621Z] Backend: ✅ OK
+[2025-10-15T15:17:05.621Z] Delegate SA: ✅ OK
+[2025-10-15T15:17:05.621Z] Delegations: 1 active
+[2025-10-15T15:17:05.621Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:17:05.621Z] ==================================================
+[2025-10-15T15:17:05.621Z] ✅ Monitoring started. Press Ctrl+C to stop.
+[2025-10-15T15:17:15.623Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:17:15.630Z] ✅ Backend health: OK
+[2025-10-15T15:17:15.850Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:17:15.850Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:17:15.851Z]    Deployed: undefined
+[2025-10-15T15:17:15.851Z]    Balance: 0 MON
+[2025-10-15T15:17:15.851Z]    Nonce: 0
+[2025-10-15T15:17:15.851Z]    Bytecode: 0 chars
+[2025-10-15T15:17:15.852Z] 📋 Active delegations: 1
+[2025-10-15T15:17:15.852Z] 📊 === SUMMARY ===
+[2025-10-15T15:17:15.852Z] Backend: ✅ OK
+[2025-10-15T15:17:15.852Z] Delegate SA: ✅ OK
+[2025-10-15T15:17:15.852Z] Delegations: 1 active
+[2025-10-15T15:17:15.852Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:17:15.852Z] ==================================================
+[2025-10-15T15:17:25.625Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:17:25.633Z] ✅ Backend health: OK
+[2025-10-15T15:17:25.852Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:17:25.852Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:17:25.853Z]    Deployed: undefined
+[2025-10-15T15:17:25.853Z]    Balance: 0 MON
+[2025-10-15T15:17:25.853Z]    Nonce: 0
+[2025-10-15T15:17:25.853Z]    Bytecode: 0 chars
+[2025-10-15T15:17:25.853Z] 📋 Active delegations: 1
+[2025-10-15T15:17:25.854Z] 📊 === SUMMARY ===
+[2025-10-15T15:17:25.854Z] Backend: ✅ OK
+[2025-10-15T15:17:25.854Z] Delegate SA: ✅ OK
+[2025-10-15T15:17:25.854Z] Delegations: 1 active
+[2025-10-15T15:17:25.854Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:17:25.854Z] ==================================================
+[2025-10-15T15:17:35.627Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:17:35.638Z] ✅ Backend health: OK
+[2025-10-15T15:17:35.857Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:17:35.857Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:17:35.858Z]    Deployed: undefined
+[2025-10-15T15:17:35.858Z]    Balance: 0 MON
+[2025-10-15T15:17:35.858Z]    Nonce: 0
+[2025-10-15T15:17:35.858Z]    Bytecode: 0 chars
+[2025-10-15T15:17:35.858Z] 📋 Active delegations: 1
+[2025-10-15T15:17:35.859Z] 📊 === SUMMARY ===
+[2025-10-15T15:17:35.859Z] Backend: ✅ OK
+[2025-10-15T15:17:35.859Z] Delegate SA: ✅ OK
+[2025-10-15T15:17:35.859Z] Delegations: 1 active
+[2025-10-15T15:17:35.859Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:17:35.859Z] ==================================================
+[2025-10-15T15:17:45.627Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:17:45.633Z] ✅ Backend health: OK
+[2025-10-15T15:17:45.880Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:17:45.880Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:17:45.881Z]    Deployed: undefined
+[2025-10-15T15:17:45.881Z]    Balance: 0 MON
+[2025-10-15T15:17:45.881Z]    Nonce: 0
+[2025-10-15T15:17:45.881Z]    Bytecode: 0 chars
+[2025-10-15T15:17:45.881Z] 📋 Active delegations: 1
+[2025-10-15T15:17:45.882Z] 📊 === SUMMARY ===
+[2025-10-15T15:17:45.882Z] Backend: ✅ OK
+[2025-10-15T15:17:45.882Z] Delegate SA: ✅ OK
+[2025-10-15T15:17:45.882Z] Delegations: 1 active
+[2025-10-15T15:17:45.882Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:17:45.882Z] ==================================================
+[2025-10-15T15:17:55.628Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:17:55.640Z] ✅ Backend health: OK
+[2025-10-15T15:17:55.880Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:17:55.880Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:17:55.881Z]    Deployed: undefined
+[2025-10-15T15:17:55.881Z]    Balance: 0 MON
+[2025-10-15T15:17:55.881Z]    Nonce: 0
+[2025-10-15T15:17:55.881Z]    Bytecode: 0 chars
+[2025-10-15T15:17:55.882Z] 📋 Active delegations: 1
+[2025-10-15T15:17:55.883Z] 📊 === SUMMARY ===
+[2025-10-15T15:17:55.883Z] Backend: ✅ OK
+[2025-10-15T15:17:55.883Z] Delegate SA: ✅ OK
+[2025-10-15T15:17:55.883Z] Delegations: 1 active
+[2025-10-15T15:17:55.884Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:17:55.884Z] ==================================================
+[2025-10-15T15:18:05.630Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:18:05.644Z] ✅ Backend health: OK
+[2025-10-15T15:18:05.858Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:18:05.859Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:18:05.859Z]    Deployed: undefined
+[2025-10-15T15:18:05.860Z]    Balance: 0 MON
+[2025-10-15T15:18:05.860Z]    Nonce: 0
+[2025-10-15T15:18:05.860Z]    Bytecode: 0 chars
+[2025-10-15T15:18:05.861Z] 📋 Active delegations: 2
+[2025-10-15T15:18:05.875Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:18:05.875Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:18:05.875Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:18:05.875Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:18:05.875Z]      Caveats: 2
+[2025-10-15T15:18:05.876Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:18:05.876Z] 📊 === SUMMARY ===
+[2025-10-15T15:18:05.876Z] Backend: ✅ OK
+[2025-10-15T15:18:05.876Z] Delegate SA: ✅ OK
+[2025-10-15T15:18:05.876Z] Delegations: 2 active
+[2025-10-15T15:18:05.876Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:18:05.876Z] ==================================================
+[2025-10-15T15:18:05.877Z] 📋 DELEGATIONS CHANGED: 1 → 2
+[2025-10-15T15:18:15.631Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:18:15.639Z] ✅ Backend health: OK
+[2025-10-15T15:18:15.865Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:18:15.865Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:18:15.865Z]    Deployed: undefined
+[2025-10-15T15:18:15.866Z]    Balance: 0 MON
+[2025-10-15T15:18:15.866Z]    Nonce: 0
+[2025-10-15T15:18:15.866Z]    Bytecode: 0 chars
+[2025-10-15T15:18:15.867Z] 📋 Active delegations: 2
+[2025-10-15T15:18:15.867Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:18:15.867Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:18:15.867Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:18:15.867Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:18:15.867Z]      Caveats: 2
+[2025-10-15T15:18:15.868Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:18:15.868Z] 📊 === SUMMARY ===
+[2025-10-15T15:18:15.868Z] Backend: ✅ OK
+[2025-10-15T15:18:15.868Z] Delegate SA: ✅ OK
+[2025-10-15T15:18:15.868Z] Delegations: 2 active
+[2025-10-15T15:18:15.868Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:18:15.869Z] ==================================================
+[2025-10-15T15:18:25.632Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:18:25.640Z] ✅ Backend health: OK
+[2025-10-15T15:18:25.888Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:18:25.889Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:18:25.889Z]    Deployed: undefined
+[2025-10-15T15:18:25.889Z]    Balance: 0 MON
+[2025-10-15T15:18:25.889Z]    Nonce: 0
+[2025-10-15T15:18:25.889Z]    Bytecode: 0 chars
+[2025-10-15T15:18:25.890Z] 📋 Active delegations: 2
+[2025-10-15T15:18:25.890Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:18:25.890Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:18:25.890Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:18:25.890Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:18:25.891Z]      Caveats: 2
+[2025-10-15T15:18:25.891Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:18:25.893Z] 📊 === SUMMARY ===
+[2025-10-15T15:18:25.893Z] Backend: ✅ OK
+[2025-10-15T15:18:25.893Z] Delegate SA: ✅ OK
+[2025-10-15T15:18:25.893Z] Delegations: 2 active
+[2025-10-15T15:18:25.893Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:18:25.894Z] ==================================================
+[2025-10-15T15:18:35.636Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:18:35.646Z] ✅ Backend health: OK
+[2025-10-15T15:18:35.869Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:18:35.869Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:18:35.870Z]    Deployed: undefined
+[2025-10-15T15:18:35.881Z]    Balance: 0 MON
+[2025-10-15T15:18:35.881Z]    Nonce: 0
+[2025-10-15T15:18:35.881Z]    Bytecode: 0 chars
+[2025-10-15T15:18:35.882Z] 📋 Active delegations: 2
+[2025-10-15T15:18:35.882Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:18:35.882Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:18:35.882Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:18:35.882Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:18:35.883Z]      Caveats: 2
+[2025-10-15T15:18:35.883Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:18:35.911Z] 📊 === SUMMARY ===
+[2025-10-15T15:18:35.911Z] Backend: ✅ OK
+[2025-10-15T15:18:35.911Z] Delegate SA: ✅ OK
+[2025-10-15T15:18:35.912Z] Delegations: 2 active
+[2025-10-15T15:18:35.912Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:18:35.912Z] ==================================================
+[2025-10-15T15:18:45.637Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:18:45.642Z] ✅ Backend health: OK
+[2025-10-15T15:18:45.864Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:18:45.864Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:18:45.865Z]    Deployed: undefined
+[2025-10-15T15:18:45.865Z]    Balance: 0 MON
+[2025-10-15T15:18:45.865Z]    Nonce: 0
+[2025-10-15T15:18:45.865Z]    Bytecode: 0 chars
+[2025-10-15T15:18:45.866Z] 📋 Active delegations: 2
+[2025-10-15T15:18:45.867Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:18:45.867Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:18:45.867Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:18:45.867Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:18:45.868Z]      Caveats: 2
+[2025-10-15T15:18:45.868Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:18:45.868Z] 📊 === SUMMARY ===
+[2025-10-15T15:18:45.868Z] Backend: ✅ OK
+[2025-10-15T15:18:45.868Z] Delegate SA: ✅ OK
+[2025-10-15T15:18:45.869Z] Delegations: 2 active
+[2025-10-15T15:18:45.869Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:18:45.869Z] ==================================================
+[2025-10-15T15:18:55.639Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:18:55.649Z] ✅ Backend health: OK
+[2025-10-15T15:18:55.878Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:18:55.879Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:18:55.879Z]    Deployed: undefined
+[2025-10-15T15:18:55.880Z]    Balance: 0 MON
+[2025-10-15T15:18:55.880Z]    Nonce: 0
+[2025-10-15T15:18:55.881Z]    Bytecode: 0 chars
+[2025-10-15T15:18:55.881Z] 📋 Active delegations: 2
+[2025-10-15T15:18:55.882Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:18:55.882Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:18:55.882Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:18:55.882Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:18:55.883Z]      Caveats: 2
+[2025-10-15T15:18:55.883Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:18:55.883Z] 📊 === SUMMARY ===
+[2025-10-15T15:18:55.884Z] Backend: ✅ OK
+[2025-10-15T15:18:55.884Z] Delegate SA: ✅ OK
+[2025-10-15T15:18:55.884Z] Delegations: 2 active
+[2025-10-15T15:18:55.884Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:18:55.884Z] ==================================================
+[2025-10-15T15:19:05.642Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:19:05.738Z] ✅ Backend health: OK
+[2025-10-15T15:19:05.945Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:19:05.945Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:19:05.946Z]    Deployed: undefined
+[2025-10-15T15:19:05.946Z]    Balance: 0 MON
+[2025-10-15T15:19:05.946Z]    Nonce: 0
+[2025-10-15T15:19:05.946Z]    Bytecode: 0 chars
+[2025-10-15T15:19:05.946Z] 📋 Active delegations: 2
+[2025-10-15T15:19:05.947Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:19:05.947Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:19:05.947Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:19:05.947Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:19:05.947Z]      Caveats: 2
+[2025-10-15T15:19:05.947Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:19:05.948Z] 📊 === SUMMARY ===
+[2025-10-15T15:19:05.948Z] Backend: ✅ OK
+[2025-10-15T15:19:05.948Z] Delegate SA: ✅ OK
+[2025-10-15T15:19:05.948Z] Delegations: 2 active
+[2025-10-15T15:19:05.948Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:19:05.948Z] ==================================================
+[2025-10-15T15:19:15.643Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:19:15.650Z] ✅ Backend health: OK
+[2025-10-15T15:19:15.871Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:19:15.872Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:19:15.872Z]    Deployed: undefined
+[2025-10-15T15:19:15.872Z]    Balance: 0 MON
+[2025-10-15T15:19:15.873Z]    Nonce: 0
+[2025-10-15T15:19:15.873Z]    Bytecode: 0 chars
+[2025-10-15T15:19:15.874Z] 📋 Active delegations: 2
+[2025-10-15T15:19:15.874Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:19:15.874Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:19:15.875Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:19:15.875Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:19:15.875Z]      Caveats: 2
+[2025-10-15T15:19:15.875Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:19:15.875Z] 📊 === SUMMARY ===
+[2025-10-15T15:19:15.875Z] Backend: ✅ OK
+[2025-10-15T15:19:15.875Z] Delegate SA: ✅ OK
+[2025-10-15T15:19:15.876Z] Delegations: 2 active
+[2025-10-15T15:19:15.876Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:19:15.876Z] ==================================================
+[2025-10-15T15:19:25.644Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:19:25.652Z] ✅ Backend health: OK
+[2025-10-15T15:19:25.872Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:19:25.872Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:19:25.873Z]    Deployed: undefined
+[2025-10-15T15:19:25.873Z]    Balance: 0 MON
+[2025-10-15T15:19:25.873Z]    Nonce: 0
+[2025-10-15T15:19:25.873Z]    Bytecode: 0 chars
+[2025-10-15T15:19:25.874Z] 📋 Active delegations: 2
+[2025-10-15T15:19:25.874Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:19:25.874Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:19:25.874Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:19:25.874Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:19:25.874Z]      Caveats: 2
+[2025-10-15T15:19:25.875Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:19:25.876Z] 📊 === SUMMARY ===
+[2025-10-15T15:19:25.876Z] Backend: ✅ OK
+[2025-10-15T15:19:25.876Z] Delegate SA: ✅ OK
+[2025-10-15T15:19:25.876Z] Delegations: 2 active
+[2025-10-15T15:19:25.876Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:19:25.876Z] ==================================================
+[2025-10-15T15:19:35.644Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:19:35.649Z] ✅ Backend health: OK
+[2025-10-15T15:19:35.878Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:19:35.879Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:19:35.879Z]    Deployed: undefined
+[2025-10-15T15:19:35.879Z]    Balance: 0 MON
+[2025-10-15T15:19:35.879Z]    Nonce: 0
+[2025-10-15T15:19:35.879Z]    Bytecode: 0 chars
+[2025-10-15T15:19:35.880Z] 📋 Active delegations: 2
+[2025-10-15T15:19:35.880Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:19:35.880Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:19:35.880Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:19:35.881Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:19:35.881Z]      Caveats: 2
+[2025-10-15T15:19:35.881Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:19:35.881Z] 📊 === SUMMARY ===
+[2025-10-15T15:19:35.881Z] Backend: ✅ OK
+[2025-10-15T15:19:35.881Z] Delegate SA: ✅ OK
+[2025-10-15T15:19:35.881Z] Delegations: 2 active
+[2025-10-15T15:19:35.882Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:19:35.882Z] ==================================================
+[2025-10-15T15:19:45.648Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:19:45.663Z] ✅ Backend health: OK
+[2025-10-15T15:19:45.910Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:19:45.910Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:19:45.910Z]    Deployed: undefined
+[2025-10-15T15:19:45.910Z]    Balance: 0 MON
+[2025-10-15T15:19:45.910Z]    Nonce: 0
+[2025-10-15T15:19:45.910Z]    Bytecode: 0 chars
+[2025-10-15T15:19:45.911Z] 📋 Active delegations: 2
+[2025-10-15T15:19:45.911Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:19:45.911Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:19:45.911Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:19:45.911Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:19:45.911Z]      Caveats: 2
+[2025-10-15T15:19:45.911Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:19:45.911Z] 📊 === SUMMARY ===
+[2025-10-15T15:19:45.912Z] Backend: ✅ OK
+[2025-10-15T15:19:45.912Z] Delegate SA: ✅ OK
+[2025-10-15T15:19:45.912Z] Delegations: 2 active
+[2025-10-15T15:19:45.912Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:19:45.912Z] ==================================================
+[2025-10-15T15:19:55.656Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:19:55.683Z] ✅ Backend health: OK
+[2025-10-15T15:19:55.943Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:19:55.944Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:19:55.945Z]    Deployed: undefined
+[2025-10-15T15:19:55.946Z]    Balance: 0 MON
+[2025-10-15T15:19:55.947Z]    Nonce: 0
+[2025-10-15T15:19:55.947Z]    Bytecode: 0 chars
+[2025-10-15T15:19:55.949Z] 📋 Active delegations: 2
+[2025-10-15T15:19:55.950Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:19:55.951Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:19:55.951Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:19:55.951Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:19:55.952Z]      Caveats: 2
+[2025-10-15T15:19:55.952Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:19:55.955Z] 📊 === SUMMARY ===
+[2025-10-15T15:19:55.956Z] Backend: ✅ OK
+[2025-10-15T15:19:55.956Z] Delegate SA: ✅ OK
+[2025-10-15T15:19:55.956Z] Delegations: 2 active
+[2025-10-15T15:19:55.957Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:19:55.957Z] ==================================================
+[2025-10-15T15:20:05.658Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:20:05.682Z] ✅ Backend health: OK
+[2025-10-15T15:20:05.931Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:20:05.931Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:20:05.931Z]    Deployed: undefined
+[2025-10-15T15:20:05.931Z]    Balance: 0 MON
+[2025-10-15T15:20:05.932Z]    Nonce: 0
+[2025-10-15T15:20:05.932Z]    Bytecode: 0 chars
+[2025-10-15T15:20:05.932Z] 📋 Active delegations: 2
+[2025-10-15T15:20:05.932Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:20:05.932Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:20:05.932Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:20:05.933Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:20:05.933Z]      Caveats: 2
+[2025-10-15T15:20:05.933Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:20:05.933Z] 📊 === SUMMARY ===
+[2025-10-15T15:20:05.933Z] Backend: ✅ OK
+[2025-10-15T15:20:05.933Z] Delegate SA: ✅ OK
+[2025-10-15T15:20:05.933Z] Delegations: 2 active
+[2025-10-15T15:20:05.933Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:20:05.933Z] ==================================================
+[2025-10-15T15:20:15.660Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:20:15.668Z] ✅ Backend health: OK
+[2025-10-15T15:20:15.886Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:20:15.908Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:20:15.910Z]    Deployed: undefined
+[2025-10-15T15:20:15.912Z]    Balance: 0 MON
+[2025-10-15T15:20:15.912Z]    Nonce: 0
+[2025-10-15T15:20:15.913Z]    Bytecode: 0 chars
+[2025-10-15T15:20:15.915Z] 📋 Active delegations: 2
+[2025-10-15T15:20:15.916Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:20:15.916Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:20:15.916Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:20:15.916Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:20:15.917Z]      Caveats: 2
+[2025-10-15T15:20:15.917Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:20:15.917Z] 📊 === SUMMARY ===
+[2025-10-15T15:20:15.917Z] Backend: ✅ OK
+[2025-10-15T15:20:15.918Z] Delegate SA: ✅ OK
+[2025-10-15T15:20:15.918Z] Delegations: 2 active
+[2025-10-15T15:20:15.918Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:20:15.918Z] ==================================================
+[2025-10-15T15:20:25.661Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:20:25.668Z] ✅ Backend health: OK
+[2025-10-15T15:20:25.880Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:20:25.881Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:20:25.881Z]    Deployed: undefined
+[2025-10-15T15:20:25.881Z]    Balance: 0 MON
+[2025-10-15T15:20:25.881Z]    Nonce: 0
+[2025-10-15T15:20:25.881Z]    Bytecode: 0 chars
+[2025-10-15T15:20:25.882Z] 📋 Active delegations: 2
+[2025-10-15T15:20:25.882Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:20:25.882Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:20:25.882Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:20:25.883Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:20:25.883Z]      Caveats: 2
+[2025-10-15T15:20:25.883Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:20:25.883Z] 📊 === SUMMARY ===
+[2025-10-15T15:20:25.883Z] Backend: ✅ OK
+[2025-10-15T15:20:25.884Z] Delegate SA: ✅ OK
+[2025-10-15T15:20:25.884Z] Delegations: 2 active
+[2025-10-15T15:20:25.884Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:20:25.884Z] ==================================================
+[2025-10-15T15:20:35.664Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:20:35.710Z] ✅ Backend health: OK
+[2025-10-15T15:20:35.985Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:20:35.985Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:20:35.985Z]    Deployed: undefined
+[2025-10-15T15:20:35.985Z]    Balance: 0 MON
+[2025-10-15T15:20:35.985Z]    Nonce: 0
+[2025-10-15T15:20:35.985Z]    Bytecode: 0 chars
+[2025-10-15T15:20:35.986Z] 📋 Active delegations: 2
+[2025-10-15T15:20:35.986Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:20:35.986Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:20:35.986Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:20:35.986Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:20:36.009Z]      Caveats: 2
+[2025-10-15T15:20:36.009Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:20:36.009Z] 📊 === SUMMARY ===
+[2025-10-15T15:20:36.010Z] Backend: ✅ OK
+[2025-10-15T15:20:36.010Z] Delegate SA: ✅ OK
+[2025-10-15T15:20:36.010Z] Delegations: 2 active
+[2025-10-15T15:20:36.010Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:20:36.010Z] ==================================================
+[2025-10-15T15:20:45.666Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:20:45.713Z] ✅ Backend health: OK
+[2025-10-15T15:20:45.935Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:20:45.935Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:20:45.935Z]    Deployed: undefined
+[2025-10-15T15:20:45.935Z]    Balance: 0 MON
+[2025-10-15T15:20:45.936Z]    Nonce: 0
+[2025-10-15T15:20:45.936Z]    Bytecode: 0 chars
+[2025-10-15T15:20:45.936Z] 📋 Active delegations: 2
+[2025-10-15T15:20:45.937Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:20:45.937Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:20:45.937Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:20:45.938Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:20:45.938Z]      Caveats: 2
+[2025-10-15T15:20:45.938Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:20:45.939Z] 📊 === SUMMARY ===
+[2025-10-15T15:20:45.939Z] Backend: ✅ OK
+[2025-10-15T15:20:45.939Z] Delegate SA: ✅ OK
+[2025-10-15T15:20:45.940Z] Delegations: 2 active
+[2025-10-15T15:20:45.940Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:20:45.940Z] ==================================================
+[2025-10-15T15:20:55.667Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:20:55.678Z] ✅ Backend health: OK
+[2025-10-15T15:20:55.897Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:20:55.898Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:20:55.898Z]    Deployed: undefined
+[2025-10-15T15:20:55.898Z]    Balance: 0 MON
+[2025-10-15T15:20:55.898Z]    Nonce: 0
+[2025-10-15T15:20:55.898Z]    Bytecode: 0 chars
+[2025-10-15T15:20:55.899Z] 📋 Active delegations: 2
+[2025-10-15T15:20:55.899Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:20:55.899Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:20:55.900Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:20:55.900Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:20:55.900Z]      Caveats: 2
+[2025-10-15T15:20:55.900Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:20:55.902Z] 📊 === SUMMARY ===
+[2025-10-15T15:20:55.902Z] Backend: ✅ OK
+[2025-10-15T15:20:55.902Z] Delegate SA: ✅ OK
+[2025-10-15T15:20:55.902Z] Delegations: 2 active
+[2025-10-15T15:20:55.903Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:20:55.903Z] ==================================================
+[2025-10-15T15:21:05.672Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:21:05.805Z] ✅ Backend health: OK
+[2025-10-15T15:21:06.190Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:21:06.190Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:21:06.190Z]    Deployed: undefined
+[2025-10-15T15:21:06.190Z]    Balance: 0 MON
+[2025-10-15T15:21:06.191Z]    Nonce: 0
+[2025-10-15T15:21:06.191Z]    Bytecode: 0 chars
+[2025-10-15T15:21:06.195Z] 📋 Active delegations: 2
+[2025-10-15T15:21:06.197Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:21:06.197Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:21:06.198Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:21:06.200Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:21:06.201Z]      Caveats: 2
+[2025-10-15T15:21:06.201Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:21:06.301Z] 📊 === SUMMARY ===
+[2025-10-15T15:21:06.301Z] Backend: ✅ OK
+[2025-10-15T15:21:06.301Z] Delegate SA: ✅ OK
+[2025-10-15T15:21:06.301Z] Delegations: 2 active
+[2025-10-15T15:21:06.301Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:21:06.302Z] ==================================================
+[2025-10-15T15:21:15.696Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:21:21.063Z] ✅ Backend health: OK
+[2025-10-15T15:21:21.647Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:21:21.648Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:21:21.648Z]    Deployed: undefined
+[2025-10-15T15:21:21.648Z]    Balance: 0 MON
+[2025-10-15T15:21:21.649Z]    Nonce: 0
+[2025-10-15T15:21:21.649Z]    Bytecode: 0 chars
+[2025-10-15T15:21:21.650Z] 📋 Active delegations: 2
+[2025-10-15T15:21:21.653Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:21:21.654Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:21:21.655Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:21:21.666Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:21:21.672Z]      Caveats: 2
+[2025-10-15T15:21:21.673Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:21:21.674Z] 📊 === SUMMARY ===
+[2025-10-15T15:21:21.674Z] Backend: ✅ OK
+[2025-10-15T15:21:21.674Z] Delegate SA: ✅ OK
+[2025-10-15T15:21:21.674Z] Delegations: 2 active
+[2025-10-15T15:21:21.674Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:21:21.675Z] ==================================================
+[2025-10-15T15:21:25.685Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:21:26.411Z] ✅ Backend health: OK
+[2025-10-15T15:21:26.698Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:21:26.699Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:21:26.704Z]    Deployed: undefined
+[2025-10-15T15:21:26.728Z]    Balance: 0 MON
+[2025-10-15T15:21:26.732Z]    Nonce: 0
+[2025-10-15T15:21:26.738Z]    Bytecode: 0 chars
+[2025-10-15T15:21:26.742Z] 📋 Active delegations: 2
+[2025-10-15T15:21:26.744Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:21:26.744Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:21:26.744Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:21:26.745Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:21:26.745Z]      Caveats: 2
+[2025-10-15T15:21:26.746Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:21:26.747Z] 📊 === SUMMARY ===
+[2025-10-15T15:21:26.748Z] Backend: ✅ OK
+[2025-10-15T15:21:26.748Z] Delegate SA: ✅ OK
+[2025-10-15T15:21:26.749Z] Delegations: 2 active
+[2025-10-15T15:21:26.750Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:21:26.751Z] ==================================================
+[2025-10-15T15:21:35.701Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:21:35.793Z] ✅ Backend health: OK
+[2025-10-15T15:21:36.084Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:21:36.085Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:21:36.085Z]    Deployed: undefined
+[2025-10-15T15:21:36.085Z]    Balance: 0 MON
+[2025-10-15T15:21:36.085Z]    Nonce: 0
+[2025-10-15T15:21:36.085Z]    Bytecode: 0 chars
+[2025-10-15T15:21:36.087Z] 📋 Active delegations: 2
+[2025-10-15T15:21:36.089Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:21:36.090Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:21:36.091Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:21:36.091Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:21:36.091Z]      Caveats: 2
+[2025-10-15T15:21:36.092Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:21:36.092Z] 📊 === SUMMARY ===
+[2025-10-15T15:21:36.092Z] Backend: ✅ OK
+[2025-10-15T15:21:36.092Z] Delegate SA: ✅ OK
+[2025-10-15T15:21:36.093Z] Delegations: 2 active
+[2025-10-15T15:21:36.093Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:21:36.093Z] ==================================================
+[2025-10-15T15:21:45.702Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:21:45.795Z] ✅ Backend health: OK
+[2025-10-15T15:21:46.046Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:21:46.058Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:21:46.058Z]    Deployed: undefined
+[2025-10-15T15:21:46.059Z]    Balance: 0 MON
+[2025-10-15T15:21:46.059Z]    Nonce: 0
+[2025-10-15T15:21:46.060Z]    Bytecode: 0 chars
+[2025-10-15T15:21:46.062Z] 📋 Active delegations: 2
+[2025-10-15T15:21:46.064Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:21:46.065Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:21:46.065Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:21:46.065Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:21:46.065Z]      Caveats: 2
+[2025-10-15T15:21:46.065Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:21:46.148Z] 📊 === SUMMARY ===
+[2025-10-15T15:21:46.148Z] Backend: ✅ OK
+[2025-10-15T15:21:46.149Z] Delegate SA: ✅ OK
+[2025-10-15T15:21:46.149Z] Delegations: 2 active
+[2025-10-15T15:21:46.149Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:21:46.149Z] ==================================================
+[2025-10-15T15:21:55.703Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:21:55.710Z] ✅ Backend health: OK
+[2025-10-15T15:21:55.938Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:21:55.938Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:21:55.939Z]    Deployed: undefined
+[2025-10-15T15:21:55.939Z]    Balance: 0 MON
+[2025-10-15T15:21:55.939Z]    Nonce: 0
+[2025-10-15T15:21:55.939Z]    Bytecode: 0 chars
+[2025-10-15T15:21:55.939Z] 📋 Active delegations: 2
+[2025-10-15T15:21:55.940Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:21:55.940Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:21:55.940Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:21:55.940Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:21:55.940Z]      Caveats: 2
+[2025-10-15T15:21:55.940Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:21:55.940Z] 📊 === SUMMARY ===
+[2025-10-15T15:21:55.940Z] Backend: ✅ OK
+[2025-10-15T15:21:55.941Z] Delegate SA: ✅ OK
+[2025-10-15T15:21:55.941Z] Delegations: 2 active
+[2025-10-15T15:21:55.941Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:21:55.941Z] ==================================================
+[2025-10-15T15:22:05.708Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:22:05.831Z] ✅ Backend health: OK
+[2025-10-15T15:22:06.115Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:22:06.115Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:22:06.115Z]    Deployed: undefined
+[2025-10-15T15:22:06.116Z]    Balance: 0 MON
+[2025-10-15T15:22:06.116Z]    Nonce: 0
+[2025-10-15T15:22:06.116Z]    Bytecode: 0 chars
+[2025-10-15T15:22:06.117Z] 📋 Active delegations: 2
+[2025-10-15T15:22:06.117Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:22:06.118Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:22:06.118Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:22:06.118Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:22:06.118Z]      Caveats: 2
+[2025-10-15T15:22:06.118Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:22:06.119Z] 📊 === SUMMARY ===
+[2025-10-15T15:22:06.119Z] Backend: ✅ OK
+[2025-10-15T15:22:06.119Z] Delegate SA: ✅ OK
+[2025-10-15T15:22:06.119Z] Delegations: 2 active
+[2025-10-15T15:22:06.119Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:22:06.120Z] ==================================================
+[2025-10-15T15:22:15.708Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:22:15.816Z] ✅ Backend health: OK
+[2025-10-15T15:22:16.062Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:22:16.062Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:22:16.062Z]    Deployed: undefined
+[2025-10-15T15:22:16.062Z]    Balance: 0 MON
+[2025-10-15T15:22:16.062Z]    Nonce: 0
+[2025-10-15T15:22:16.062Z]    Bytecode: 0 chars
+[2025-10-15T15:22:16.064Z] 📋 Active delegations: 2
+[2025-10-15T15:22:16.066Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:22:16.066Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:22:16.067Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:22:16.067Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:22:16.068Z]      Caveats: 2
+[2025-10-15T15:22:16.068Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:22:16.097Z] 📊 === SUMMARY ===
+[2025-10-15T15:22:16.098Z] Backend: ✅ OK
+[2025-10-15T15:22:16.098Z] Delegate SA: ✅ OK
+[2025-10-15T15:22:16.098Z] Delegations: 2 active
+[2025-10-15T15:22:16.098Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:22:16.098Z] ==================================================
+[2025-10-15T15:22:25.718Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:22:25.741Z] ✅ Backend health: OK
+[2025-10-15T15:22:25.975Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:22:25.975Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:22:25.975Z]    Deployed: undefined
+[2025-10-15T15:22:25.976Z]    Balance: 0 MON
+[2025-10-15T15:22:25.976Z]    Nonce: 0
+[2025-10-15T15:22:25.976Z]    Bytecode: 0 chars
+[2025-10-15T15:22:25.976Z] 📋 Active delegations: 2
+[2025-10-15T15:22:25.977Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:22:25.977Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:22:25.977Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:22:25.977Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:22:25.977Z]      Caveats: 2
+[2025-10-15T15:22:25.977Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:22:25.978Z] 📊 === SUMMARY ===
+[2025-10-15T15:22:25.978Z] Backend: ✅ OK
+[2025-10-15T15:22:25.978Z] Delegate SA: ✅ OK
+[2025-10-15T15:22:25.978Z] Delegations: 2 active
+[2025-10-15T15:22:25.978Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:22:25.978Z] ==================================================
+[2025-10-15T15:22:35.728Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:22:35.779Z] ✅ Backend health: OK
+[2025-10-15T15:22:36.132Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:22:36.133Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:22:36.133Z]    Deployed: undefined
+[2025-10-15T15:22:36.133Z]    Balance: 0 MON
+[2025-10-15T15:22:36.134Z]    Nonce: 0
+[2025-10-15T15:22:36.134Z]    Bytecode: 0 chars
+[2025-10-15T15:22:36.136Z] 📋 Active delegations: 2
+[2025-10-15T15:22:36.138Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:22:36.139Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:22:36.140Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:22:36.141Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:22:36.141Z]      Caveats: 2
+[2025-10-15T15:22:36.142Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:22:36.142Z] 📊 === SUMMARY ===
+[2025-10-15T15:22:36.142Z] Backend: ✅ OK
+[2025-10-15T15:22:36.143Z] Delegate SA: ✅ OK
+[2025-10-15T15:22:36.143Z] Delegations: 2 active
+[2025-10-15T15:22:36.143Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:22:36.143Z] ==================================================
+[2025-10-15T15:22:45.750Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:22:45.860Z] ✅ Backend health: OK
+[2025-10-15T15:22:46.156Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:22:46.156Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:22:46.156Z]    Deployed: undefined
+[2025-10-15T15:22:46.157Z]    Balance: 0 MON
+[2025-10-15T15:22:46.157Z]    Nonce: 0
+[2025-10-15T15:22:46.157Z]    Bytecode: 0 chars
+[2025-10-15T15:22:46.158Z] 📋 Active delegations: 2
+[2025-10-15T15:22:46.159Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:22:46.159Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:22:46.159Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:22:46.159Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:22:46.159Z]      Caveats: 2
+[2025-10-15T15:22:46.159Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:22:46.159Z] 📊 === SUMMARY ===
+[2025-10-15T15:22:46.159Z] Backend: ✅ OK
+[2025-10-15T15:22:46.160Z] Delegate SA: ✅ OK
+[2025-10-15T15:22:46.160Z] Delegations: 2 active
+[2025-10-15T15:22:46.160Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:22:46.160Z] ==================================================
+[2025-10-15T15:22:55.759Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:22:55.776Z] ✅ Backend health: OK
+[2025-10-15T15:22:56.012Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:22:56.016Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:22:56.016Z]    Deployed: undefined
+[2025-10-15T15:22:56.016Z]    Balance: 0 MON
+[2025-10-15T15:22:56.016Z]    Nonce: 0
+[2025-10-15T15:22:56.017Z]    Bytecode: 0 chars
+[2025-10-15T15:22:56.018Z] 📋 Active delegations: 2
+[2025-10-15T15:22:56.019Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:22:56.019Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:22:56.019Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:22:56.019Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:22:56.020Z]      Caveats: 2
+[2025-10-15T15:22:56.020Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:22:56.021Z] 📊 === SUMMARY ===
+[2025-10-15T15:22:56.021Z] Backend: ✅ OK
+[2025-10-15T15:22:56.021Z] Delegate SA: ✅ OK
+[2025-10-15T15:22:56.021Z] Delegations: 2 active
+[2025-10-15T15:22:56.021Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:22:56.022Z] ==================================================
+[2025-10-15T15:23:05.758Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:23:05.768Z] ✅ Backend health: OK
+[2025-10-15T15:23:06.030Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:23:06.031Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:23:06.031Z]    Deployed: undefined
+[2025-10-15T15:23:06.031Z]    Balance: 0 MON
+[2025-10-15T15:23:06.031Z]    Nonce: 0
+[2025-10-15T15:23:06.031Z]    Bytecode: 0 chars
+[2025-10-15T15:23:06.031Z] 📋 Active delegations: 2
+[2025-10-15T15:23:06.032Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:23:06.032Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:23:06.032Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:23:06.032Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:23:06.032Z]      Caveats: 2
+[2025-10-15T15:23:06.032Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:23:06.033Z] 📊 === SUMMARY ===
+[2025-10-15T15:23:06.033Z] Backend: ✅ OK
+[2025-10-15T15:23:06.033Z] Delegate SA: ✅ OK
+[2025-10-15T15:23:06.033Z] Delegations: 2 active
+[2025-10-15T15:23:06.033Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:23:06.033Z] ==================================================
+[2025-10-15T15:23:15.767Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:23:15.848Z] ✅ Backend health: OK
+[2025-10-15T15:23:16.142Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:23:16.143Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:23:16.143Z]    Deployed: undefined
+[2025-10-15T15:23:16.143Z]    Balance: 0 MON
+[2025-10-15T15:23:16.143Z]    Nonce: 0
+[2025-10-15T15:23:16.150Z]    Bytecode: 0 chars
+[2025-10-15T15:23:16.150Z] 📋 Active delegations: 2
+[2025-10-15T15:23:16.151Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:23:16.151Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:23:16.151Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:23:16.151Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:23:16.151Z]      Caveats: 2
+[2025-10-15T15:23:16.151Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:23:16.152Z] 📊 === SUMMARY ===
+[2025-10-15T15:23:16.152Z] Backend: ✅ OK
+[2025-10-15T15:23:16.152Z] Delegate SA: ✅ OK
+[2025-10-15T15:23:16.152Z] Delegations: 2 active
+[2025-10-15T15:23:16.152Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:23:16.152Z] ==================================================
+[2025-10-15T15:23:25.773Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:23:25.841Z] ✅ Backend health: OK
+[2025-10-15T15:23:26.132Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:23:26.132Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:23:26.132Z]    Deployed: undefined
+[2025-10-15T15:23:26.132Z]    Balance: 0 MON
+[2025-10-15T15:23:26.133Z]    Nonce: 0
+[2025-10-15T15:23:26.133Z]    Bytecode: 0 chars
+[2025-10-15T15:23:26.133Z] 📋 Active delegations: 2
+[2025-10-15T15:23:26.134Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:23:26.134Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:23:26.134Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:23:26.134Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:23:26.134Z]      Caveats: 2
+[2025-10-15T15:23:26.134Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:23:26.135Z] 📊 === SUMMARY ===
+[2025-10-15T15:23:26.135Z] Backend: ✅ OK
+[2025-10-15T15:23:26.135Z] Delegate SA: ✅ OK
+[2025-10-15T15:23:26.136Z] Delegations: 2 active
+[2025-10-15T15:23:26.136Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:23:26.136Z] ==================================================
+[2025-10-15T15:23:35.773Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:23:38.916Z] ✅ Backend health: OK
+[2025-10-15T15:23:39.364Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:23:39.365Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:23:39.365Z]    Deployed: undefined
+[2025-10-15T15:23:39.365Z]    Balance: 0 MON
+[2025-10-15T15:23:39.365Z]    Nonce: 0
+[2025-10-15T15:23:39.365Z]    Bytecode: 0 chars
+[2025-10-15T15:23:39.366Z] 📋 Active delegations: 2
+[2025-10-15T15:23:39.367Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:23:39.368Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:23:39.368Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:23:39.368Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:23:39.368Z]      Caveats: 2
+[2025-10-15T15:23:39.368Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:23:39.368Z] 📊 === SUMMARY ===
+[2025-10-15T15:23:39.369Z] Backend: ✅ OK
+[2025-10-15T15:23:39.369Z] Delegate SA: ✅ OK
+[2025-10-15T15:23:39.369Z] Delegations: 2 active
+[2025-10-15T15:23:39.369Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:23:39.369Z] ==================================================
+[2025-10-15T15:23:45.775Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:23:45.789Z] ✅ Backend health: OK
+[2025-10-15T15:23:46.031Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:23:46.031Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:23:46.032Z]    Deployed: undefined
+[2025-10-15T15:23:46.032Z]    Balance: 0 MON
+[2025-10-15T15:23:46.033Z]    Nonce: 0
+[2025-10-15T15:23:46.033Z]    Bytecode: 0 chars
+[2025-10-15T15:23:46.034Z] 📋 Active delegations: 2
+[2025-10-15T15:23:46.034Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:23:46.034Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:23:46.034Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:23:46.034Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:23:46.035Z]      Caveats: 2
+[2025-10-15T15:23:46.035Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:23:46.111Z] 📊 === SUMMARY ===
+[2025-10-15T15:23:46.111Z] Backend: ✅ OK
+[2025-10-15T15:23:46.112Z] Delegate SA: ✅ OK
+[2025-10-15T15:23:46.112Z] Delegations: 2 active
+[2025-10-15T15:23:46.112Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:23:46.112Z] ==================================================
+[2025-10-15T15:23:55.777Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:23:55.795Z] ✅ Backend health: OK
+[2025-10-15T15:23:56.014Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:23:56.015Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:23:56.015Z]    Deployed: undefined
+[2025-10-15T15:23:56.015Z]    Balance: 0 MON
+[2025-10-15T15:23:56.015Z]    Nonce: 0
+[2025-10-15T15:23:56.015Z]    Bytecode: 0 chars
+[2025-10-15T15:23:56.015Z] 📋 Active delegations: 2
+[2025-10-15T15:23:56.016Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:23:56.016Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:23:56.016Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:23:56.016Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:23:56.016Z]      Caveats: 2
+[2025-10-15T15:23:56.016Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:23:56.017Z] 📊 === SUMMARY ===
+[2025-10-15T15:23:56.017Z] Backend: ✅ OK
+[2025-10-15T15:23:56.017Z] Delegate SA: ✅ OK
+[2025-10-15T15:23:56.017Z] Delegations: 2 active
+[2025-10-15T15:23:56.017Z] ⚠️  WARNING: Delegate SA not deployed - will deploy on first UserOp
+[2025-10-15T15:23:56.017Z] ==================================================
+[2025-10-15T15:24:05.778Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:24:05.808Z] ✅ Backend health: OK
+[2025-10-15T15:24:06.020Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:24:06.024Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:24:06.024Z]    Deployed: true
+[2025-10-15T15:24:06.024Z]    Balance: 0 MON
+[2025-10-15T15:24:06.025Z]    Nonce: 1
+[2025-10-15T15:24:06.025Z]    Bytecode: 328 chars
+[2025-10-15T15:24:06.025Z] 📋 Active delegations: 2
+[2025-10-15T15:24:06.026Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:24:06.026Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:24:06.026Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:24:06.026Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:24:06.027Z]      Caveats: 2
+[2025-10-15T15:24:06.027Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:24:06.027Z] 📊 === SUMMARY ===
+[2025-10-15T15:24:06.027Z] Backend: ✅ OK
+[2025-10-15T15:24:06.028Z] Delegate SA: ✅ OK
+[2025-10-15T15:24:06.028Z] Delegations: 2 active
+[2025-10-15T15:24:06.028Z] ==================================================
+[2025-10-15T15:24:06.028Z] 🔄 NONCE CHANGED: 0 → 1
+[2025-10-15T15:24:06.028Z] 🚀 DEPLOYMENT CHANGED: undefined → true
+[2025-10-15T15:24:15.780Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:24:15.785Z] ✅ Backend health: OK
+[2025-10-15T15:24:16.001Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:24:16.001Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:24:16.001Z]    Deployed: true
+[2025-10-15T15:24:16.002Z]    Balance: 0 MON
+[2025-10-15T15:24:16.002Z]    Nonce: 1
+[2025-10-15T15:24:16.002Z]    Bytecode: 328 chars
+[2025-10-15T15:24:16.003Z] 📋 Active delegations: 2
+[2025-10-15T15:24:16.003Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:24:16.003Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:24:16.003Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:24:16.004Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:24:16.004Z]      Caveats: 2
+[2025-10-15T15:24:16.004Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:24:16.004Z] 📊 === SUMMARY ===
+[2025-10-15T15:24:16.004Z] Backend: ✅ OK
+[2025-10-15T15:24:16.004Z] Delegate SA: ✅ OK
+[2025-10-15T15:24:16.004Z] Delegations: 2 active
+[2025-10-15T15:24:16.005Z] ==================================================
+[2025-10-15T15:24:25.781Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:24:25.801Z] ✅ Backend health: OK
+[2025-10-15T15:24:26.060Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:24:26.061Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:24:26.061Z]    Deployed: true
+[2025-10-15T15:24:26.061Z]    Balance: 0 MON
+[2025-10-15T15:24:26.061Z]    Nonce: 1
+[2025-10-15T15:24:26.061Z]    Bytecode: 328 chars
+[2025-10-15T15:24:26.061Z] 📋 Active delegations: 2
+[2025-10-15T15:24:26.062Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:24:26.062Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:24:26.062Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:24:26.062Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:24:26.062Z]      Caveats: 2
+[2025-10-15T15:24:26.062Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:24:26.062Z] 📊 === SUMMARY ===
+[2025-10-15T15:24:26.062Z] Backend: ✅ OK
+[2025-10-15T15:24:26.062Z] Delegate SA: ✅ OK
+[2025-10-15T15:24:26.063Z] Delegations: 2 active
+[2025-10-15T15:24:26.063Z] ==================================================
+[2025-10-15T15:24:35.782Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:24:35.788Z] ✅ Backend health: OK
+[2025-10-15T15:24:36.014Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:24:36.015Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:24:36.015Z]    Deployed: true
+[2025-10-15T15:24:36.015Z]    Balance: 0 MON
+[2025-10-15T15:24:36.015Z]    Nonce: 1
+[2025-10-15T15:24:36.015Z]    Bytecode: 328 chars
+[2025-10-15T15:24:36.016Z] 📋 Active delegations: 2
+[2025-10-15T15:24:36.016Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:24:36.016Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:24:36.016Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:24:36.016Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:24:36.016Z]      Caveats: 2
+[2025-10-15T15:24:36.016Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:24:36.017Z] 📊 === SUMMARY ===
+[2025-10-15T15:24:36.017Z] Backend: ✅ OK
+[2025-10-15T15:24:36.017Z] Delegate SA: ✅ OK
+[2025-10-15T15:24:36.017Z] Delegations: 2 active
+[2025-10-15T15:24:36.017Z] ==================================================
+[2025-10-15T15:24:45.783Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:24:45.876Z] ✅ Backend health: OK
+[2025-10-15T15:24:46.126Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:24:46.126Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:24:46.126Z]    Deployed: true
+[2025-10-15T15:24:46.126Z]    Balance: 0 MON
+[2025-10-15T15:24:46.126Z]    Nonce: 1
+[2025-10-15T15:24:46.126Z]    Bytecode: 328 chars
+[2025-10-15T15:24:46.127Z] 📋 Active delegations: 2
+[2025-10-15T15:24:46.127Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:24:46.127Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:24:46.127Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:24:46.127Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:24:46.127Z]      Caveats: 2
+[2025-10-15T15:24:46.127Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:24:46.150Z] 📊 === SUMMARY ===
+[2025-10-15T15:24:46.151Z] Backend: ✅ OK
+[2025-10-15T15:24:46.151Z] Delegate SA: ✅ OK
+[2025-10-15T15:24:46.152Z] Delegations: 2 active
+[2025-10-15T15:24:46.152Z] ==================================================
+[2025-10-15T15:24:55.788Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:24:55.797Z] ✅ Backend health: OK
+[2025-10-15T15:24:56.020Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:24:56.020Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:24:56.021Z]    Deployed: true
+[2025-10-15T15:24:56.021Z]    Balance: 0 MON
+[2025-10-15T15:24:56.021Z]    Nonce: 1
+[2025-10-15T15:24:56.021Z]    Bytecode: 328 chars
+[2025-10-15T15:24:56.022Z] 📋 Active delegations: 2
+[2025-10-15T15:24:56.022Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:24:56.022Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:24:56.022Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:24:56.023Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:24:56.023Z]      Caveats: 2
+[2025-10-15T15:24:56.023Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:24:56.023Z] 📊 === SUMMARY ===
+[2025-10-15T15:24:56.023Z] Backend: ✅ OK
+[2025-10-15T15:24:56.024Z] Delegate SA: ✅ OK
+[2025-10-15T15:24:56.024Z] Delegations: 2 active
+[2025-10-15T15:24:56.024Z] ==================================================
+[2025-10-15T15:25:05.794Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:25:05.816Z] ✅ Backend health: OK
+[2025-10-15T15:25:06.057Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:25:06.057Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:25:06.057Z]    Deployed: true
+[2025-10-15T15:25:06.057Z]    Balance: 0 MON
+[2025-10-15T15:25:06.057Z]    Nonce: 1
+[2025-10-15T15:25:06.058Z]    Bytecode: 328 chars
+[2025-10-15T15:25:06.058Z] 📋 Active delegations: 2
+[2025-10-15T15:25:06.058Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:25:06.058Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:25:06.058Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:25:06.058Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:25:06.074Z]      Caveats: 2
+[2025-10-15T15:25:06.075Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:25:06.141Z] 📊 === SUMMARY ===
+[2025-10-15T15:25:06.142Z] Backend: ✅ OK
+[2025-10-15T15:25:06.143Z] Delegate SA: ✅ OK
+[2025-10-15T15:25:06.143Z] Delegations: 2 active
+[2025-10-15T15:25:06.144Z] ==================================================
+[2025-10-15T15:25:15.792Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:25:15.819Z] ✅ Backend health: OK
+[2025-10-15T15:25:16.085Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:25:16.085Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:25:16.086Z]    Deployed: true
+[2025-10-15T15:25:16.086Z]    Balance: 0 MON
+[2025-10-15T15:25:16.086Z]    Nonce: 1
+[2025-10-15T15:25:16.086Z]    Bytecode: 328 chars
+[2025-10-15T15:25:16.087Z] 📋 Active delegations: 1
+[2025-10-15T15:25:16.087Z] 📊 === SUMMARY ===
+[2025-10-15T15:25:16.087Z] Backend: ✅ OK
+[2025-10-15T15:25:16.087Z] Delegate SA: ✅ OK
+[2025-10-15T15:25:16.087Z] Delegations: 1 active
+[2025-10-15T15:25:16.087Z] ==================================================
+[2025-10-15T15:25:16.088Z] 📋 DELEGATIONS CHANGED: 2 → 1
+[2025-10-15T15:25:25.189Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:25:25.258Z] ✅ Backend health: OK
+[2025-10-15T15:25:25.594Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:25:25.595Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:25:25.595Z]    Deployed: true
+[2025-10-15T15:25:25.595Z]    Balance: 0 MON
+[2025-10-15T15:25:25.595Z]    Nonce: 1
+[2025-10-15T15:25:25.595Z]    Bytecode: 328 chars
+[2025-10-15T15:25:25.596Z] 📋 Active delegations: 1
+[2025-10-15T15:25:25.598Z] 📊 === SUMMARY ===
+[2025-10-15T15:25:25.599Z] Backend: ✅ OK
+[2025-10-15T15:25:25.599Z] Delegate SA: ✅ OK
+[2025-10-15T15:25:25.599Z] Delegations: 1 active
+[2025-10-15T15:25:25.599Z] ==================================================
+[2025-10-15T15:25:25.801Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:25:25.836Z] ✅ Backend health: OK
+[2025-10-15T15:25:26.081Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:25:26.081Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:25:26.081Z]    Deployed: true
+[2025-10-15T15:25:26.082Z]    Balance: 0 MON
+[2025-10-15T15:25:26.082Z]    Nonce: 1
+[2025-10-15T15:25:26.082Z]    Bytecode: 328 chars
+[2025-10-15T15:25:26.083Z] 📋 Active delegations: 1
+[2025-10-15T15:25:26.083Z] 📊 === SUMMARY ===
+[2025-10-15T15:25:26.084Z] Backend: ✅ OK
+[2025-10-15T15:25:26.086Z] Delegate SA: ✅ OK
+[2025-10-15T15:25:26.087Z] Delegations: 1 active
+[2025-10-15T15:25:26.088Z] ==================================================
+[2025-10-15T15:25:35.797Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:25:35.835Z] ✅ Backend health: OK
+[2025-10-15T15:25:36.079Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:25:36.082Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:25:36.082Z]    Deployed: true
+[2025-10-15T15:25:36.083Z]    Balance: 0 MON
+[2025-10-15T15:25:36.083Z]    Nonce: 1
+[2025-10-15T15:25:36.084Z]    Bytecode: 328 chars
+[2025-10-15T15:25:36.087Z] 📋 Active delegations: 1
+[2025-10-15T15:25:36.088Z] 📊 === SUMMARY ===
+[2025-10-15T15:25:36.088Z] Backend: ✅ OK
+[2025-10-15T15:25:36.089Z] Delegate SA: ✅ OK
+[2025-10-15T15:25:36.089Z] Delegations: 1 active
+[2025-10-15T15:25:36.089Z] ==================================================
+[2025-10-15T15:25:45.799Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:25:45.810Z] ✅ Backend health: OK
+[2025-10-15T15:25:46.036Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:25:46.036Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:25:46.037Z]    Deployed: true
+[2025-10-15T15:25:46.037Z]    Balance: 0 MON
+[2025-10-15T15:25:46.037Z]    Nonce: 1
+[2025-10-15T15:25:46.037Z]    Bytecode: 328 chars
+[2025-10-15T15:25:46.037Z] 📋 Active delegations: 1
+[2025-10-15T15:25:46.037Z] 📊 === SUMMARY ===
+[2025-10-15T15:25:46.037Z] Backend: ✅ OK
+[2025-10-15T15:25:46.038Z] Delegate SA: ✅ OK
+[2025-10-15T15:25:46.038Z] Delegations: 1 active
+[2025-10-15T15:25:46.038Z] ==================================================
+[2025-10-15T15:25:55.803Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:25:56.133Z] ✅ Backend health: OK
+[2025-10-15T15:25:56.359Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:25:56.359Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:25:56.359Z]    Deployed: true
+[2025-10-15T15:25:56.359Z]    Balance: 0 MON
+[2025-10-15T15:25:56.360Z]    Nonce: 1
+[2025-10-15T15:25:56.360Z]    Bytecode: 328 chars
+[2025-10-15T15:25:56.360Z] 📋 Active delegations: 1
+[2025-10-15T15:25:56.361Z] 📊 === SUMMARY ===
+[2025-10-15T15:25:56.361Z] Backend: ✅ OK
+[2025-10-15T15:25:56.361Z] Delegate SA: ✅ OK
+[2025-10-15T15:25:56.362Z] Delegations: 1 active
+[2025-10-15T15:25:56.362Z] ==================================================
+[2025-10-15T15:26:05.805Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:26:05.815Z] ✅ Backend health: OK
+[2025-10-15T15:26:06.072Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:26:06.072Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:26:06.073Z]    Deployed: true
+[2025-10-15T15:26:06.073Z]    Balance: 0 MON
+[2025-10-15T15:26:06.073Z]    Nonce: 1
+[2025-10-15T15:26:06.073Z]    Bytecode: 328 chars
+[2025-10-15T15:26:06.075Z] 📋 Active delegations: 2
+[2025-10-15T15:26:06.078Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:26:06.078Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:26:06.078Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:26:06.079Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:26:06.079Z]      Caveats: 2
+[2025-10-15T15:26:06.079Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:26:06.079Z] 📊 === SUMMARY ===
+[2025-10-15T15:26:06.079Z] Backend: ✅ OK
+[2025-10-15T15:26:06.079Z] Delegate SA: ✅ OK
+[2025-10-15T15:26:06.080Z] Delegations: 2 active
+[2025-10-15T15:26:06.080Z] ==================================================
+[2025-10-15T15:26:06.080Z] 📋 DELEGATIONS CHANGED: 1 → 2
+[2025-10-15T15:26:15.810Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:26:15.837Z] ✅ Backend health: OK
+[2025-10-15T15:26:16.081Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:26:16.082Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:26:16.082Z]    Deployed: true
+[2025-10-15T15:26:16.082Z]    Balance: 0 MON
+[2025-10-15T15:26:16.082Z]    Nonce: 1
+[2025-10-15T15:26:16.083Z]    Bytecode: 328 chars
+[2025-10-15T15:26:16.084Z] 📋 Active delegations: 2
+[2025-10-15T15:26:16.085Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:26:16.085Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:26:16.086Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:26:16.086Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:26:16.086Z]      Caveats: 2
+[2025-10-15T15:26:16.086Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:26:16.087Z] 📊 === SUMMARY ===
+[2025-10-15T15:26:16.087Z] Backend: ✅ OK
+[2025-10-15T15:26:16.088Z] Delegate SA: ✅ OK
+[2025-10-15T15:26:16.088Z] Delegations: 2 active
+[2025-10-15T15:26:16.088Z] ==================================================
+[2025-10-15T15:26:25.809Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:26:25.814Z] ✅ Backend health: OK
+[2025-10-15T15:26:26.040Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:26:26.040Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:26:26.040Z]    Deployed: true
+[2025-10-15T15:26:26.041Z]    Balance: 0 MON
+[2025-10-15T15:26:26.041Z]    Nonce: 1
+[2025-10-15T15:26:26.041Z]    Bytecode: 328 chars
+[2025-10-15T15:26:26.041Z] 📋 Active delegations: 2
+[2025-10-15T15:26:26.041Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:26:26.041Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:26:26.042Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:26:26.042Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:26:26.042Z]      Caveats: 2
+[2025-10-15T15:26:26.060Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:26:26.064Z] 📊 === SUMMARY ===
+[2025-10-15T15:26:26.065Z] Backend: ✅ OK
+[2025-10-15T15:26:26.065Z] Delegate SA: ✅ OK
+[2025-10-15T15:26:26.065Z] Delegations: 2 active
+[2025-10-15T15:26:26.065Z] ==================================================
+[2025-10-15T15:26:27.782Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:26:27.852Z] ✅ Backend health: OK
+[2025-10-15T15:26:28.165Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:26:28.166Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:26:28.166Z]    Deployed: true
+[2025-10-15T15:26:28.166Z]    Balance: 0 MON
+[2025-10-15T15:26:28.167Z]    Nonce: 1
+[2025-10-15T15:26:28.167Z]    Bytecode: 328 chars
+[2025-10-15T15:26:28.168Z] 📋 Active delegations: 2
+[2025-10-15T15:26:28.169Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:26:28.169Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:26:28.169Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:26:28.169Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:26:28.169Z]      Caveats: 2
+[2025-10-15T15:26:28.169Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:26:28.170Z] 📊 === SUMMARY ===
+[2025-10-15T15:26:28.170Z] Backend: ✅ OK
+[2025-10-15T15:26:28.170Z] Delegate SA: ✅ OK
+[2025-10-15T15:26:28.170Z] Delegations: 2 active
+[2025-10-15T15:26:28.171Z] ==================================================
+[2025-10-15T15:26:35.813Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:26:35.822Z] ✅ Backend health: OK
+[2025-10-15T15:26:36.062Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:26:36.063Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:26:36.063Z]    Deployed: true
+[2025-10-15T15:26:36.063Z]    Balance: 0 MON
+[2025-10-15T15:26:36.063Z]    Nonce: 1
+[2025-10-15T15:26:36.064Z]    Bytecode: 328 chars
+[2025-10-15T15:26:36.064Z] 📋 Active delegations: 2
+[2025-10-15T15:26:36.064Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:26:36.064Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:26:36.064Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:26:36.065Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:26:36.065Z]      Caveats: 2
+[2025-10-15T15:26:36.065Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:26:36.065Z] 📊 === SUMMARY ===
+[2025-10-15T15:26:36.065Z] Backend: ✅ OK
+[2025-10-15T15:26:36.065Z] Delegate SA: ✅ OK
+[2025-10-15T15:26:36.065Z] Delegations: 2 active
+[2025-10-15T15:26:36.065Z] ==================================================
+[2025-10-15T15:26:45.816Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:26:45.828Z] ✅ Backend health: OK
+[2025-10-15T15:26:46.044Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:26:46.044Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:26:46.044Z]    Deployed: true
+[2025-10-15T15:26:46.045Z]    Balance: 0 MON
+[2025-10-15T15:26:46.045Z]    Nonce: 1
+[2025-10-15T15:26:46.045Z]    Bytecode: 328 chars
+[2025-10-15T15:26:46.057Z] 📋 Active delegations: 2
+[2025-10-15T15:26:46.058Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:26:46.058Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:26:46.058Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:26:46.058Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:26:46.058Z]      Caveats: 2
+[2025-10-15T15:26:46.059Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:26:46.059Z] 📊 === SUMMARY ===
+[2025-10-15T15:26:46.059Z] Backend: ✅ OK
+[2025-10-15T15:26:46.059Z] Delegate SA: ✅ OK
+[2025-10-15T15:26:46.059Z] Delegations: 2 active
+[2025-10-15T15:26:46.059Z] ==================================================
+[2025-10-15T15:26:55.827Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:26:55.982Z] ✅ Backend health: OK
+[2025-10-15T15:26:56.333Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:26:56.333Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:26:56.333Z]    Deployed: true
+[2025-10-15T15:26:56.334Z]    Balance: 0 MON
+[2025-10-15T15:26:56.334Z]    Nonce: 1
+[2025-10-15T15:26:56.334Z]    Bytecode: 328 chars
+[2025-10-15T15:26:56.334Z] 📋 Active delegations: 2
+[2025-10-15T15:26:56.335Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:26:56.335Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:26:56.335Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:26:56.335Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:26:56.335Z]      Caveats: 2
+[2025-10-15T15:26:56.335Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:26:56.336Z] 📊 === SUMMARY ===
+[2025-10-15T15:26:56.336Z] Backend: ✅ OK
+[2025-10-15T15:26:56.336Z] Delegate SA: ✅ OK
+[2025-10-15T15:26:56.336Z] Delegations: 2 active
+[2025-10-15T15:26:56.336Z] ==================================================
+[2025-10-15T15:27:05.831Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:27:05.848Z] ✅ Backend health: OK
+[2025-10-15T15:27:06.069Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:27:06.069Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:27:06.069Z]    Deployed: true
+[2025-10-15T15:27:06.070Z]    Balance: 0 MON
+[2025-10-15T15:27:06.070Z]    Nonce: 1
+[2025-10-15T15:27:06.070Z]    Bytecode: 328 chars
+[2025-10-15T15:27:06.070Z] 📋 Active delegations: 2
+[2025-10-15T15:27:06.070Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:27:06.070Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:27:06.071Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:27:06.071Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:27:06.071Z]      Caveats: 2
+[2025-10-15T15:27:06.071Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:27:06.071Z] 📊 === SUMMARY ===
+[2025-10-15T15:27:06.071Z] Backend: ✅ OK
+[2025-10-15T15:27:06.071Z] Delegate SA: ✅ OK
+[2025-10-15T15:27:06.071Z] Delegations: 2 active
+[2025-10-15T15:27:06.071Z] ==================================================
+[2025-10-15T15:27:15.849Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:27:15.971Z] ✅ Backend health: OK
+[2025-10-15T15:27:16.246Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:27:16.260Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:27:16.265Z]    Deployed: true
+[2025-10-15T15:27:16.266Z]    Balance: 0 MON
+[2025-10-15T15:27:16.266Z]    Nonce: 1
+[2025-10-15T15:27:16.267Z]    Bytecode: 328 chars
+[2025-10-15T15:27:16.268Z] 📋 Active delegations: 2
+[2025-10-15T15:27:16.270Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:27:16.270Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:27:16.271Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:27:16.271Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:27:16.271Z]      Caveats: 2
+[2025-10-15T15:27:16.272Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:27:16.272Z] 📊 === SUMMARY ===
+[2025-10-15T15:27:16.272Z] Backend: ✅ OK
+[2025-10-15T15:27:16.273Z] Delegate SA: ✅ OK
+[2025-10-15T15:27:16.273Z] Delegations: 2 active
+[2025-10-15T15:27:16.273Z] ==================================================
+[2025-10-15T15:27:25.852Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:27:28.186Z] ✅ Backend health: OK
+[2025-10-15T15:27:28.786Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:27:28.787Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:27:28.787Z]    Deployed: true
+[2025-10-15T15:27:28.787Z]    Balance: 0 MON
+[2025-10-15T15:27:28.788Z]    Nonce: 1
+[2025-10-15T15:27:28.788Z]    Bytecode: 328 chars
+[2025-10-15T15:27:28.791Z] 📋 Active delegations: 2
+[2025-10-15T15:27:28.791Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:27:28.792Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:27:28.792Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:27:28.795Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:27:28.796Z]      Caveats: 2
+[2025-10-15T15:27:28.796Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:27:29.445Z] 📊 === SUMMARY ===
+[2025-10-15T15:27:29.446Z] Backend: ✅ OK
+[2025-10-15T15:27:29.449Z] Delegate SA: ✅ OK
+[2025-10-15T15:27:29.450Z] Delegations: 2 active
+[2025-10-15T15:27:29.451Z] ==================================================
+[2025-10-15T15:27:35.866Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:27:36.118Z] ✅ Backend health: OK
+[2025-10-15T15:27:36.455Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:27:36.458Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:27:36.460Z]    Deployed: true
+[2025-10-15T15:27:36.461Z]    Balance: 0 MON
+[2025-10-15T15:27:36.464Z]    Nonce: 1
+[2025-10-15T15:27:36.469Z]    Bytecode: 328 chars
+[2025-10-15T15:27:36.473Z] 📋 Active delegations: 2
+[2025-10-15T15:27:36.475Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:27:36.475Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:27:36.476Z]      Delegate: 0x0000000000000000000000000000000000000a11
+[2025-10-15T15:27:36.476Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:27:36.477Z]      Caveats: 2
+[2025-10-15T15:27:36.478Z]      ⚠️  INVALID DELEGATE: 0x...0a11
+[2025-10-15T15:27:36.479Z] 📊 === SUMMARY ===
+[2025-10-15T15:27:36.479Z] Backend: ✅ OK
+[2025-10-15T15:27:36.479Z] Delegate SA: ✅ OK
+[2025-10-15T15:27:36.479Z] Delegations: 2 active
+[2025-10-15T15:27:36.483Z] ==================================================
+[2025-10-15T15:27:45.867Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:27:45.894Z] ✅ Backend health: OK
+[2025-10-15T15:27:46.130Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:27:46.130Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:27:46.131Z]    Deployed: true
+[2025-10-15T15:27:46.131Z]    Balance: 0 MON
+[2025-10-15T15:27:46.131Z]    Nonce: 1
+[2025-10-15T15:27:46.131Z]    Bytecode: 328 chars
+[2025-10-15T15:27:46.131Z] 📋 Active delegations: 1
+[2025-10-15T15:27:46.132Z] 📊 === SUMMARY ===
+[2025-10-15T15:27:46.132Z] Backend: ✅ OK
+[2025-10-15T15:27:46.133Z] Delegate SA: ✅ OK
+[2025-10-15T15:27:46.133Z] Delegations: 1 active
+[2025-10-15T15:27:46.133Z] ==================================================
+[2025-10-15T15:27:46.134Z] 📋 DELEGATIONS CHANGED: 2 → 1
+[2025-10-15T15:27:55.873Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:27:55.897Z] ✅ Backend health: OK
+[2025-10-15T15:27:56.120Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:27:56.121Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:27:56.121Z]    Deployed: true
+[2025-10-15T15:27:56.121Z]    Balance: 0 MON
+[2025-10-15T15:27:56.121Z]    Nonce: 1
+[2025-10-15T15:27:56.121Z]    Bytecode: 328 chars
+[2025-10-15T15:27:56.122Z] 📋 Active delegations: 1
+[2025-10-15T15:27:56.122Z] 📊 === SUMMARY ===
+[2025-10-15T15:27:56.123Z] Backend: ✅ OK
+[2025-10-15T15:27:56.123Z] Delegate SA: ✅ OK
+[2025-10-15T15:27:56.123Z] Delegations: 1 active
+[2025-10-15T15:27:56.123Z] ==================================================
+[2025-10-15T15:28:05.868Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:28:05.873Z] ✅ Backend health: OK
+[2025-10-15T15:28:06.099Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:28:06.102Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:28:06.103Z]    Deployed: true
+[2025-10-15T15:28:06.103Z]    Balance: 0 MON
+[2025-10-15T15:28:06.103Z]    Nonce: 1
+[2025-10-15T15:28:06.103Z]    Bytecode: 328 chars
+[2025-10-15T15:28:06.104Z] 📋 Active delegations: 1
+[2025-10-15T15:28:06.105Z] 📊 === SUMMARY ===
+[2025-10-15T15:28:06.105Z] Backend: ✅ OK
+[2025-10-15T15:28:06.105Z] Delegate SA: ✅ OK
+[2025-10-15T15:28:06.106Z] Delegations: 1 active
+[2025-10-15T15:28:06.106Z] ==================================================
+[2025-10-15T15:28:15.870Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:28:15.937Z] ✅ Backend health: OK
+[2025-10-15T15:28:16.177Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:28:16.177Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:28:16.177Z]    Deployed: true
+[2025-10-15T15:28:16.177Z]    Balance: 0 MON
+[2025-10-15T15:28:16.177Z]    Nonce: 1
+[2025-10-15T15:28:16.177Z]    Bytecode: 328 chars
+[2025-10-15T15:28:16.178Z] 📋 Active delegations: 1
+[2025-10-15T15:28:16.178Z] 📊 === SUMMARY ===
+[2025-10-15T15:28:16.178Z] Backend: ✅ OK
+[2025-10-15T15:28:16.178Z] Delegate SA: ✅ OK
+[2025-10-15T15:28:16.178Z] Delegations: 1 active
+[2025-10-15T15:28:16.178Z] ==================================================
+[2025-10-15T15:28:25.872Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:28:25.932Z] ✅ Backend health: OK
+[2025-10-15T15:28:26.174Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:28:26.174Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:28:26.174Z]    Deployed: true
+[2025-10-15T15:28:26.175Z]    Balance: 0 MON
+[2025-10-15T15:28:26.175Z]    Nonce: 1
+[2025-10-15T15:28:26.175Z]    Bytecode: 328 chars
+[2025-10-15T15:28:26.176Z] 📋 Active delegations: 2
+[2025-10-15T15:28:26.177Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:28:26.177Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:28:26.177Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:28:26.177Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:28:26.178Z]      Caveats: 2
+[2025-10-15T15:28:26.178Z] 📊 === SUMMARY ===
+[2025-10-15T15:28:26.178Z] Backend: ✅ OK
+[2025-10-15T15:28:26.178Z] Delegate SA: ✅ OK
+[2025-10-15T15:28:26.178Z] Delegations: 2 active
+[2025-10-15T15:28:26.178Z] ==================================================
+[2025-10-15T15:28:26.179Z] 📋 DELEGATIONS CHANGED: 1 → 2
+[2025-10-15T15:28:35.873Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:28:35.904Z] ✅ Backend health: OK
+[2025-10-15T15:28:36.144Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:28:36.144Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:28:36.144Z]    Deployed: true
+[2025-10-15T15:28:36.144Z]    Balance: 0 MON
+[2025-10-15T15:28:36.144Z]    Nonce: 1
+[2025-10-15T15:28:36.145Z]    Bytecode: 328 chars
+[2025-10-15T15:28:36.145Z] 📋 Active delegations: 2
+[2025-10-15T15:28:36.145Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:28:36.146Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:28:36.146Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:28:36.146Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:28:36.146Z]      Caveats: 2
+[2025-10-15T15:28:36.146Z] 📊 === SUMMARY ===
+[2025-10-15T15:28:36.146Z] Backend: ✅ OK
+[2025-10-15T15:28:36.147Z] Delegate SA: ✅ OK
+[2025-10-15T15:28:36.147Z] Delegations: 2 active
+[2025-10-15T15:28:36.147Z] ==================================================
+[2025-10-15T15:28:45.874Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:28:45.885Z] ✅ Backend health: OK
+[2025-10-15T15:28:46.095Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:28:46.095Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:28:46.095Z]    Deployed: true
+[2025-10-15T15:28:46.095Z]    Balance: 0 MON
+[2025-10-15T15:28:46.095Z]    Nonce: 1
+[2025-10-15T15:28:46.096Z]    Bytecode: 328 chars
+[2025-10-15T15:28:46.096Z] 📋 Active delegations: 2
+[2025-10-15T15:28:46.096Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:28:46.096Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:28:46.097Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:28:46.097Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:28:46.097Z]      Caveats: 2
+[2025-10-15T15:28:46.097Z] 📊 === SUMMARY ===
+[2025-10-15T15:28:46.097Z] Backend: ✅ OK
+[2025-10-15T15:28:46.097Z] Delegate SA: ✅ OK
+[2025-10-15T15:28:46.097Z] Delegations: 2 active
+[2025-10-15T15:28:46.098Z] ==================================================
+[2025-10-15T15:28:55.884Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:28:55.936Z] ✅ Backend health: OK
+[2025-10-15T15:28:56.167Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:28:56.167Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:28:56.167Z]    Deployed: true
+[2025-10-15T15:28:56.168Z]    Balance: 0 MON
+[2025-10-15T15:28:56.168Z]    Nonce: 1
+[2025-10-15T15:28:56.168Z]    Bytecode: 328 chars
+[2025-10-15T15:28:56.169Z] 📋 Active delegations: 2
+[2025-10-15T15:28:56.169Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:28:56.169Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:28:56.169Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:28:56.169Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:28:56.170Z]      Caveats: 2
+[2025-10-15T15:28:56.170Z] 📊 === SUMMARY ===
+[2025-10-15T15:28:56.170Z] Backend: ✅ OK
+[2025-10-15T15:28:56.170Z] Delegate SA: ✅ OK
+[2025-10-15T15:28:56.170Z] Delegations: 2 active
+[2025-10-15T15:28:56.170Z] ==================================================
+[2025-10-15T15:29:05.891Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:29:05.915Z] ✅ Backend health: OK
+[2025-10-15T15:29:06.145Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:06.147Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:29:06.149Z]    Deployed: true
+[2025-10-15T15:29:06.149Z]    Balance: 0 MON
+[2025-10-15T15:29:06.149Z]    Nonce: 1
+[2025-10-15T15:29:06.149Z]    Bytecode: 328 chars
+[2025-10-15T15:29:06.150Z] 📋 Active delegations: 2
+[2025-10-15T15:29:06.152Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:29:06.153Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:29:06.154Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:06.154Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:29:06.154Z]      Caveats: 2
+[2025-10-15T15:29:06.155Z] 📊 === SUMMARY ===
+[2025-10-15T15:29:06.155Z] Backend: ✅ OK
+[2025-10-15T15:29:06.156Z] Delegate SA: ✅ OK
+[2025-10-15T15:29:06.156Z] Delegations: 2 active
+[2025-10-15T15:29:06.157Z] ==================================================
+[2025-10-15T15:29:06.466Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:29:06.539Z] ✅ Backend health: OK
+[2025-10-15T15:29:06.836Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:06.836Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:29:06.836Z]    Deployed: true
+[2025-10-15T15:29:06.836Z]    Balance: 0 MON
+[2025-10-15T15:29:06.836Z]    Nonce: 1
+[2025-10-15T15:29:06.837Z]    Bytecode: 328 chars
+[2025-10-15T15:29:06.837Z] 📋 Active delegations: 2
+[2025-10-15T15:29:06.837Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:29:06.838Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:29:06.838Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:06.838Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:29:06.838Z]      Caveats: 2
+[2025-10-15T15:29:06.838Z] 📊 === SUMMARY ===
+[2025-10-15T15:29:06.838Z] Backend: ✅ OK
+[2025-10-15T15:29:06.838Z] Delegate SA: ✅ OK
+[2025-10-15T15:29:06.839Z] Delegations: 2 active
+[2025-10-15T15:29:06.839Z] ==================================================
+[2025-10-15T15:29:15.895Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:29:15.988Z] ✅ Backend health: OK
+[2025-10-15T15:29:16.259Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:16.260Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:29:16.260Z]    Deployed: true
+[2025-10-15T15:29:16.260Z]    Balance: 0 MON
+[2025-10-15T15:29:16.260Z]    Nonce: 1
+[2025-10-15T15:29:16.260Z]    Bytecode: 328 chars
+[2025-10-15T15:29:16.261Z] 📋 Active delegations: 2
+[2025-10-15T15:29:16.261Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:29:16.262Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:29:16.262Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:16.262Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:29:16.262Z]      Caveats: 2
+[2025-10-15T15:29:16.262Z] 📊 === SUMMARY ===
+[2025-10-15T15:29:16.262Z] Backend: ✅ OK
+[2025-10-15T15:29:16.262Z] Delegate SA: ✅ OK
+[2025-10-15T15:29:16.263Z] Delegations: 2 active
+[2025-10-15T15:29:16.263Z] ==================================================
+[2025-10-15T15:29:25.899Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:29:25.926Z] ✅ Backend health: OK
+[2025-10-15T15:29:26.156Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:26.156Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:29:26.156Z]    Deployed: true
+[2025-10-15T15:29:26.156Z]    Balance: 0 MON
+[2025-10-15T15:29:26.157Z]    Nonce: 1
+[2025-10-15T15:29:26.157Z]    Bytecode: 328 chars
+[2025-10-15T15:29:26.157Z] 📋 Active delegations: 2
+[2025-10-15T15:29:26.157Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:29:26.157Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:29:26.158Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:26.158Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:29:26.158Z]      Caveats: 2
+[2025-10-15T15:29:26.158Z] 📊 === SUMMARY ===
+[2025-10-15T15:29:26.158Z] Backend: ✅ OK
+[2025-10-15T15:29:26.158Z] Delegate SA: ✅ OK
+[2025-10-15T15:29:26.158Z] Delegations: 2 active
+[2025-10-15T15:29:26.158Z] ==================================================
+[2025-10-15T15:29:35.901Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:29:35.911Z] ✅ Backend health: OK
+[2025-10-15T15:29:36.185Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:36.185Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:29:36.185Z]    Deployed: true
+[2025-10-15T15:29:36.185Z]    Balance: 0 MON
+[2025-10-15T15:29:36.185Z]    Nonce: 1
+[2025-10-15T15:29:36.186Z]    Bytecode: 328 chars
+[2025-10-15T15:29:36.186Z] 📋 Active delegations: 2
+[2025-10-15T15:29:36.186Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:29:36.187Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:29:36.187Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:36.187Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:29:36.187Z]      Caveats: 2
+[2025-10-15T15:29:36.187Z] 📊 === SUMMARY ===
+[2025-10-15T15:29:36.187Z] Backend: ✅ OK
+[2025-10-15T15:29:36.187Z] Delegate SA: ✅ OK
+[2025-10-15T15:29:36.187Z] Delegations: 2 active
+[2025-10-15T15:29:36.188Z] ==================================================
+[2025-10-15T15:29:45.902Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:29:45.909Z] ✅ Backend health: OK
+[2025-10-15T15:29:46.126Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:46.126Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:29:46.126Z]    Deployed: true
+[2025-10-15T15:29:46.127Z]    Balance: 0 MON
+[2025-10-15T15:29:46.127Z]    Nonce: 2
+[2025-10-15T15:29:46.127Z]    Bytecode: 328 chars
+[2025-10-15T15:29:46.128Z] 📋 Active delegations: 2
+[2025-10-15T15:29:46.130Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:29:46.130Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:29:46.130Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:46.130Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:29:46.131Z]      Caveats: 2
+[2025-10-15T15:29:46.134Z] 📊 === SUMMARY ===
+[2025-10-15T15:29:46.134Z] Backend: ✅ OK
+[2025-10-15T15:29:46.134Z] Delegate SA: ✅ OK
+[2025-10-15T15:29:46.135Z] Delegations: 2 active
+[2025-10-15T15:29:46.135Z] ==================================================
+[2025-10-15T15:29:46.135Z] 🔄 NONCE CHANGED: 1 → 2
+[2025-10-15T15:29:55.903Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:29:55.908Z] ✅ Backend health: OK
+[2025-10-15T15:29:56.155Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:56.156Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:29:56.156Z]    Deployed: true
+[2025-10-15T15:29:56.156Z]    Balance: 0 MON
+[2025-10-15T15:29:56.156Z]    Nonce: 2
+[2025-10-15T15:29:56.156Z]    Bytecode: 328 chars
+[2025-10-15T15:29:56.156Z] 📋 Active delegations: 2
+[2025-10-15T15:29:56.157Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:29:56.157Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:29:56.168Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:29:56.169Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:29:56.169Z]      Caveats: 2
+[2025-10-15T15:29:56.192Z] 📊 === SUMMARY ===
+[2025-10-15T15:29:56.192Z] Backend: ✅ OK
+[2025-10-15T15:29:56.192Z] Delegate SA: ✅ OK
+[2025-10-15T15:29:56.192Z] Delegations: 2 active
+[2025-10-15T15:29:56.192Z] ==================================================
+[2025-10-15T15:30:05.905Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:30:05.958Z] ✅ Backend health: OK
+[2025-10-15T15:30:06.227Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:06.228Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:30:06.228Z]    Deployed: true
+[2025-10-15T15:30:06.228Z]    Balance: 0 MON
+[2025-10-15T15:30:06.228Z]    Nonce: 2
+[2025-10-15T15:30:06.228Z]    Bytecode: 328 chars
+[2025-10-15T15:30:06.229Z] 📋 Active delegations: 2
+[2025-10-15T15:30:06.229Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:30:06.229Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:30:06.229Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:06.229Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:30:06.230Z]      Caveats: 2
+[2025-10-15T15:30:06.230Z] 📊 === SUMMARY ===
+[2025-10-15T15:30:06.230Z] Backend: ✅ OK
+[2025-10-15T15:30:06.230Z] Delegate SA: ✅ OK
+[2025-10-15T15:30:06.230Z] Delegations: 2 active
+[2025-10-15T15:30:06.230Z] ==================================================
+[2025-10-15T15:30:15.907Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:30:15.919Z] ✅ Backend health: OK
+[2025-10-15T15:30:16.164Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:16.164Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:30:16.165Z]    Deployed: true
+[2025-10-15T15:30:16.165Z]    Balance: 0 MON
+[2025-10-15T15:30:16.166Z]    Nonce: 2
+[2025-10-15T15:30:16.166Z]    Bytecode: 328 chars
+[2025-10-15T15:30:16.167Z] 📋 Active delegations: 2
+[2025-10-15T15:30:16.168Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:30:16.168Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:30:16.168Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:16.168Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:30:16.168Z]      Caveats: 2
+[2025-10-15T15:30:16.168Z] 📊 === SUMMARY ===
+[2025-10-15T15:30:16.169Z] Backend: ✅ OK
+[2025-10-15T15:30:16.169Z] Delegate SA: ✅ OK
+[2025-10-15T15:30:16.169Z] Delegations: 2 active
+[2025-10-15T15:30:16.169Z] ==================================================
+[2025-10-15T15:30:25.909Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:30:25.918Z] ✅ Backend health: OK
+[2025-10-15T15:30:26.154Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:26.155Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:30:26.155Z]    Deployed: true
+[2025-10-15T15:30:26.155Z]    Balance: 0 MON
+[2025-10-15T15:30:26.155Z]    Nonce: 2
+[2025-10-15T15:30:26.155Z]    Bytecode: 328 chars
+[2025-10-15T15:30:26.156Z] 📋 Active delegations: 2
+[2025-10-15T15:30:26.156Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:30:26.156Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:30:26.156Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:26.156Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:30:26.156Z]      Caveats: 2
+[2025-10-15T15:30:26.157Z] 📊 === SUMMARY ===
+[2025-10-15T15:30:26.157Z] Backend: ✅ OK
+[2025-10-15T15:30:26.157Z] Delegate SA: ✅ OK
+[2025-10-15T15:30:26.157Z] Delegations: 2 active
+[2025-10-15T15:30:26.157Z] ==================================================
+[2025-10-15T15:30:35.912Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:30:35.925Z] ✅ Backend health: OK
+[2025-10-15T15:30:36.285Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:36.285Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:30:36.286Z]    Deployed: true
+[2025-10-15T15:30:36.286Z]    Balance: 0 MON
+[2025-10-15T15:30:36.286Z]    Nonce: 2
+[2025-10-15T15:30:36.286Z]    Bytecode: 328 chars
+[2025-10-15T15:30:36.287Z] 📋 Active delegations: 2
+[2025-10-15T15:30:36.289Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:30:36.289Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:30:36.289Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:36.290Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:30:36.290Z]      Caveats: 2
+[2025-10-15T15:30:36.309Z] 📊 === SUMMARY ===
+[2025-10-15T15:30:36.310Z] Backend: ✅ OK
+[2025-10-15T15:30:36.310Z] Delegate SA: ✅ OK
+[2025-10-15T15:30:36.310Z] Delegations: 2 active
+[2025-10-15T15:30:36.311Z] ==================================================
+[2025-10-15T15:30:45.914Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:30:45.922Z] ✅ Backend health: OK
+[2025-10-15T15:30:46.141Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:46.142Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:30:46.142Z]    Deployed: true
+[2025-10-15T15:30:46.142Z]    Balance: 0 MON
+[2025-10-15T15:30:46.143Z]    Nonce: 2
+[2025-10-15T15:30:46.143Z]    Bytecode: 328 chars
+[2025-10-15T15:30:46.143Z] 📋 Active delegations: 2
+[2025-10-15T15:30:46.144Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:30:46.144Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:30:46.144Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:46.144Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:30:46.145Z]      Caveats: 2
+[2025-10-15T15:30:46.145Z] 📊 === SUMMARY ===
+[2025-10-15T15:30:46.145Z] Backend: ✅ OK
+[2025-10-15T15:30:46.145Z] Delegate SA: ✅ OK
+[2025-10-15T15:30:46.145Z] Delegations: 2 active
+[2025-10-15T15:30:46.146Z] ==================================================
+[2025-10-15T15:30:55.916Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:30:55.922Z] ✅ Backend health: OK
+[2025-10-15T15:30:56.188Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:56.188Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:30:56.189Z]    Deployed: true
+[2025-10-15T15:30:56.190Z]    Balance: 0 MON
+[2025-10-15T15:30:56.190Z]    Nonce: 2
+[2025-10-15T15:30:56.190Z]    Bytecode: 328 chars
+[2025-10-15T15:30:56.191Z] 📋 Active delegations: 2
+[2025-10-15T15:30:56.191Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:30:56.191Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:30:56.192Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:30:56.192Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:30:56.192Z]      Caveats: 2
+[2025-10-15T15:30:56.192Z] 📊 === SUMMARY ===
+[2025-10-15T15:30:56.193Z] Backend: ✅ OK
+[2025-10-15T15:30:56.193Z] Delegate SA: ✅ OK
+[2025-10-15T15:30:56.193Z] Delegations: 2 active
+[2025-10-15T15:30:56.193Z] ==================================================
+[2025-10-15T15:31:05.918Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:31:05.926Z] ✅ Backend health: OK
+[2025-10-15T15:31:06.150Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:31:06.151Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:31:06.151Z]    Deployed: true
+[2025-10-15T15:31:06.151Z]    Balance: 0 MON
+[2025-10-15T15:31:06.152Z]    Nonce: 2
+[2025-10-15T15:31:06.152Z]    Bytecode: 328 chars
+[2025-10-15T15:31:06.152Z] 📋 Active delegations: 2
+[2025-10-15T15:31:06.164Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:31:06.164Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:31:06.164Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:31:06.164Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:31:06.165Z]      Caveats: 2
+[2025-10-15T15:31:06.165Z] 📊 === SUMMARY ===
+[2025-10-15T15:31:06.165Z] Backend: ✅ OK
+[2025-10-15T15:31:06.165Z] Delegate SA: ✅ OK
+[2025-10-15T15:31:06.165Z] Delegations: 2 active
+[2025-10-15T15:31:06.165Z] ==================================================
+[2025-10-15T15:31:15.919Z] 🔍 === FULL SYSTEM DIAGNOSTIC ===
+[2025-10-15T15:31:15.927Z] ✅ Backend health: OK
+[2025-10-15T15:31:16.150Z] ✅ Delegate SA: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:31:16.150Z]    EOA: 0x1179f0BC7b120D48065431A2A8Ca26682E31C02C
+[2025-10-15T15:31:16.151Z]    Deployed: true
+[2025-10-15T15:31:16.151Z]    Balance: 0 MON
+[2025-10-15T15:31:16.152Z]    Nonce: 2
+[2025-10-15T15:31:16.152Z]    Bytecode: 328 chars
+[2025-10-15T15:31:16.153Z] 📋 Active delegations: 2
+[2025-10-15T15:31:16.154Z]    0x022b39bc36eacf22360f61247487e956812afe5e.json:
+[2025-10-15T15:31:16.154Z]      Delegator: 0x022b39bc36eAcf22360F61247487E956812AFe5e
+[2025-10-15T15:31:16.154Z]      Delegate: 0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca
+[2025-10-15T15:31:16.155Z]      Authority: 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+[2025-10-15T15:31:16.155Z]      Caveats: 2
+[2025-10-15T15:31:16.156Z] 📊 === SUMMARY ===
+[2025-10-15T15:31:16.156Z] Backend: ✅ OK
+[2025-10-15T15:31:16.157Z] Delegate SA: ✅ OK
+[2025-10-15T15:31:16.157Z] Delegations: 2 active
+[2025-10-15T15:31:16.157Z] ==================================================

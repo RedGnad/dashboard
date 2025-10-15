@@ -1,0 +1,46 @@
+{
+  "delegatorSA": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+  "signedDelegation": {
+    "delegation": {
+      "delegate": "0x0000000000000000000000000000000000000a11",
+      "delegator": "0xa7640957e68DFe5416af725dEdEA2E9e4b5d9C63",
+      "authority": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "caveats": [
+        {
+          "enforcer": "0x7F20f61b1f09b08D970938F6fa563634d65c4EeB",
+          "terms": "0xf817257fed379853cDe0fa4F97AB987181B1E5Eafb8e1c3b833f9e67a71c859a132cf783b645e436760AfE86e5de5fa0Ee542fc7B7B713e1c5425701e0590015a873bf326bd645c3e1266d4db41c4e6bfe140e1dCe99Be9F4F15d657CD9b7BF622270C500f0bdebf0f83cd1ee3974779bcb7315f9808c714268e4e24e0051ec27b3d27a95977e71ce6875a05cf5a6076cfa32686c0Df13aBaDa2b40dec133F1d0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8D20CC1610BB0D0CF0daacb159AB6Cc4787D9e6D4",
+          "args": "0x"
+        },
+        {
+          "enforcer": "0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5",
+          "terms": "0x095ea7b338ed17392e1a7d4dd0e30db0d505accf23b872dda9059cbbe3ee160e",
+          "args": "0x"
+        }
+      ],
+      "salt": "0x",
+      "signature": "0x"
+    },
+    "signature": "0x5b082d0d74ac195d093d27e8151de7ad1c7ad594818ed9bea3e8e7bea5a0482e4601037eee3d63897c85ac8e95eb0adea3693f8ee6b381e933191ee7149799001c"
+  },
+  "job": {
+    "createdAtMs": 1760489934093,
+    "unwrapEvery": 24,
+    "slippageBps": 100,
+    "intervalSec": 60,
+    "durationSec": 86400,
+    "unwrapToMon": false,
+    "usePaymaster": false,
+    "ownerEOA": "0xD20CC1610BB0D0CF0daacb159AB6Cc4787D9e6D4",
+    "permit": null,
+    "auth3009": null,
+    "dailyTopupUSDC": 1,
+    "autostart": false,
+    "dynamicByAI": true,
+    "respectAiAction": true,
+    "inferenceProvider": "openai",
+    "allowSellExecution": true,
+    "targetSymbol": "DAK",
+    "source": "MON",
+    "amountMON": 1
+  }
+}

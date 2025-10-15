@@ -1,0 +1,25 @@
+{
+  "delegatorSA": "0x022b39bc36eacf22360f61247487e956812afe5e",
+  "signedDelegation": {
+    "delegation": {
+      "delegate": "0x0000000000000000000000000000000000000a11",
+      "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
+      "authority": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "caveats": [
+        {
+          "enforcer": "0x99F2e9bF15ce5eC84685604836F71aB835DBBdED",
+          "terms": "0x",
+          "args": "0x"
+        },
+        {
+          "enforcer": "0xF71af580b9c3078fbc2BBF16FbB8EEd82b330320",
+          "terms": "0x000000000000000000000000000000000000000000084595161401484a000000",
+          "args": "0x"
+        }
+      ],
+      "salt": "0x",
+      "signature": "0x"
+    },
+    "signature": "0x9258f3814f1e26ca0043946c472d6d851ea2fb563cd032233bbaab2139874eaa12d1f28a90a91cae70cd23772bae5ecbbbfd2ee9846a3390dbbf6ed8c65b89f51b"
+  }
+}

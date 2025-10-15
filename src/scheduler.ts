@@ -1,4 +1,5 @@
 import type { Address } from 'viem'
+import { getAddress } from 'viem'
 import { runOnceForDelegator } from './runner'
 // Suppression du flush WMON direct: on déclenche maintenant un retrait MON natif via la logique /api/send-mon
 // pour bénéficier du mode scope natif ou fallback WMON automatiquement.
@@ -299,7 +300,9 @@ export function startJob(
   intervalSec: number,
   opts?: { durationSec?: number; immediate?: boolean; expiresAtMs?: number; jobType?: 'dca_ai' | 'dca_schedule' }
 ): JobStatus {
-  const key = delegatorSA.toLowerCase()
+  // Normalize address to checksum format
+  const normalizedSA = getAddress(delegatorSA)
+  const key = normalizedSA.toLowerCase()
   const existing = jobs[key]
   const now = Date.now()
   const expiresAt = opts?.expiresAtMs
@@ -308,7 +311,7 @@ export function startJob(
   const jobType = opts?.jobType || existing?.jobType || 'dca_ai'
   const job: InternalJob = existing
     ? { ...existing, intervalSec, active: true, expiresAt, jobType }
-    : { delegatorSA, intervalSec, active: true, expiresAt, runsDone: 0, jobType }
+    : { delegatorSA: normalizedSA, intervalSec, active: true, expiresAt, runsDone: 0, jobType }
   jobs[key] = job
   // Toujours réinitialiser lastRunAt lors d'un nouveau start pour un timer cohérent
   // Sauf si immediate=true, auquel cas on laisse runOnceForDelegator le mettre à jour

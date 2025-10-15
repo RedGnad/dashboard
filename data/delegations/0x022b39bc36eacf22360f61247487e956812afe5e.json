@@ -2,7 +2,7 @@
   "delegatorSA": "0x022b39bc36eacf22360f61247487e956812afe5e",
   "signedDelegation": {
     "delegation": {
-      "delegate": "0x0000000000000000000000000000000000000a11",
+      "delegate": "0x99Deb569EAFbd6b39e95DAaeF920613AE1Bc7Cca",
       "delegator": "0x022b39bc36eAcf22360F61247487E956812AFe5e",
       "authority": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "caveats": [
@@ -20,12 +20,11 @@
       "salt": "0x",
       "signature": "0x"
     },
-    "signature": "0x6afcb344e7aeba870fdd555444f34a7ed8861e469419478e0953b96a65a2efa27ddff15e3af31b064d8b37620179bb05e8a176d9cac04a45c5f14a21f7eef6ce1b"
+    "signature": "0x9eb14f9aaacf2bcd4c9dde514a014da50f2b03e278e4062fab251a057267dd2e5d505327f5bb947476a212161a1b8202d6022a6d90b3cad0f7955b9aabcec39b1b"
   },
   "job": {
-    "createdAtMs": 1760419294418,
+    "createdAtMs": 1760542104325,
     "unwrapEvery": 24,
-    "amountUSDC": "1",
     "slippageBps": 100,
     "intervalSec": 60,
     "durationSec": 86400,
@@ -35,17 +34,9 @@
     "permit": null,
     "auth3009": null,
     "dailyTopupUSDC": 1,
-    "executions": [
-      {
-        "target": "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea",
-        "value": "0",
-        "callData": "0x095ea7b3000000000000000000000000fb8e1c3b833f9e67a71c859a132cf783b645e43600000000000000000000000000000000000000000000000000000000000f4240"
-      },
-      {
-        "target": "0xfb8e1c3b833f9e67a71c859a132cf783b645e436",
-        "value": "0",
-        "callData": "0x38ed173900000000000000000000000000000000000000000000000000000000000f4240000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000022b39bc36eacf22360f61247487e956812afe5e0000000000000000000000000000000000000000000000000000000068edebea0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000f817257fed379853cde0fa4f97ab987181b1e5ea000000000000000000000000760afe86e5de5fa0ee542fc7b7b713e1c5425701"
-      }
-    ]
+    "allowSellExecution": true,
+    "targetSymbol": "YAKI",
+    "source": "MON",
+    "amountMON": 1
   }
 }

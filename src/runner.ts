@@ -30,7 +30,31 @@ function detectNativeValueScope(caveats: any[]): boolean {
   return false
 }
 
+// Concurrency lock: prevent multiple UserOps from same Delegate SA at once
+const delegateSALock = new Map<string, Promise<any>>()
+
 export async function runOnceForDelegator(delegatorSA: Address, opts?: { runIndex?: number; ignoreAi?: boolean; aiTargetSymbol?: string }) {
+  // Acquire lock for this Delegate SA
+  const lockKey = 'delegate-sa-lock' // Single delegate SA per backend
+  while (delegateSALock.has(lockKey)) {
+    console.log('[runner] waiting for previous UserOp to complete...')
+    await delegateSALock.get(lockKey)
+  }
+  
+  // Create new lock promise
+  let releaseLock: () => void
+  const lockPromise = new Promise<void>(resolve => { releaseLock = resolve })
+  delegateSALock.set(lockKey, lockPromise)
+  
+  try {
+    return await _runOnceForDelegatorImpl(delegatorSA, opts)
+  } finally {
+    releaseLock!()
+    delegateSALock.delete(lockKey)
+  }
+}
+
+async function _runOnceForDelegatorImpl(delegatorSA: Address, opts?: { runIndex?: number; ignoreAi?: boolean; aiTargetSymbol?: string }) {
   console.log('[DEBUG] runOnceForDelegator called with SKIP logic enabled:', delegatorSA)
   const pk = process.env.DELEGATE_PRIVATE_KEY as `0x${string}`
   if (!pk) throw new Error('Missing DELEGATE_PRIVATE_KEY')
@@ -46,7 +70,8 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
     environment: env as any,
   })
 
-  const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA}.json`)
+  // Normalize address to lowercase for file lookup (case-insensitive filesystem)
+  const file = join(process.cwd(), 'data', 'delegations', `${delegatorSA.toLowerCase()}.json`)
   const json = JSON.parse(readFileSync(file, 'utf-8'))
   const signed = json.signedDelegation
   const delegation = { ...signed.delegation, signature: signed.signature }
@@ -855,14 +880,13 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
   console.log('[runner] sending userOp', {
     bundlerSet: !!process.env.ZERO_DEV_BUNDLER_RPC,
     paymasterSet: !!process.env.ZERO_DEV_PAYMASTER_RPC,
-  usePm,
-  jobFlagPresent,
-  forceOverride,
+    usePm,
+    jobFlagPresent,
+    forceOverride,
     delegateSA: delegateSA.address,
     dm: env.DelegationManager,
-  maxFeePerGas: String(maxFeePerGas),
-  maxPriorityFeePerGas: String(maxPriorityFeePerGas),
     executionsCount: executions.length,
+    note: 'Gas estimated automatically by bundler/paymaster'
   })
   let uoHash: `0x${string}`
   try {
@@ -874,11 +898,10 @@ export async function runOnceForDelegator(delegatorSA: Address, opts?: { runInde
       console.log('[runner] injecting paymaster for DCA op')
     }
     const runId = newRunId()
-  uoHash = await (bundlerClient as any).sendUserOperation({
+  // Send UserOp - let bundler/paymaster estimate gas automatically
+    uoHash = await (bundlerClient as any).sendUserOperation({
       account: delegateSA,
       calls: [{ to: env.DelegationManager as Address, data: calldata }],
-      maxFeePerGas,
-      maxPriorityFeePerGas,
       ...(willInject ? { paymaster: paymasterClient } : {}),
     })
     console.log('[runner] userOp sent', { userOperationHash: uoHash })

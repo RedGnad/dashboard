@@ -31,6 +31,7 @@ import { computeCoreFeatures, computeCoreFeaturesAsync, computeSyntheticPrice } 
 import { startUserOpResolver } from './userop-resolver'
 import { Address, encodeFunctionData as viemEncodeFunctionData, parseUnits } from 'viem'
 import { readRunHistory, summarizeRunHistory } from './utils/history'
+import { readDiagTail } from './utils/diag'
 import { loadGuardrails, getGuardrailsConfigHash } from './guardrails'
 import { listAdapters, getAdapter } from './source-adapter'
 import { TOKENS, getToken } from './tokens'
@@ -192,7 +193,6 @@ async function withRetry<T>(fn: () => Promise<T>, opts?: { retries?: number; del
 async function readErc20Balance(token: Address, owner: Address): Promise<bigint> {
   return publicClient.readContract({
     address: token,
-    authorizationList: [] as any,
     abi: MIN_ERC20_ABI as any,
     functionName: 'balanceOf',
     args: [owner],
@@ -264,11 +264,36 @@ async function sendUserOpWithOptionalPaymaster(params: any) {
       pmRpc: pmRpc ? 'set' : 'missing',
     })
   }
+  
+  // Remove manual gas params - let bundler/paymaster estimate automatically
+  const { maxFeePerGas, maxPriorityFeePerGas, ...cleanParams } = params
+  
   const augmented = {
-    ...params,
+    ...cleanParams,
     ...(willInject ? { paymaster: paymasterClient } : {}),
   }
-  return bundlerClient.sendUserOperation(augmented)
+  
+  // Send UserOp and wait for confirmation
+  const hash = await bundlerClient.sendUserOperation(augmented)
+  console.log('[userOp] Sent, hash:', hash, '- waiting for receipt...')
+  
+  try {
+    const receipt = await bundlerClient.waitForUserOperationReceipt({
+      hash,
+      timeout: 60_000, // 60 seconds timeout
+    })
+    
+    if (!receipt.success) {
+      throw new Error(`UserOp failed on-chain. TX: ${receipt.receipt.transactionHash}`)
+    }
+    
+    console.log('[userOp] Confirmed! TX:', receipt.receipt.transactionHash)
+    return hash
+  } catch (waitError: any) {
+    console.error('[userOp] Wait failed:', waitError.message)
+    // Return hash anyway but log the error - caller should handle
+    throw new Error(`UserOp sent but confirmation failed: ${waitError.message}`)
+  }
 }
 // Simple request logger
 app.use((req, _res, next) => {
@@ -2527,6 +2552,16 @@ app.get('/api/_logs', (req, res) => {
   res.setHeader('content-type', 'text/plain; charset=utf-8')
   res.send(tail.join('\n'))
 })
+app.get('/api/diag/tail', (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit ?? 200), 1000)
+    const contains = typeof req.query.contains === 'string' ? String(req.query.contains) : undefined
+    const entries = readDiagTail(limit, contains)
+    return res.json({ ok: true, count: entries.length, entries })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'diag_tail_failed' })
+  }
+})
 app.get('/api/delegate', async (_req, res) => {
   try {
     if (!cachedDelegate) {
@@ -2623,7 +2658,6 @@ app.get('/api/diag', async (req, res) => {
     try {
       const amounts = await withRetry(() => publicClient.readContract({
         address: UNISWAP_V2_ROUTER02,
-        authorizationList: [] as any,
         abi: UNISWAP_V2_ROUTER_MIN_ABI as any,
         functionName: 'getAmountsOut',
         args: [amount, [USDC as Address, WMON as Address]],
@@ -2755,7 +2789,6 @@ app.post('/api/manual/dca', async (req, res) => {
               address: UNISWAP_V2_ROUTER02 as Address,
               abi: UNISWAP_V2_ROUTER_MIN_ABI as any,
               functionName: 'getAmountsOut',
-              authorizationList: [] as any,
               args: [part, path],
             }) as bigint[]
             if (Array.isArray(out) && out.length >= 2) {
@@ -2793,7 +2826,6 @@ app.post('/api/manual/dca', async (req, res) => {
           address: WMON as Address,
           abi: MIN_ERC20_ABI as any,
           functionName: 'allowance',
-          authorizationList: [] as any,
           args: [delegatorSA as Address, UNISWAP_V2_ROUTER02 as Address],
         }) as bigint
         if (allowance < toUse) {
@@ -2827,7 +2859,6 @@ app.post('/api/manual/dca', async (req, res) => {
               address: UNISWAP_V2_ROUTER02 as Address,
               abi: UNISWAP_V2_ROUTER_MIN_ABI as any,
               functionName: 'getAmountsOut',
-              authorizationList: [] as any,
               args: [part, path],
             }) as bigint[]
             if (Array.isArray(out) && out.length >= 2) {
@@ -4132,7 +4163,7 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
     
     // List of tokens to convert (INCLUDING USDC, excluding only WMON)
     const tokensToConvert = [
-      { symbol: 'USDC', address: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea' },
+      { symbol: 'USDC', address: USDC },
       { symbol: 'CHOG', address: '0xe0590015a873bf326bd645c3e1266d4db41c4e6b' },
       { symbol: 'YAKI', address: '0xfe140e1dCe99Be9F4F15d657CD9b7BF622270C50' },
       { symbol: 'DAK', address: '0x0f0bdebf0f83cd1ee3974779bcb7315f9808c714' },
@@ -4206,7 +4237,8 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
           }
         ]
         
-        const execGroups = executions.map((e) => [e])
+        // Group approve + swap in 1 UserOp (not 2 separate ones)
+        const execGroups = [executions]  // Single group with both calls
         const { calldatas, modes } = encodeExecutionCalldatasWithModes(execGroups)
         const permissionContexts = execGroups.map(() => ctx)
         const data = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
@@ -4220,9 +4252,10 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
         
         successCount++
         console.log(`[convert-all] ${token.symbol} swap sent successfully`)
-        await new Promise(r => setTimeout(r, 2000)) // Delay between swaps
+        // No delay - let bundler handle nonce sequencing
       } catch (e: any) {
         console.error(`[convert-all] Failed ${token.symbol}:`, e?.shortMessage || e?.message)
+        console.error(`[convert-all] Full error:`, e)
         // Continue to next token even if this one fails
       }
     }
@@ -4231,83 +4264,15 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
       return res.json({ ok: true, message: 'Aucun token à convertir' })
     }
     
-    console.log(`[convert-all] ${successCount} swaps sent, waiting for confirmations...`)
+    console.log(`[convert-all] ${successCount} swaps sent successfully`)
     
-    // Wait for swaps to confirm and WMON balance to update (poll up to 30s)
-    let wmonBalanceAfterSwap = 0n
-    let attempts = 0
-    const maxAttempts = 15 // 15 attempts x 2s = 30s max
-    
-    console.log('[convert-all] Polling WMON balance...')
-    while (attempts < maxAttempts) {
-      try {
-        wmonBalanceAfterSwap = await publicClient.readContract({
-          address: WMON as Address,
-          abi: [{ type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }], stateMutability: 'view' }],
-          functionName: 'balanceOf',
-          args: [delegatorSA as Address]
-        }) as bigint
-        
-        if (wmonBalanceAfterSwap > 0n) {
-          console.log(`[convert-all] WMON balance updated: ${wmonBalanceAfterSwap.toString()} (after ${attempts * 2}s)`)
-          break
-        }
-        
-        console.log(`[convert-all] Attempt ${attempts + 1}: WMON balance still 0, waiting...`)
-        await new Promise(r => setTimeout(r, 2000))
-        attempts++
-      } catch (e: any) {
-        console.error(`[convert-all] Error checking WMON balance:`, e?.message)
-        await new Promise(r => setTimeout(r, 2000))
-        attempts++
-      }
-    }
-    
-    // Now unwrap WMON -> MON
-    let unwrapHash: string | null = null
-    try {
-      
-      if (wmonBalanceAfterSwap > 0n) {
-        console.log(`[convert-all] Found ${wmonBalanceAfterSwap.toString()} WMON, unwrapping to MON...`)
-        
-        const unwrapExec = [{
-          target: WMON as Address,
-          value: 0n,
-          callData: viemEncodeFunctionData({
-            abi: [{ type: 'function', name: 'withdraw', inputs: [{ name: 'wad', type: 'uint256' }] }],
-            functionName: 'withdraw',
-            args: [wmonBalanceAfterSwap]
-          })
-        }]
-        
-        const unwrapExecGroups = unwrapExec.map(e => [e])
-        const { calldatas: unwrapCalldatas, modes: unwrapModes } = encodeExecutionCalldatasWithModes(unwrapExecGroups)
-        const unwrapPermissionContexts = unwrapExecGroups.map(() => ctx)
-        const unwrapData = viemEncodeFunctionData({ 
-          abi: DM_REDEEM_ABI as any, 
-          functionName: 'redeemDelegations', 
-          args: [unwrapPermissionContexts as any, unwrapModes as any, unwrapCalldatas as any] 
-        }) as `0x${string}`
-        
-        unwrapHash = await sendUserOpWithOptionalPaymaster({
-          account: sa,
-          calls: [{ to: env.DelegationManager as Address, data: unwrapData }],
-          maxFeePerGas,
-          maxPriorityFeePerGas,
-        })
-        console.log('[convert-all] Unwrap userOp sent:', unwrapHash)
-      } else {
-        console.log('[convert-all] No WMON to unwrap (balance: 0)')
-      }
-    } catch (e: any) {
-      console.error('[convert-all] Unwrap failed:', e?.shortMessage || e?.message)
-      // Not critical - user can unwrap manually later
-    }
+    // Don't wait for swaps - return immediately
+    // User can manually unwrap WMON -> MON after swaps confirm
     
     return res.json({ 
       ok: true, 
       conversions: successCount,
-      unwrapUserOperationHash: unwrapHash
+      message: `${successCount} swap(s) envoyé(s). Unwrap WMON → MON manuellement après confirmation.`
     })
   } catch (e: any) {
     console.error('[convert-all-to-mon] Error:', e)
@@ -4432,7 +4397,6 @@ app.post('/api/simulate', async (req, res) => {
             address: ENTRY_POINT_V07,
             abi: ENTRY_POINT_ABI_MIN as any,
             functionName: 'balanceOf',
-            authorizationList: [] as any,
             args: [pmAddress as Address],
           }) as bigint
           entryPointBalance = bal.toString()

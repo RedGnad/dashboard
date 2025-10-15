@@ -26,50 +26,40 @@ import {
   Implementation,
   toMetaMaskSmartAccount,
   createOpenDelegation,
+  createDelegation,
   getDeleGatorEnvironment,
 } from "@metamask/delegation-toolkit";
-
-// Guardian-style components
-import GradientBackground from "./components/GradientBackground";
-import BalanceBar from "./components/BalanceBar";
-import WalletButton from "./components/WalletButton";
-import ActionFAB from "./components/ActionFAB";
-import Modal from "./components/Modal";
-import DCADashboardModal from "./components/DCADashboardModal";
-import ModelStage from "./components/ModelStage";
-
 // Monad testnet UniswapV2 Router02
-const UNISWAP_V2_ROUTER02 = "0xfb8e1c3b833f9e67a71c859a132cf783b645e436" as Address;
+const UNISWAP_V2_ROUTER02 =
+  "0xfb8e1c3b833f9e67a71c859a132cf783b645e436" as Address;
+
 const USDC = "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea" as Address;
 const WMON = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701" as Address;
 
-export default function AppModern() {
-  // COPIE EXACTE: Tous les hooks wagmi (lignes 39-43 de App.tsx)
+export default function App() {
   const { address, isConnected } = useAccount();
   const { connect, connectors, status: connectStatus } = useConnect();
   const { disconnect } = useDisconnect();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
-
-  // Modal states for Guardian UI
-  const [showDashboard, setShowDashboard] = useState(false);
-  const [showAnalytics, setShowAnalytics] = useState(false);
-
-  // COPIE EXACTE: apiBase (lignes 44-60 de App.tsx)
   const apiBase = useMemo(() => {
-    const hinted = (import.meta as any)?.env?.VITE_API_BASE as string | undefined;
+    const hinted = (import.meta as any)?.env?.VITE_API_BASE as
+      | string
+      | undefined;
     if (hinted) return hinted.replace(/\/$/, "");
     try {
       const loc = window.location;
+      // If running on localhost (any port), assume API on 8787 same host
       const isLocal = /^(localhost|127\.0\.0\.1)$/i.test(loc.hostname);
       if (isLocal) return `${loc.protocol}//${loc.hostname}:8787`;
+      // Otherwise, default to same origin (reverse-proxied API)
       return "";
     } catch {
+      // SSR or non-browser: default to localhost API
       return "http://127.0.0.1:8787";
     }
   }, []);
 
-  // COPIE EXACTE: Tous les states (lignes 62-260 de App.tsx)
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>("");
   const [lastUserOp, setLastUserOp] = useState<{
@@ -80,7 +70,7 @@ export default function AppModern() {
     countdown?: number;
   } | null>(null);
   const pollRef = useRef<number | null>(null);
-  
+  // DCA job state for current delegator SA
   const [job, setJob] = useState<{
     delegatorSA: string;
     intervalSec: number;
@@ -91,53 +81,67 @@ export default function AppModern() {
     expiresAt?: number;
     runsDone?: number;
   } | null>(null);
-  
-  const [emissionCountdown, setEmissionCountdown] = useState<number | null>(null);
+  const [emissionCountdown, setEmissionCountdown] = useState<number | null>(
+    null
+  );
   const jobRef = useRef<typeof job>(null);
   const jobPollRef = useRef<number | null>(null);
   const [hasDelegation, setHasDelegation] = useState<boolean>(false);
   const [amount, setAmount] = useState("1");
-  const [schedulerSource, setSchedulerSource] = useState<"USDC" | "MON">("USDC");
-  const [schedulerTargetSymbol, setSchedulerTargetSymbol] = useState<string>("WMON");
+  const [schedulerSource, setSchedulerSource] = useState<"USDC" | "MON">(
+    "USDC"
+  );
+  const [schedulerTargetSymbol, setSchedulerTargetSymbol] =
+    useState<string>("WMON");
   const [slippageBps, setSlippageBps] = useState("100");
   const [unwrapToMon, setUnwrapToMon] = useState(false);
   const [topupStatus, setTopupStatus] = useState<string>("");
-  const [topupAmount, setTopupAmount] = useState("1");
-  const DAILY_TOPUP_USDC = 1n;
+  const [topupAmount, setTopupAmount] = useState("1"); // Montant de top-up configurable
+  const DAILY_TOPUP_USDC = 1n; // 1 USDC per 24h (legacy, remplacé par topupAmount)
+  // Track presence of native value delegation
   const [hasValueDelegation, setHasValueDelegation] = useState(false);
   const createValueDelegationNativeRef = useRef<() => Promise<void>>();
-  
   const [saPanel, setSaPanel] = useState<{
     eoa?: string;
     delegator?: {
-      address: string;
+      address: string; // Smart Account address
       mon?: string;
       usdc?: string;
-      wmon?: string;
+      wmon?: string; // added WMON balance
     };
     delegate?: {
       eoa?: string;
       sa?: string;
       mon?: string;
       usdc?: string;
-      wmon?: string;
+      wmon?: string; // added WMON balance
     };
     quote?: { in?: string; out?: string };
     error?: string;
   }>({});
-
   const usePaymaster = useMemo(() => {
     try {
       const pm = new URLSearchParams(window.location.search).get("pm");
+      // Default to paymaster disabled while debugging AA policy; enable with ?pm=1
       return pm === null ? false : pm === "1";
     } catch {
       return true;
     }
   }, []);
 
-  const [priceMeta, setPriceMeta] = useState<any>(null);
+  // --- Price Meta (Surge / Fallback badge) ----------------------------------------
+  const [priceMeta, setPriceMeta] = useState<{
+    source: string;
+    isSurge: boolean;
+    isFallback: boolean;
+    ageMs: number | null;
+    stale: boolean;
+    staleMs: number;
+    snapshotPrice?: number | null;
+    snapshotPriceTs?: number | null;
+  } | null>(null);
   const [momentum, setMomentum] = useState<number | null>(null);
-  
+  // Désactive par défaut le polling IA; activer avec ?ai=1
   const aiEnabled = useMemo(() => {
     try {
       const ai = new URLSearchParams(window.location.search).get("ai");
@@ -146,9 +150,103 @@ export default function AppModern() {
       return false;
     }
   }, []);
+  useEffect(() => {
+    if (!aiEnabled) return;
+    let active = true;
+    async function poll() {
+      try {
+        const delegatorGuess = saPanel?.delegator?.address || "0x";
+        const url = new URL(
+          "/api/strategy/preview",
+          apiBase || window.location.origin
+        );
+        url.searchParams.set("delegator", delegatorGuess);
+        const r = await fetch(url.toString())
+          .then((r) => r.json())
+          .catch(() => null);
+        if (!active) return;
+        if (r && r.ok && r.priceMeta) {
+          setPriceMeta({
+            ...r.priceMeta,
+            snapshotPrice: r.snapshotPrice,
+            snapshotPriceTs: r.snapshotPriceTs,
+          });
+          if (typeof r.momentumShortMinusLong === "number")
+            setMomentum(r.momentumShortMinusLong);
+          else setMomentum(r.momentumShortMinusLong ?? null);
+        }
+      } finally {
+        if (active) setTimeout(poll, 5000);
+      }
+    }
+    poll();
+    return () => {
+      active = false;
+    };
+  }, [apiBase, saPanel?.delegator?.address, aiEnabled]);
 
+  function renderPriceBadge() {
+    if (!priceMeta) return <span style={{ opacity: 0.5 }}>prix…</span>;
+    const { isSurge, isFallback, stale, ageMs, source, snapshotPrice } =
+      priceMeta;
+    const bg = isSurge ? (stale ? "#b36b00" : "#0a6d32") : "#555";
+    const label = isSurge ? (stale ? "Surge (stale)" : "Surge") : "Fallback";
+    const age = ageMs == null ? "?" : `${ageMs}ms`;
+    const priceStr = snapshotPrice == null ? "—" : snapshotPrice.toFixed(4);
+    const mom = momentum;
+    let momColor = "#777";
+    if (mom != null) {
+      if (mom > 0) momColor = "#0b7d2b";
+      else if (mom < 0) momColor = "#a11d2e";
+    }
+    const momStr = mom == null ? "—" : mom.toFixed(4);
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+        <span
+          title={`source=${source}\nage=${age}\nstale=${stale}\nprice=${priceStr}`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "2px 8px",
+            borderRadius: 14,
+            background: bg,
+            color: "#fff",
+            fontSize: 12,
+            fontFamily: "monospace",
+          }}
+        >
+          <strong>{label}</strong>
+          <span>{priceStr}</span>
+          <span style={{ opacity: 0.8 }}>({age})</span>
+        </span>
+        <span
+          title={`momentumShortMinusLong = SMA(5)-SMA(20)`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "2px 8px",
+            borderRadius: 14,
+            background: "#1e1e1e",
+            border: "1px solid #333",
+            color: momColor,
+            fontSize: 12,
+            fontFamily: "monospace",
+          }}
+        >
+          <span style={{ opacity: 0.7 }}>MOM</span>
+          <strong>{momStr}</strong>
+        </span>
+      </span>
+    );
+  }
+
+  // Pick a connector provided by wagmi config/useConnect (avoid creating a new instance here)
   const injectedConnector = useMemo(() => {
     try {
+      // Prefer the 'injected' connector or one named MetaMask; fallback to first available
+      // Note: connectors comes from useConnect() above
       const inj =
         (connectors || []).find((c) => c.id === "injected") ||
         (connectors || []).find((c) => /metamask/i.test(c.name)) ||
@@ -160,38 +258,13 @@ export default function AppModern() {
   }, [connectors]);
 
   const [connectError, setConnectError] = useState<string>("");
-  const [skipPermit, setSkipPermit] = useState(true);
-  
-  const [tokensMeta, setTokensMeta] = useState<
-    Record<string, { symbol: string; address: string; decimals: number; isStable?: boolean }>
-  >({});
-  
-  const [allBalances, setAllBalances] = useState<{
-    MON?: string;
-    tokens?: Record<string, string>;
-  }>({});
-  
-  // EOA balances (separate from Smart Account balances)
-  const [eoaBalances, setEoaBalances] = useState<{
-    MON?: string;
-    tokens?: Record<string, string>;
-  }>({});
-  
-  const [manualTargets, setManualTargets] = useState<Record<string, boolean>>({});
-  const [manualMonAmount, setManualMonAmount] = useState<string>("0");
-  const [manualSlippageBps, setManualSlippageBps] = useState<string>("100");
-  const [debugOpen, setDebugOpen] = useState(false);
-  const [delegationDebug, setDelegationDebug] = useState<any>(null);
-  const [delegationsList, setDelegationsList] = useState<any>(null);
-  const [statusDebug, setStatusDebug] = useState<any>(null);
-  const [backendVersion, setBackendVersion] = useState<string>("");
-  const [authStatus, setAuthStatus] = useState<"idle" | "needed" | "signing" | "verifying" | "ready" | "authing" | "authed" | "error">("idle");
 
-  // Helper function
+  // Helper: format balance where undefined => '?', null => '?', numeric/parsable 0 => '0'
   function fmtBalance(v: any): string {
     if (v === null || v === undefined) return "?";
     if (typeof v === "string") {
       if (v.trim() === "") return "?";
+      // treat string '0' (any case) as 0 not unknown
       if (/^0+$/.test(v.trim())) return "0";
       return v;
     }
@@ -201,37 +274,8 @@ export default function AppModern() {
     return String(v);
   }
 
-  // Human-readable formatter using decimals
-  function formatUnitsString(raw: string | undefined, decimals: number, maxFrac = 4): string {
-    if (!raw) return "0";
-    // raw may be big integer string
-    let s = raw.replace(/^0x/i, "");
-    if (!/^[0-9]+$/.test(s)) {
-      // if already human, return as is
-      return raw;
-    }
-    const negative = false; // balances are non-negative
-    while (s.length < decimals + 1) s = "0" + s;
-    const intPart = s.slice(0, s.length - decimals).replace(/^0+(?=\d)/, "");
-    let frac = s.slice(s.length - decimals).replace(/0+$/, "");
-    if (frac.length > maxFrac) frac = frac.slice(0, maxFrac).replace(/0+$/, "");
-    return (negative ? "-" : "") + (frac ? `${intPart}.${frac}` : intPart);
-  }
+  // HyperIndex Proof panel removed per user request
 
-  function decimalsForSymbol(sym: string): number {
-    const m = tokensMeta?.[sym];
-    if (m?.decimals != null) return m.decimals;
-    if (sym === "USDC") return 6;
-    if (sym === "WMON" || sym === "MON") return 18;
-    return 18;
-  }
-
-  function fmtToken(sym: string, raw?: string): string {
-    return formatUnitsString(raw, decimalsForSymbol(sym));
-  }
-
-
-  // ========== BUSINESS LOGIC FROM App.tsx ==========
   async function refreshSaPanel() {
     try {
       // fetch delegate info
@@ -276,8 +320,7 @@ export default function AppModern() {
         "amountUsdc",
         (parseFloat(amount || "1") * 1e6).toFixed(0)
       );
-      diagUrl.searchParams.set("ts", String(Date.now()));
-      const diag = await fetch(diagUrl.toString(), { cache: "no-store" }).then((r) => r.json());
+      const diag = await fetch(diagUrl.toString()).then((r) => r.json());
 
       const next: any = {};
       if (address) next.eoa = address;
@@ -424,30 +467,13 @@ export default function AppModern() {
       try {
         const url = new URL("/api/balances", apiBase || window.location.origin);
         url.searchParams.set("address", addr);
-        url.searchParams.set("ts", String(Date.now()));
-        const r = await fetch(url.toString(), { cache: "no-store" }).then((x) => x.json());
+        const r = await fetch(url.toString()).then((x) => x.json());
         if (r && (r.ok || r.address)) {
           setAllBalances({ MON: r.MON, tokens: r.tokens || {} });
         }
       } catch {}
     })();
   }, [apiBase, saPanel?.delegator?.address]);
-
-  // Fetch EOA balances when EOA address known
-  useEffect(() => {
-    (async () => {
-      if (!address) return;
-      try {
-        const url = new URL("/api/balances", apiBase || window.location.origin);
-        url.searchParams.set("address", address);
-        url.searchParams.set("ts", String(Date.now()));
-        const r = await fetch(url.toString(), { cache: "no-store" }).then((x) => x.json());
-        if (r && (r.ok || r.address)) {
-          setEoaBalances({ MON: r.MON, tokens: r.tokens || {} });
-        }
-      } catch {}
-    })();
-  }, [apiBase, address]);
 
   // Helper: refresh all balances on demand (used by poller and after actions)
   const refreshAllBalances = useRef<() => Promise<void>>();
@@ -457,26 +483,31 @@ export default function AppModern() {
     try {
       const url = new URL("/api/balances", apiBase || window.location.origin);
       url.searchParams.set("address", addr);
-      url.searchParams.set("ts", String(Date.now()));
-      const r = await fetch(url.toString(), { cache: "no-store" }).then((x) => x.json());
+      const r = await fetch(url.toString()).then((x) => x.json());
       if (r && (r.ok || r.address)) {
         setAllBalances({ MON: r.MON, tokens: r.tokens || {} });
       }
     } catch {}
-    try {
-      if (address) {
-        const url2 = new URL("/api/balances", apiBase || window.location.origin);
-        url2.searchParams.set("address", address);
-        url2.searchParams.set("ts", String(Date.now()));
-        const r2 = await fetch(url2.toString(), { cache: "no-store" }).then((x) => x.json());
-        if (r2 && (r2.ok || r2.address)) {
-          setEoaBalances({ MON: r2.MON, tokens: r2.tokens || {} });
-        }
-      }
-    } catch {}
   };
 
-  // ========== Business Logic Functions ==========
+  // Désactivation par défaut de la tentative permit (USDC testnet ne supporte pas 2612 ici)
+  const [skipPermit, setSkipPermit] = useState(true);
+  // Tokens registry and balances (manual multi-asset + balances table)
+  const [tokensMeta, setTokensMeta] = useState<
+    Record<
+      string,
+      { symbol: string; address: string; decimals: number; isStable?: boolean }
+    >
+  >({});
+  const [allBalances, setAllBalances] = useState<{
+    MON?: string;
+    tokens?: Record<string, string>;
+  }>({});
+  const [manualTargets, setManualTargets] = useState<Record<string, boolean>>(
+    {}
+  );
+  const [manualMonAmount, setManualMonAmount] = useState<string>("0");
+  const [manualSlippageBps, setManualSlippageBps] = useState<string>("100");
 
   async function createAndPostDelegation() {
     if (!address || !publicClient || !walletClient) return;
@@ -525,7 +556,7 @@ export default function AppModern() {
       const isDeployed = code && code !== "0x";
 
       if (!isDeployed) {
-        setMsg(`Deploying smart account...`);
+        setMsg(`Deploying smart account...\nPlease send some MON to ${smart.address} first if not using paymaster`);
         try {
           // Send a simple userOp to deploy the SA
           const bundlerClient = createBundlerClient({
@@ -535,25 +566,68 @@ export default function AppModern() {
             ),
           });
 
-          const deployHash = await bundlerClient.sendUserOperation({
-            account: smart,
-            calls: [{ to: smart.address, data: "0x" }],
-          });
+          // Try WITHOUT paymaster first to isolate the issue
+          const USE_PAYMASTER_FOR_DEPLOY = false; // Set to true to test with paymaster
+          
+          let deployHash: `0x${string}`;
+          
+          if (USE_PAYMASTER_FOR_DEPLOY) {
+            // Create paymaster client for sponsored deployment
+            const { createPaymasterClient } = await import("viem/account-abstraction");
+            const paymasterClient = createPaymasterClient({
+              transport: http(
+                "https://rpc.zerodev.app/api/v3/7535339b-9ae3-41bb-ad97-5375bae4a51b/chain/10143"
+              ),
+            });
+
+            // Deploy with a dummy call to a safe address (not self!)
+            // Use the DelegationManager as a safe no-op target
+            const DELEGATION_MANAGER = env.DelegationManager as Address;
+            deployHash = await bundlerClient.sendUserOperation({
+              account: smart,
+              calls: [{ to: DELEGATION_MANAGER, value: 0n, data: "0x" }],
+              paymaster: paymasterClient,
+            });
+          } else {
+            // Deploy without paymaster (SA must have funds)
+            // Use very high gas to rule out estimation issues
+            const gasPrice = await publicClient.getGasPrice();
+            const maxFeePerGas = gasPrice * 3n; // 3x current gas price
+            const maxPriorityFeePerGas = maxFeePerGas / 2n;
+            
+            // Deploy with a dummy call to a safe address (not self!)
+            const DELEGATION_MANAGER = env.DelegationManager as Address;
+            deployHash = await bundlerClient.sendUserOperation({
+              account: smart,
+              calls: [{ to: DELEGATION_MANAGER, value: 0n, data: "0x" }],
+              maxFeePerGas,
+              maxPriorityFeePerGas,
+            });
+          }
 
           setMsg(`Waiting for deployment (${deployHash})...`);
 
-          // Wait for deployment confirmation
-          let attempts = 0;
-          while (attempts < 30) {
-            const deployCode = await publicClient.getBytecode({
-              address: smart.address,
+          // Wait for UserOp receipt (more reliable than polling bytecode)
+          try {
+            const receipt = await bundlerClient.waitForUserOperationReceipt({
+              hash: deployHash,
+              timeout: 120_000, // 2 minutes timeout
             });
-            if (deployCode && deployCode !== "0x") break;
-            await new Promise((r) => setTimeout(r, 2000));
-            attempts++;
+            
+            if (receipt.success) {
+              setMsg(`Smart account deployed! TX: ${receipt.receipt.transactionHash}\nCreating delegation...`);
+            } else {
+              throw new Error("Deployment UserOp failed on-chain");
+            }
+          } catch (waitError: any) {
+            // Fallback: check if bytecode exists anyway (UserOp might have succeeded but receipt fetch failed)
+            const deployCode = await publicClient.getBytecode({ address: smart.address });
+            if (deployCode && deployCode !== "0x") {
+              setMsg(`Smart account deployed (receipt timeout but bytecode exists)\nCreating delegation...`);
+            } else {
+              throw waitError;
+            }
           }
-
-          setMsg(`Smart account deployed!\nCreating delegation...`);
         } catch (deployError: any) {
           console.error("Deployment error:", deployError);
           setMsg(
@@ -884,9 +958,20 @@ export default function AppModern() {
         selTransfer,
         selTransferWithAuth,
       ];
-      const delegation = createOpenDelegation({
+      // Get Delegate SA address from backend
+      const delegateRes = await fetch(`${apiBase || ""}/api/delegate`);
+      const delegateInfo = await delegateRes.json();
+      if (!delegateRes.ok || !delegateInfo.sa) {
+        throw new Error("Failed to get Delegate SA address");
+      }
+      
+      console.log("Using Delegate SA:", delegateInfo.sa);
+      
+      // Use createDelegation with explicit delegate (not createOpenDelegation)
+      const delegation = createDelegation({
         environment: env as any,
         from: smart.address as Address,
+        to: delegateInfo.sa as Address, // ✅ Explicit delegate address
         scope: {
           type: "functionCall",
           targets,
@@ -1596,14 +1681,7 @@ export default function AppModern() {
         to: saPanel.delegator.address as Address,
         value,
       });
-      try {
-        if (publicClient) {
-          await publicClient.waitForTransactionReceipt({ hash: txHash as Hex });
-        }
-      } catch {}
-      setMsg(`Top-up natif MON confirmé: ${txHash} (${amt} MON)`);
-      try { await refreshAllBalances.current?.(); } catch {}
-      try { await refreshSaPanel(); } catch {}
+      setMsg(`Top-up natif MON tx: ${txHash} (${amt} MON transférés)`);
     } catch (e: any) {
       setMsg(`Top-up natif échoué: ${e?.message || e}`);
     } finally {
@@ -1611,7 +1689,7 @@ export default function AppModern() {
     }
   }
 
-  // Backend version polling
+  const [backendVersion, setBackendVersion] = useState<string>("");
   useEffect(() => {
     let aborted = false;
     async function loadVersion() {
@@ -1633,6 +1711,11 @@ export default function AppModern() {
       clearInterval(iv);
     };
   }, [apiBase]);
+
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [delegationDebug, setDelegationDebug] = useState<any>(null);
+  const [delegationsList, setDelegationsList] = useState<any>(null);
+  const [statusDebug, setStatusDebug] = useState<any>(null);
 
   async function loadDelegationDebug(force = false) {
     if (!saPanel.delegator?.address) return;
@@ -1657,6 +1740,9 @@ export default function AppModern() {
   }
 
   const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<
+    "idle" | "needed" | "signing" | "verifying" | "ready" | "error"
+  >("idle");
   const [authError, setAuthError] = useState<string>("");
 
   // Attempt restore session
@@ -1740,245 +1826,574 @@ export default function AppModern() {
     }
   }
 
-  useEffect(() => {
-    if (isConnected) {
-      refreshSaPanel();
-    } else {
-      setSaPanel({});
-    }
-  }, [isConnected]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch(`${apiBase || ""}/api/tokens`).then((x) => x.json());
-        if (r && r.ok && r.tokens) {
-          setTokensMeta(r.tokens || {});
-        }
-      } catch {}
-    })();
-  }, [apiBase]);
-
-  useEffect(() => {
-    (async () => {
-      const addr = saPanel?.delegator?.address;
-      if (!addr) return;
-      try {
-        const url = new URL("/api/balances", apiBase || window.location.origin);
-        url.searchParams.set("address", addr);
-        const r = await fetch(url.toString()).then((x) => x.json());
-        if (r && (r.ok || r.address)) {
-          setAllBalances({ MON: r.MON, tokens: r.tokens || {} });
-        }
-      } catch {}
-    })();
-  }, [apiBase, saPanel?.delegator?.address]);
-
-  // Helper functions for balance progress bars
-  const calculateEOAProgress = () => {
-    const eoaUsdc = Number(eoaBalances?.tokens?.USDC || 0) / 1e6;
-    const eoaMon = Number(eoaBalances?.MON || 0) / 1e18;
-    const eoaWmon = Number(eoaBalances?.tokens?.WMON || 0) / 1e18;
-    
-    const saUsdc = Number(allBalances?.tokens?.USDC ?? saPanel?.delegator?.usdc ?? "0") / 1e6;
-    const saMon = Number(allBalances?.MON ?? saPanel?.delegator?.mon ?? "0") / 1e18;
-    const saWmon = Number(allBalances?.tokens?.WMON ?? saPanel?.delegator?.wmon ?? "0") / 1e18;
-    
-    const totalEoa = eoaUsdc + eoaMon + eoaWmon;
-    const totalSa = saUsdc + saMon + saWmon;
-    const grandTotal = totalEoa + totalSa;
-    
-    if (grandTotal === 0) return 50;
-    return (totalEoa / grandTotal) * 100;
-  };
-
-  const calculateSAProgress = () => {
-    return 100 - calculateEOAProgress();
-  };
-
-  // If not connected, show login screen
-  if (!isConnected) {
+  // If wallet not connected -> existing flow handles connect button.
+  // If connected but auth not ready, gate the rest of UI.
+  if (isConnected && authStatus !== "ready") {
     return (
-      <div className="w-screen h-screen relative overflow-hidden">
-        <GradientBackground />
-        <ModelStage />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center">
-            <h1 className="text-5xl font-bold text-white mb-8 drop-shadow-lg">
-              Monad Delegatoor
-            </h1>
-            <div className="flex justify-center">
-              <ConnectKitButton />
-            </div>
-            {connectError && (
-              <div className="mt-4 text-red-300 text-sm">{connectError}</div>
-            )}
+      <div
+        style={{
+          maxWidth: 480,
+          margin: "3rem auto",
+          fontFamily: "Inter, system-ui, sans-serif",
+        }}
+      >
+        <h1>Monad Delegatoor</h1>
+        <p style={{ fontSize: 14 }}>
+          Authentification requise (signature hors chaîne) avant d'accéder à
+          l'interface.
+        </p>
+        <div
+          style={{
+            fontSize: 12,
+            color: "#666",
+            lineHeight: 1.4,
+            whiteSpace: "pre-wrap",
+            marginBottom: 12,
+          }}
+        >
+          Cette signature ne dépense rien; elle prouve simplement que vous
+          contrôlez l'EOA et initialise une session valable 24h.
+        </div>
+        {authError && (
+          <div style={{ color: "#b00", fontSize: 12, marginBottom: 8 }}>
+            Erreur: {authError}
           </div>
+        )}
+        <button
+          disabled={authStatus === "signing" || authStatus === "verifying"}
+          onClick={beginAuth}
+        >
+          {authStatus === "signing"
+            ? "Signer…"
+            : authStatus === "verifying"
+            ? "Vérification…"
+            : "Signer pour entrer"}
+        </button>
+        <div style={{ marginTop: 12 }}>
+          <button
+            onClick={() => {
+              localStorage.removeItem("dcaAuthToken");
+              setAuthToken(null);
+              setAuthStatus("needed");
+            }}
+          >
+            Reset
+          </button>
         </div>
       </div>
     );
   }
 
-  // Main Guardian UI
   return (
-    <div className="w-screen h-screen relative overflow-hidden">
-      <GradientBackground />
-      <ModelStage />
-      
-      {/* Wallet button */}
-      <WalletButton />
-
-      {/* Balance bars - Guardian style */}
-      <div className="absolute top-6 left-6 space-y-3 z-30">
-        <BalanceBar
-          title="EOA Wallet"
-          icon="wallet"
-          address={address}
-          balances={{
-            USDC: fmtToken("USDC", eoaBalances?.tokens?.USDC),
-            MON: fmtToken("MON", eoaBalances?.MON),
-            WMON: fmtToken("WMON", eoaBalances?.tokens?.WMON),
-          }}
-          progressPercentage={calculateEOAProgress()}
-          gradient="red"
-          onRefresh={refreshAllBalances.current}
-          isRefreshing={false}
-        />
-        <BalanceBar
-          title="Smart Account"
-          icon="shield"
-          address={saPanel?.delegator?.address}
-          balances={{
-            USDC: fmtToken("USDC", allBalances?.tokens?.USDC ?? saPanel?.delegator?.usdc),
-            MON: fmtToken("MON", allBalances?.MON ?? saPanel?.delegator?.mon),
-            WMON: fmtToken("WMON", allBalances?.tokens?.WMON ?? saPanel?.delegator?.wmon),
-          }}
-          progressPercentage={calculateSAProgress()}
-          gradient="blue"
-          onRefresh={refreshAllBalances.current}
-          isRefreshing={false}
-        />
-        {/* Other tokens overview (compact, aligned) */}
-        <div className="w-[380px] backdrop-blur-md bg-white/10 border border-white/20 rounded-2xl shadow-lg p-2">
-          <div className="text-white/90 font-semibold mb-1 text-sm">Other tokens</div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <div className="text-white/70 text-[11px] mb-1">EOA tokens</div>
-              <div className="flex flex-wrap gap-1 text-[11px]">
-                {Object.entries(eoaBalances?.tokens || {})
-                  .filter(([k]) => ["USDC", "WMON"].indexOf(k) === -1)
-                  .slice(0, 20)
-                  .map(([sym, val]) => (
-                    <div key={`eoa-${sym}`} className="px-1.5 py-1 rounded bg-white/5 border border-white/10 text-white/90">
-                      {sym}: <span className="font-mono">{fmtToken(sym, val)}</span>
-                    </div>
-                  ))}
-                {(!eoaBalances?.tokens || Object.keys(eoaBalances.tokens).filter((k)=>!["USDC","WMON"].includes(k)).length===0) && (
-                  <div className="text-white/50">—</div>
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="text-white/70 text-[11px] mb-1">Smart Account tokens</div>
-              <div className="flex flex-wrap gap-1 text-[11px]">
-                {Object.entries(allBalances?.tokens || {})
-                  .filter(([k]) => ["USDC", "WMON"].indexOf(k) === -1)
-                  .slice(0, 20)
-                  .map(([sym, val]) => (
-                    <div key={`sa-${sym}`} className="px-1.5 py-1 rounded bg-white/5 border border-white/10 text-white/90">
-                      {sym}: <span className="font-mono">{fmtToken(sym, val)}</span>
-                    </div>
-                  ))}
-                {(!allBalances?.tokens || Object.keys(allBalances.tokens).filter((k)=>!["USDC","WMON"].includes(k)).length===0) && (
-                  <div className="text-white/50">—</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+    <div
+      style={{
+        maxWidth: 680,
+        margin: "2rem auto",
+        fontFamily: "Inter, system-ui, sans-serif",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <h1 style={{ margin: 0 }}>Monad Delegatoor</h1>
       </div>
+      <button
+        style={{ position: "absolute", top: 8, right: 8, fontSize: 10 }}
+        onClick={() => {
+          setDebugOpen((o) => !o);
+          if (!debugOpen) loadDelegationDebug(true);
+        }}
+      >
+        {debugOpen ? "Close Debug" : "Debug"}
+      </button>
+      {debugOpen && (
+        <div
+          style={{
+            background: "#111",
+            color: "#eee",
+            padding: 12,
+            borderRadius: 6,
+            fontSize: 11,
+            maxHeight: 300,
+            overflow: "auto",
+          }}
+        >
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              style={{ fontSize: 10 }}
+              onClick={() => loadDelegationDebug(true)}
+            >
+              Reload
+            </button>
+          </div>
+          <pre style={{ whiteSpace: "pre-wrap" }}>
+            {JSON.stringify(
+              {
+                delegation: delegationDebug,
+                list: delegationsList,
+                status: statusDebug,
+              },
+              null,
+              2
+            )}
+          </pre>
+        </div>
+      )}
+      {!isConnected ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <ConnectKitButton />
+          {/* Fallback button (in case ConnectKit not loaded) */}
+          <button
+            disabled={connectStatus === "pending"}
+            onClick={async () => {
+              setConnectError("");
+              try {
+                if (!injectedConnector) {
+                  setConnectError(
+                    "No wallet connector available (install MetaMask)"
+                  );
+                  return;
+                }
+                await connect({ connector: injectedConnector as any });
+              } catch (e: any) {
+                const msg = e?.shortMessage || e?.message || String(e);
+                setConnectError(msg);
+              }
+            }}
+          >
+            {connectStatus === "pending" ? "Connecting…" : "Connect Wallet"}
+          </button>
+          {connectError && (
+            <div style={{ color: "#b00", fontSize: 12 }}>{connectError}</div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div
+            style={{
+              background: "#fcfcfd",
+              border: "1px solid #eee",
+              borderRadius: 8,
+              padding: 12,
+              marginBottom: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <strong>Accounts</strong>
+              <button onClick={refreshSaPanel} style={{ fontSize: 12 }}>
+                Refresh
+              </button>
+            </div>
+            <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#666" }}>EOA</div>
+                <div style={{ wordBreak: "break-all" }}>
+                  {saPanel.eoa || "—"}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: "#666" }}>Delegator SA</div>
+                <div style={{ wordBreak: "break-all" }}>
+                  {saPanel.delegator?.address || "—"}
+                </div>
+                {/* Compact list: balances for all known tokens (non-zero only) */}
+                {(() => {
+                  try {
+                    // Construire une ligne unique et auto-refresh: MON (native) + tous les ERC20 (USDC, WMON, CHOG, ...)
+                    const rows: string[] = [];
+                    const emitted = new Set<string>();
+                    // MON (native)
+                    const monRaw = allBalances?.MON;
+                    if (monRaw && monRaw !== "0") {
+                      const monNum = Number(monRaw) / 1e18;
+                      if (Number.isFinite(monNum) && monNum !== 0) {
+                        rows.push(`MON: ${monNum.toFixed(6)}`);
+                        emitted.add("MON");
+                      }
+                    }
+                    // ERC20 tokens (including USDC, WMON, ...)
+                    const entries = Object.entries(tokensMeta || {}).sort(
+                      ([a], [b]) => a.localeCompare(b)
+                    ) as Array<
+                      [
+                        string,
+                        { symbol: string; address: string; decimals: number }
+                      ]
+                    >;
+                    for (const [sym, meta] of entries) {
+                      if (emitted.has(sym)) continue;
+                      const raw = allBalances?.tokens?.[sym];
+                      if (!raw || raw === "0") continue;
+                      const dec = Number(meta.decimals || 18);
+                      const denom =
+                        dec >= 0 ? Math.pow(10, Math.min(18, dec)) : 1;
+                      const num = Number(raw) / denom;
+                      if (!Number.isFinite(num) || num === 0) continue;
+                      rows.push(`${sym}: ${num.toFixed(Math.min(6, dec))}`);
+                      emitted.add(sym);
+                    }
+                    if (rows.length === 0) return null;
+                    return (
+                      <div
+                        style={{ fontSize: 12, color: "#444", marginTop: 2 }}
+                      >
+                        Tokens: {rows.join("  •  ")}
+                      </div>
+                    );
+                  } catch {
+                    return null;
+                  }
+                })()}
+              </div>
+              {saPanel.quote && (
+                <div style={{ fontSize: 12, color: "#444" }}>
+                  Quote 1 USDC → WMON:{" "}
+                  {saPanel.quote.out
+                    ? `${(Number(saPanel.quote.out) / 1e18).toFixed(6)} WMON`
+                    : "?"}
+                </div>
+              )}
+              {saPanel.error && (
+                <div style={{ fontSize: 12, color: "#b00" }}>
+                  Diag error: {saPanel.error}
+                </div>
+              )}
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <button onClick={createAndPostDelegation} disabled={busy}>
+                {busy ? "Working…" : "Create Core Delegation"}
+              </button>
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 12 }}>
+            {/* DCA job controls */}
+            <div
+              style={{
+                marginTop: 8,
+                padding: 12,
+                border: "1px solid #eee",
+                borderRadius: 8,
+                background: "#fcfcfd",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <strong>DCA Scheduler</strong>
+                <div style={{ fontSize: 12, color: "#666" }}>
+                  Interval: 60s • Duration: 24h
+                </div>
+              </div>
+              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                <label style={{ fontSize: 13 }}>
+                  Amount per DCA ({schedulerSource}):
+                  <input
+                    value={amount}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setAmount(e.target.value)
+                    }
+                    style={{ marginLeft: 6, width: 120 }}
+                  />
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <label style={{ fontSize: 13 }}>
+                    Source:
+                    <select
+                      value={schedulerSource}
+                      onChange={(e) =>
+                        setSchedulerSource(e.target.value as "USDC" | "MON")
+                      }
+                      style={{ marginLeft: 6 }}
+                    >
+                      <option value="USDC">USDC</option>
+                      <option value="MON">MON</option>
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 13 }}>
+                    Target token:
+                    <select
+                      value={schedulerTargetSymbol}
+                      onChange={(e) => setSchedulerTargetSymbol(e.target.value)}
+                      style={{ marginLeft: 6 }}
+                    >
+                      {Object.keys(tokensMeta || {}).map((sym) => (
+                        <option key={sym} value={sym}>
+                          {sym}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 13 }}>
+                    Slippage (bps):
+                    <input
+                      value={slippageBps}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setSlippageBps(e.target.value)
+                      }
+                      style={{ marginLeft: 6, width: 80 }}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div style={{ fontSize: 13, marginTop: 6 }}>
+                Status: {job?.active ? "Active" : "Stopped"}
+                {job?.runsDone != null ? ` • Runs: ${job.runsDone}` : ""}
+                {job?.lastError ? (
+                  <span style={{ color: "#b00" }}>
+                    {" "}
+                    • Last error: {job.lastError}
+                  </span>
+                ) : null}
+              </div>
+              <div style={{ fontSize: 13 }}>
+                Last run:{" "}
+                {job?.lastRunAt
+                  ? new Date(job.lastRunAt).toLocaleTimeString()
+                  : "—"}
+              </div>
+              <div style={{ fontSize: 13 }}>
+                Next in:{" "}
+                {job?.active && emissionCountdown != null
+                  ? `${emissionCountdown}s`
+                  : "—"}
+              </div>
+              {topupStatus && (
+                <div style={{ fontSize: 12, color: "#0a6" }}>{topupStatus}</div>
+              )}
+              <div style={{ fontSize: 12, color: "#666" }}>
+                Expires:{" "}
+                {job?.expiresAt
+                  ? new Date(job.expiresAt).toLocaleString()
+                  : "—"}
+              </div>
+              {!hasDelegation && (
+                <div style={{ fontSize: 12, color: "#b26" }}>
+                  Créez et signez d’abord la délégation pour autoriser le DCA.
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button
+                  onClick={startDca}
+                  disabled={
+                    busy || !saPanel.delegator?.address || !hasDelegation
+                  }
+                >
+                  Start DCA
+                </button>
+                <button
+                  onClick={stopDca}
+                  disabled={
+                    busy || !saPanel.delegator?.address || !hasDelegation
+                  }
+                >
+                  Stop DCA
+                </button>
+                <button
+                  onClick={sendMonNative}
+                  disabled={busy || !saPanel.delegator?.address}
+                  title="Envoie tout le solde MON natif vers l'EOA (crée automatiquement la value delegation si nécessaire)"
+                >
+                  Retirer MON (natif) → EOA
+                </button>
+                <button
+                  onClick={convertAllToMon}
+                  disabled={
+                    busy || !saPanel.delegator?.address || !hasDelegation
+                  }
+                  style={{
+                    backgroundColor: "#9C27B0",
+                    color: "white",
+                    fontWeight: "bold",
+                  }}
+                >
+                  🔄 Convert All to MON
+                </button>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    marginTop: "8px",
+                  }}
+                >
+                  <label style={{ fontSize: "14px" }}>
+                    Montant top-up (USDC ou MON):
+                    <input
+                      type="number"
+                      value={topupAmount}
+                      onChange={(e) => setTopupAmount(e.target.value)}
+                      min="0"
+                      step="0.1"
+                      style={{
+                        width: "80px",
+                        marginLeft: "8px",
+                        padding: "4px",
+                      }}
+                    />
+                  </label>
+                  <button
+                    onClick={directTopupUsdc}
+                    disabled={
+                      busy ||
+                      !saPanel.delegator?.address ||
+                      !address ||
+                      !topupAmount ||
+                      parseFloat(topupAmount) <= 0
+                    }
+                  >
+                    Top-up direct USDC (EOA→SA)
+                  </button>
+                  <button
+                    onClick={directTopupMon}
+                    disabled={
+                      busy ||
+                      !saPanel.delegator?.address ||
+                      !address ||
+                      !topupAmount ||
+                      parseFloat(topupAmount) <= 0
+                    }
+                    title="Envoie des MON natifs de l'EOA vers le Smart Account"
+                  >
+                    Top-up natif MON (EOA→SA)
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+      {msg && (
+        <pre
+          style={{
+            whiteSpace: "pre-wrap",
+            background: "#f6f8fa",
+            padding: 12,
+            marginTop: 16,
+          }}
+        >
+          {msg}
+        </pre>
+      )}
+      {lastUserOp?.hash && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 8,
+            border: "1px solid #eee",
+            borderRadius: 8,
+            background: "#fff",
+            fontSize: 13,
+          }}
+        >
+          <div style={{ wordBreak: "break-all" }}>
+            userOp: <code>{lastUserOp.hash}</code>
+          </div>
+          {lastUserOp.txHash ? (
+            <div>
+              tx:{" "}
+              <a
+                href={`https://testnet.monadexplorer.com/tx/${lastUserOp.txHash}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {lastUserOp.txHash}
+              </a>
+            </div>
+          ) : (
+            <div>Pending… {lastUserOp.countdown}s</div>
+          )}
+        </div>
+      )}
+      {/* Protocol metrics (separate feature) */}
+      <Protocols apiBase={apiBase} />
 
-      {/* Action FAB */}
-      <ActionFAB
-        onDashboard={() => setShowDashboard(true)}
-        onSettings={() => setShowAnalytics(true)}
+      {/* AI Actions (contrôles) */}
+      <AiActions
+        apiBase={apiBase || ""}
+        defaultDelegator={saPanel?.delegator?.address || ""}
       />
-
-      {/* Dashboard Modal */}
-      <Modal
-        isOpen={showDashboard}
-        onClose={() => setShowDashboard(false)}
-        title="DCA Control Dashboard"
-        maxWidth="1200px"
-      >
-        <DCADashboardModal
-          amount={amount}
-          setAmount={setAmount}
-          schedulerSource={schedulerSource}
-          setSchedulerSource={setSchedulerSource}
-          schedulerTargetSymbol={schedulerTargetSymbol}
-          setSchedulerTargetSymbol={setSchedulerTargetSymbol}
-          slippageBps={slippageBps}
-          setSlippageBps={setSlippageBps}
-          tokensMeta={tokensMeta}
-          job={job}
-          emissionCountdown={emissionCountdown}
-          hasDelegation={hasDelegation}
-          topupStatus={topupStatus}
-          createAndPostDelegation={createAndPostDelegation}
-          startDca={startDca}
-          stopDca={stopDca}
-          sendMonNative={sendMonNative}
-          convertAllToMon={convertAllToMon}
-          topupAmount={topupAmount}
-          setTopupAmount={setTopupAmount}
-          directTopupUsdc={directTopupUsdc}
-          directTopupMon={directTopupMon}
-          busy={busy}
-          address={address}
-          delegatorAddress={saPanel?.delegator?.address}
-          msg={msg}
+      {/* Autopilot mini-card (sparkline) */}
+      <div style={{ marginTop: 12 }}>
+        <AutopilotMiniCard
+          apiBase={apiBase}
+          delegator={saPanel?.delegator?.address || undefined}
         />
-
-        {/* AI Components */}
-        <div className="mt-6 space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-4 text-slate-900">
-            <AutopilotMiniCard
-              apiBase={apiBase}
-              delegator={saPanel?.delegator?.address}
-            />
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4 text-slate-900">
-            <AiActions
-              apiBase={apiBase || ""}
-              defaultDelegator={saPanel?.delegator?.address || ""}
-            />
-          </div>
-        </div>
-      </Modal>
-
-      {/* Analytics Modal */}
-      <Modal
-        isOpen={showAnalytics}
-        onClose={() => setShowAnalytics(false)}
-        title="AI Analytics & Monitoring"
-        maxWidth="1400px"
+      </div>
+      {/* AI Console (historique décisions) */}
+      <AiConsole
+        apiBase={apiBase}
+        delegator={saPanel?.delegator?.address || undefined}
+      />
+      <AiDashboard apiBase={apiBase} />
+      {/* Balances for all configured tokens */}
+      <div
+        style={{
+          marginTop: 16,
+          padding: 12,
+          border: "1px solid #ddd",
+          borderRadius: 8,
+          background: "#fff",
+        }}
       >
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-4 text-slate-900">
-            <AiConsole
-              apiBase={apiBase}
-              delegator={saPanel?.delegator?.address}
-            />
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4 text-slate-900">
-            <AiDashboard apiBase={apiBase} />
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4 text-slate-900">
-            <Protocols apiBase={apiBase} />
-          </div>
+        <div style={{ fontSize: 12, fontWeight: 600 }}>
+          Soldes (SA) — tous les tokens
         </div>
-      </Modal>
+        {saPanel?.delegator?.address ? (
+          <div
+            style={{
+              marginTop: 8,
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+              gap: 8,
+            }}
+          >
+            {/* MON */}
+            <div style={{ fontSize: 12 }}>
+              <strong>MON</strong>:{" "}
+              {allBalances?.MON
+                ? (Number(allBalances.MON) / 1e18).toFixed(6)
+                : "?"}
+            </div>
+            {/* Tokens */}
+            {Object.entries(tokensMeta).map(([sym, meta]) => (
+              <div key={sym} style={{ fontSize: 12 }}>
+                <strong>{sym}</strong>:{" "}
+                {(() => {
+                  try {
+                    const v = allBalances?.tokens?.[sym] || "0";
+                    const dec = Number((meta as any).decimals || 18);
+                    const denom =
+                      dec >= 0 ? Math.pow(10, Math.min(18, dec)) : 1;
+                    return (Number(v) / denom).toFixed(Math.min(6, dec));
+                  } catch {
+                    return "?";
+                  }
+                })()}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: "#666", marginTop: 6 }}>
+            Connectez-vous pour voir les soldes.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

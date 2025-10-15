@@ -100,6 +100,7 @@ export default function ModelStage({ modelUrl = "/model.glb" }: { modelUrl?: str
         dpr={[1, 2]}
         camera={{ position: [0, 0, 3.2], fov: 40 }}
         gl={{ antialias: true }}
+        style={{ pointerEvents: 'none' }}
       >
         <group ref={root}>
           {hasModel ? (
