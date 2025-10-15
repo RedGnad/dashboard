@@ -23,7 +23,7 @@
     "signature": "0x9eb14f9aaacf2bcd4c9dde514a014da50f2b03e278e4062fab251a057267dd2e5d505327f5bb947476a212161a1b8202d6022a6d90b3cad0f7955b9aabcec39b1b"
   },
   "job": {
-    "createdAtMs": 1760542104325,
+    "createdAtMs": 1760549049407,
     "unwrapEvery": 24,
     "slippageBps": 100,
     "intervalSec": 60,
@@ -34,8 +34,12 @@
     "permit": null,
     "auth3009": null,
     "dailyTopupUSDC": 1,
+    "autostart": false,
+    "dynamicByAI": true,
+    "respectAiAction": true,
+    "inferenceProvider": "openai",
     "allowSellExecution": true,
-    "targetSymbol": "YAKI",
+    "targetSymbol": "CHOG",
     "source": "MON",
     "amountMON": 1
   }

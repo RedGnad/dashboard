@@ -26,6 +26,7 @@ import {
   Implementation,
   toMetaMaskSmartAccount,
   createOpenDelegation,
+  createDelegation,
   getDeleGatorEnvironment,
 } from "@metamask/delegation-toolkit";
 // Monad testnet UniswapV2 Router02
@@ -555,7 +556,7 @@ export default function App() {
       const isDeployed = code && code !== "0x";
 
       if (!isDeployed) {
-        setMsg(`Deploying smart account...`);
+        setMsg(`Deploying smart account...\nPlease send some MON to ${smart.address} first if not using paymaster`);
         try {
           // Send a simple userOp to deploy the SA
           const bundlerClient = createBundlerClient({
@@ -565,25 +566,68 @@ export default function App() {
             ),
           });
 
-          const deployHash = await bundlerClient.sendUserOperation({
-            account: smart,
-            calls: [{ to: smart.address, data: "0x" }],
-          });
+          // Try WITHOUT paymaster first to isolate the issue
+          const USE_PAYMASTER_FOR_DEPLOY = false; // Set to true to test with paymaster
+          
+          let deployHash: `0x${string}`;
+          
+          if (USE_PAYMASTER_FOR_DEPLOY) {
+            // Create paymaster client for sponsored deployment
+            const { createPaymasterClient } = await import("viem/account-abstraction");
+            const paymasterClient = createPaymasterClient({
+              transport: http(
+                "https://rpc.zerodev.app/api/v3/7535339b-9ae3-41bb-ad97-5375bae4a51b/chain/10143"
+              ),
+            });
+
+            // Deploy with a dummy call to a safe address (not self!)
+            // Use the DelegationManager as a safe no-op target
+            const DELEGATION_MANAGER = env.DelegationManager as Address;
+            deployHash = await bundlerClient.sendUserOperation({
+              account: smart,
+              calls: [{ to: DELEGATION_MANAGER, value: 0n, data: "0x" }],
+              paymaster: paymasterClient,
+            });
+          } else {
+            // Deploy without paymaster (SA must have funds)
+            // Use very high gas to rule out estimation issues
+            const gasPrice = await publicClient.getGasPrice();
+            const maxFeePerGas = gasPrice * 3n; // 3x current gas price
+            const maxPriorityFeePerGas = maxFeePerGas / 2n;
+            
+            // Deploy with a dummy call to a safe address (not self!)
+            const DELEGATION_MANAGER = env.DelegationManager as Address;
+            deployHash = await bundlerClient.sendUserOperation({
+              account: smart,
+              calls: [{ to: DELEGATION_MANAGER, value: 0n, data: "0x" }],
+              maxFeePerGas,
+              maxPriorityFeePerGas,
+            });
+          }
 
           setMsg(`Waiting for deployment (${deployHash})...`);
 
-          // Wait for deployment confirmation
-          let attempts = 0;
-          while (attempts < 30) {
-            const deployCode = await publicClient.getBytecode({
-              address: smart.address,
+          // Wait for UserOp receipt (more reliable than polling bytecode)
+          try {
+            const receipt = await bundlerClient.waitForUserOperationReceipt({
+              hash: deployHash,
+              timeout: 120_000, // 2 minutes timeout
             });
-            if (deployCode && deployCode !== "0x") break;
-            await new Promise((r) => setTimeout(r, 2000));
-            attempts++;
+            
+            if (receipt.success) {
+              setMsg(`Smart account deployed! TX: ${receipt.receipt.transactionHash}\nCreating delegation...`);
+            } else {
+              throw new Error("Deployment UserOp failed on-chain");
+            }
+          } catch (waitError: any) {
+            // Fallback: check if bytecode exists anyway (UserOp might have succeeded but receipt fetch failed)
+            const deployCode = await publicClient.getBytecode({ address: smart.address });
+            if (deployCode && deployCode !== "0x") {
+              setMsg(`Smart account deployed (receipt timeout but bytecode exists)\nCreating delegation...`);
+            } else {
+              throw waitError;
+            }
           }
-
-          setMsg(`Smart account deployed!\nCreating delegation...`);
         } catch (deployError: any) {
           console.error("Deployment error:", deployError);
           setMsg(
@@ -914,9 +958,20 @@ export default function App() {
         selTransfer,
         selTransferWithAuth,
       ];
-      const delegation = createOpenDelegation({
+      // Get Delegate SA address from backend
+      const delegateRes = await fetch(`${apiBase || ""}/api/delegate`);
+      const delegateInfo = await delegateRes.json();
+      if (!delegateRes.ok || !delegateInfo.sa) {
+        throw new Error("Failed to get Delegate SA address");
+      }
+      
+      console.log("Using Delegate SA:", delegateInfo.sa);
+      
+      // Use createDelegation with explicit delegate (not createOpenDelegation)
+      const delegation = createDelegation({
         environment: env as any,
         from: smart.address as Address,
+        to: delegateInfo.sa as Address, // ✅ Explicit delegate address
         scope: {
           type: "functionCall",
           targets,

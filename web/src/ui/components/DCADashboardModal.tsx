@@ -24,6 +24,7 @@ interface DCADashboardModalProps {
   stopDca: () => void;
   sendMonNative: () => void;
   convertAllToMon: () => void;
+  simpleConvertAll: () => void;
   
   // Top-up
   topupAmount: string;
@@ -46,7 +47,7 @@ export default function DCADashboardModal(props: DCADashboardModalProps) {
     slippageBps, setSlippageBps,
     tokensMeta,
     job, emissionCountdown, hasDelegation, topupStatus,
-    createAndPostDelegation, startDca, stopDca, sendMonNative, convertAllToMon,
+    createAndPostDelegation, startDca, stopDca, sendMonNative, convertAllToMon, simpleConvertAll,
     topupAmount, setTopupAmount, directTopupUsdc, directTopupMon,
     busy, address, delegatorAddress, msg
   } = props;
@@ -156,12 +157,20 @@ export default function DCADashboardModal(props: DCADashboardModalProps) {
             Withdraw MON
           </button>
           <button
+            onClick={simpleConvertAll}
+            disabled={busy || !delegatorAddress || !hasDelegation}
+            className="px-4 py-2 bg-green-600/50 hover:bg-green-600/70 disabled:bg-gray-600/20 text-white rounded-lg transition-colors text-sm font-medium flex items-center gap-2"
+          >
+            <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/></svg>
+            🚀 Convert All (Simple)
+          </button>
+          <button
             onClick={convertAllToMon}
             disabled={busy || !delegatorAddress || !hasDelegation}
             className="px-4 py-2 bg-purple-600/50 hover:bg-purple-600/70 disabled:bg-gray-600/20 text-white rounded-lg transition-colors text-sm font-medium flex items-center gap-2"
           >
             <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor"><path d="M12 6v3l4-4-4-4v3C7.6 4 4 7.6 4 12c0 1.1.2 2.1.6 3l1.6-1.2C6.1 13.2 6 12.6 6 12c0-3.3 2.7-6 6-6zm7.4 3l-1.6 1.2c.5.6.6 1.2.6 1.8 0 3.3-2.7 6-6 6v-3l-4 4 4 4v-3c4.4 0 8-3.6 8-8 0-1.1-.2-2.1-.6-3z"/></svg>
-            Convert all to MON
+            Convert all to MON (Old)
           </button>
         </div>
       </div>

@@ -867,8 +867,6 @@ export default function App() {
         return;
       }
 
-      // Official flow only: createOpenDelegation with functionCall scope and selectors/targets. No fallback.
-      // Include all tokens for "Convert All to MON" feature
       const targets: Address[] = [
         USDC,
         UNISWAP_V2_ROUTER02,

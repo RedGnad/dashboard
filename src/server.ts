@@ -34,7 +34,7 @@ import { readRunHistory, summarizeRunHistory } from './utils/history'
 import { readDiagTail } from './utils/diag'
 import { loadGuardrails, getGuardrailsConfigHash } from './guardrails'
 import { listAdapters, getAdapter } from './source-adapter'
-import { TOKENS, getToken } from './tokens'
+import { getToken, TOKENS } from './tokens'
 // --- Simple in-memory auth (personal_sign) state ---
 // NOTE: Nonces & sessions are ephemeral (reset on server restart). Adequate for gating UI today.
 // Future hardening: persist sessions, add rate limits, bind to user agent.
@@ -4161,18 +4161,12 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
       ...(env ? { environment: env } : {}),
     })
     
-    // List of tokens to convert (INCLUDING USDC, excluding only WMON)
-    const tokensToConvert = [
-      { symbol: 'USDC', address: USDC },
-      { symbol: 'CHOG', address: '0xe0590015a873bf326bd645c3e1266d4db41c4e6b' },
-      { symbol: 'YAKI', address: '0xfe140e1dCe99Be9F4F15d657CD9b7BF622270C50' },
-      { symbol: 'DAK', address: '0x0f0bdebf0f83cd1ee3974779bcb7315f9808c714' },
-      { symbol: 'BEAN', address: '0x268e4e24e0051ec27b3d27a95977e71ce6875a05' },
-      { symbol: 'WBTC', address: '0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d' },
-      { symbol: 'DAKIMAKURA', address: '0x0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8' },
-    ].filter(t => t.address.toLowerCase() !== WMON.toLowerCase())
+    // List of tokens to convert: all tokens from registry except WMON (since we convert TO MON)
+    const tokensToConvert = Object.values(TOKENS)
+      .filter(t => t.address.toLowerCase() !== WMON.toLowerCase())
+      .map(t => ({ symbol: t.symbol, address: t.address }))
     
-    // Prepare delegation context and gas prices
+    // Prepare delegation context (gas estimated automatically by bundler/paymaster)
     const flat = {
       delegate: signed.delegation.delegate,
       delegator: signed.delegation.delegator,
@@ -4182,16 +4176,6 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
       signature: signed.signature,
     }
     const [ctx] = encodePermissionContextsFromDelegations([[flat as any]])
-    
-    let maxFeePerGas: bigint = 80n * 10n ** 9n
-    let maxPriorityFeePerGas: bigint = maxFeePerGas / 2n
-    try {
-      const gp = await publicClient.getGasPrice()
-      if (gp > maxFeePerGas) {
-        maxFeePerGas = gp
-        maxPriorityFeePerGas = gp / 2n || 1n
-      }
-    } catch {}
     
     const DM_REDEEM_ABI = [{ type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [{ name: '_permissionContexts', type: 'bytes[]' }, { name: '_modes', type: 'bytes32[]' }, { name: '_executionCallDatas', type: 'bytes[]' }], outputs: [] }] as const
     
@@ -4203,6 +4187,7 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
     // Send each token swap as separate userOp (one per token)
     for (const token of tokensToConvert) {
       try {
+        console.log(`[convert-all] Checking ${token.symbol} at ${token.address}...`)
         const balance = await publicClient.readContract({
           address: token.address as Address,
           abi: [{ type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }], stateMutability: 'view' }],
@@ -4210,8 +4195,11 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
           args: [delegatorSA as Address]
         }) as bigint
         
-        console.log(`[convert-all] ${token.symbol} balance: ${balance.toString()}`)
-        if (balance === 0n) continue
+        console.log(`[convert-all] ${token.symbol} balance: ${balance.toString()} (${Number(balance) / 1e18})`)
+        if (balance === 0n) {
+          console.log(`[convert-all] ${token.symbol} skipped (zero balance)`)
+          continue
+        }
         
         console.log(`[convert-all] Converting ${token.symbol}: ${balance.toString()}`)
         
@@ -4230,8 +4218,8 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
             target: UNISWAP_V2_ROUTER02 as Address,
             value: 0n,
             callData: viemEncodeFunctionData({
-              abi: [{ type: 'function', name: 'swapExactTokensForTokens', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }] }],
-              functionName: 'swapExactTokensForTokens',
+              abi: [{ type: 'function', name: 'swapExactTokensForETH', inputs: [{ name: 'amountIn', type: 'uint256' }, { name: 'amountOutMin', type: 'uint256' }, { name: 'path', type: 'address[]' }, { name: 'to', type: 'address' }, { name: 'deadline', type: 'uint256' }] }],
+              functionName: 'swapExactTokensForETH',
               args: [balance, 0n, [token.address, WMON] as Address[], delegatorSA as Address, BigInt(Math.floor(Date.now() / 1000) + 3600)]
             })
           }
@@ -4243,11 +4231,11 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
         const permissionContexts = execGroups.map(() => ctx)
         const data = viemEncodeFunctionData({ abi: DM_REDEEM_ABI as any, functionName: 'redeemDelegations', args: [permissionContexts as any, modes as any, calldatas as any] }) as `0x${string}`
         
+        // Use sendUserOpWithOptionalPaymaster but WITHOUT manual gas (let it estimate automatically)
         await sendUserOpWithOptionalPaymaster({
           account: sa,
           calls: [{ to: env.DelegationManager as Address, data }],
-          maxFeePerGas,
-          maxPriorityFeePerGas,
+          // No maxFeePerGas/maxPriorityFeePerGas = automatic estimation
         })
         
         successCount++
@@ -4266,17 +4254,33 @@ app.post('/api/convert-all-to-mon', async (req, res) => {
     
     console.log(`[convert-all] ${successCount} swaps sent successfully`)
     
-    // Don't wait for swaps - return immediately
-    // User can manually unwrap WMON -> MON after swaps confirm
+    // Swaps go directly to MON native (no unwrap needed)
     
     return res.json({ 
       ok: true, 
       conversions: successCount,
-      message: `${successCount} swap(s) envoyé(s). Unwrap WMON → MON manuellement après confirmation.`
+      message: `${successCount} swap(s) envoyé(s) directement vers MON natif. Plus besoin d'unwrap!`
     })
   } catch (e: any) {
     console.error('[convert-all-to-mon] Error:', e)
     return res.status(500).json({ ok: false, error: e?.message || 'conversion failed' })
+  }
+})
+
+// Simple Convert All to MON - New clean implementation
+app.post('/api/simple-convert-all', async (req, res) => {
+  try {
+    let { delegatorSA } = req.body || {}
+    if (typeof delegatorSA === 'string') delegatorSA = delegatorSA.toLowerCase()
+    if (!delegatorSA) return res.status(400).json({ error: 'Missing delegatorSA' })
+    
+    const { simpleConvertAllToMon } = await import('./simple-convert-all')
+    const result = await simpleConvertAllToMon(delegatorSA)
+    
+    return res.json(result)
+  } catch (e: any) {
+    console.error('[simple-convert-all] Error:', e)
+    return res.status(500).json({ success: false, error: e?.message || 'conversion failed' })
   }
 })
 
