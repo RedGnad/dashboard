@@ -1,6 +1,6 @@
 import { privateKeyToAccount } from 'viem/accounts'
 import { Implementation, toMetaMaskSmartAccount, getDeleGatorEnvironment } from '@metamask/delegation-toolkit'
-import { publicClient, bundlerClient, paymasterClient } from './clients'
+import { publicClient } from './clients'
 import { CHAIN_ID } from './chain'
 
 // Create delegate account from private key (for executing delegated actions)
