@@ -1,5 +1,10 @@
-import { createDelegation, createExecution, ExecutionMode, getDeleGatorEnvironment } from '@metamask/delegation-toolkit'
-import { DelegationManager } from '@metamask/delegation-toolkit/contracts'
+import { 
+  contracts,
+  createDelegation, 
+  createExecution, 
+  ExecutionMode,
+  getDeleGatorEnvironment
+} from '@metamask/delegation-toolkit'
 import { encodeFunctionData, parseUnits } from 'viem'
 import { bundlerClient, paymasterClient } from './clients'
 import { USDC, WMON, UNISWAP_V2_ROUTER02, SWAP_PATH } from './tokens'
@@ -48,7 +53,8 @@ export async function createCoreDelegation(delegatorSmartAccount: any, delegateS
   console.log('[delegation] Creating delegation with targets:', {
     USDC,
     UNISWAP_V2_ROUTER02,
-    WMON
+    WMON,
+    delegatorSA: delegatorSmartAccount.address
   })
   
   // Use string selectors per DTK docs (not bytes4)
@@ -64,7 +70,12 @@ export async function createCoreDelegation(delegatorSmartAccount: any, delegateS
     environment: getDeleGatorEnvironment(CHAIN_ID) as any,
     scope: {
       type: 'functionCall',
-      targets: [USDC, UNISWAP_V2_ROUTER02, WMON],
+      targets: [
+        USDC, 
+        UNISWAP_V2_ROUTER02, 
+        WMON,
+        delegatorSmartAccount.address  // SA utilisateur
+      ],
       selectors,
     }
   })
@@ -90,9 +101,27 @@ export async function getOrCreateDelegation(delegatorSmartAccount: any, delegate
       const signed = JSON.parse(stored)
       console.log('[delegation] Found cached delegation:', signed)
 
-      const matchDelegator = signed.delegator?.toLowerCase() === delegatorSmartAccount.address.toLowerCase()
-      const matchDelegate = signed.delegate?.toLowerCase() === delegateSmartAccount.address.toLowerCase()
-      if (matchDelegator && matchDelegate && signed.signature) {
+      const matchDelegator = signed.delegator?.toLowerCase?.() === delegatorSmartAccount.address.toLowerCase()
+        || signed.from?.toLowerCase?.() === delegatorSmartAccount.address.toLowerCase()
+      const matchDelegate = signed.delegate?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase()
+        || signed.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase()
+
+      // Validate scope includes required targets & selectors
+      const scope = signed.delegation?.scope ?? signed.scope
+      const targets: string[] = (scope?.targets ?? []).map((t: string) => t.toLowerCase())
+      const selectors: string[] = scope?.selectors ?? []
+
+      const requiredTargets = [USDC.toLowerCase(), UNISWAP_V2_ROUTER02.toLowerCase(), WMON.toLowerCase()]
+      const requiredSelectors = [
+        'approve(address,uint256)',
+        'swapExactTokensForTokens(uint256,uint256,address[],address,uint256)',
+        'withdraw(uint256)'
+      ]
+
+      const hasTargets = requiredTargets.every((t) => targets.includes(t))
+      const hasSelectors = requiredSelectors.every((s) => selectors.includes(s))
+
+      if (matchDelegator && matchDelegate && signed.signature && hasTargets && hasSelectors) {
         // Ensure permissionContexts exists to satisfy encoder expectations
         if (!Array.isArray(signed.permissionContexts)) signed.permissionContexts = []
         console.log('[delegation] Using cached delegation')
@@ -153,51 +182,37 @@ export async function redeemSwapDelegation(
     })
   ]
 
-  // Encode redemption calldata
-  // Normalize signedDelegation: accept flat ({ ...delegation, signature }) or nested ({ delegation, signature })
   const normalizedSignedDelegation = signedDelegation?.delegation
     ? { ...signedDelegation.delegation, signature: signedDelegation.signature, permissionContexts: signedDelegation.permissionContexts ?? [] }
     : { ...signedDelegation, permissionContexts: signedDelegation?.permissionContexts ?? [] }
 
-  // Defensive validation & logging to diagnose shape issues
   const delegationsArg = [[normalizedSignedDelegation]]
   const modesArg = [ExecutionMode.SingleDefault]
   const executionsArg = [executions]
 
-  console.log('[redeem] args check:', {
-    hasSignature: Boolean(normalizedSignedDelegation && normalizedSignedDelegation.signature),
-    hasDelegator: Boolean(normalizedSignedDelegation && normalizedSignedDelegation.delegator),
-    hasDelegate: Boolean(normalizedSignedDelegation && normalizedSignedDelegation.delegate),
-    delegationsLen: delegationsArg.length,
-    innerDelegationsLen: delegationsArg[0]?.length,
-    modesLen: modesArg.length,
-    executionsOuterLen: executionsArg.length,
-    executionsInnerLen: executionsArg[0]?.length,
-  })
-
-  if (!normalizedSignedDelegation || !normalizedSignedDelegation.signature) {
-    throw new Error('Invalid signedDelegation: missing signature')
-  }
-  if (!Array.isArray(executions) || executions.length === 0) {
-    throw new Error('Invalid executions: expected non-empty array')
-  }
-
-  const redeemDelegationCalldata = DelegationManager.encode.redeemDelegations({
+  const redeemDelegationCalldata = contracts.DelegationManager.encode.redeemDelegations({
     delegations: delegationsArg,
     modes: modesArg,
     executions: executionsArg,
   })
 
-  // Send UserOperation from the smart account (per DTK docs)
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+
   const userOperationHash = await bundlerClient.sendUserOperation({
     account: delegateSmartAccount,
     calls: [{
-      to: delegateSmartAccount.address,
-      data: redeemDelegationCalldata
+      to: env.DelegationManager,
+      data: redeemDelegationCalldata,
     }],
     paymaster: paymasterClient,
   })
 
+  // Wait for the transaction receipt (DTK best practice)
+  const { receipt } = await bundlerClient.waitForUserOperationReceipt({
+    hash: userOperationHash
+  })
+
+  console.log('Swap transaction hash:', receipt.transactionHash)
   return userOperationHash
 }
 
@@ -218,27 +233,32 @@ export async function redeemUnwrapDelegation(
     })
   })
 
-  // Encode redemption calldata
-  // Normalize signedDelegation similarly for unwrap path
   const normalizedSignedDelegation2 = signedDelegation?.delegation
     ? { ...signedDelegation.delegation, signature: signedDelegation.signature, permissionContexts: signedDelegation.permissionContexts ?? [] }
     : { ...signedDelegation, permissionContexts: signedDelegation?.permissionContexts ?? [] }
 
-  const redeemDelegationCalldata = DelegationManager.encode.redeemDelegations({
+  const redeemDelegationCalldata = contracts.DelegationManager.encode.redeemDelegations({
     delegations: [[normalizedSignedDelegation2]],
     modes: [ExecutionMode.SingleDefault],
     executions: [[execution]]
   })
 
-  // Send UserOperation from the smart account (per DTK docs)
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+
   const userOperationHash = await bundlerClient.sendUserOperation({
     account: delegateSmartAccount,
     calls: [{
-      to: delegateSmartAccount.address,
-      data: redeemDelegationCalldata
+      to: env.DelegationManager,
+      data: redeemDelegationCalldata,
     }],
     paymaster: paymasterClient,
   })
 
+  // Wait for the transaction receipt (DTK best practice)
+  const { receipt } = await bundlerClient.waitForUserOperationReceipt({
+    hash: userOperationHash
+  })
+
+  console.log('Unwrap transaction hash:', receipt.transactionHash)
   return userOperationHash
 }
