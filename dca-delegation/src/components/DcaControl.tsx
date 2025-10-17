@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { Play, Square, Zap, ArrowUpDown, RefreshCw, Copy } from 'lucide-react'
 import { useDcaDelegation } from '../hooks/useDcaDelegation'
+import { USDC, CHOG } from '../lib/tokens'
 
 export default function DcaControl() {
-  const [usdcAmount, setUsdcAmount] = useState('100')
+  const [monDcaAmount, setMonDcaAmount] = useState('0.05')
   const [slippageBps, setSlippageBps] = useState('300') // 3%
   const [interval, setInterval] = useState('60') // seconds
+  const [monAmount, setMonAmount] = useState('0.1')
+  const [withdrawMonAmount, setWithdrawMonAmount] = useState('0.05')
+  const [outToken, setOutToken] = useState<'USDC' | 'CHOG'>('USDC')
 
   const {
     isInitialized,
@@ -14,20 +18,45 @@ export default function DcaControl() {
     balances,
     delegatorSmartAccount,
     delegateSmartAccount,
-    startDca,
+    delegationExpired,
+    delegationExpiresAt,
+    startNativeDca,
     stopDca,
-    runNow,
+    runNativeNow,
     unwrapAll,
     refreshBalances,
+    renewDelegation,
+    topUpMon,
+    withdrawMon,
+    runNativeSwapMonToToken,
   } = useDcaDelegation()
 
   const handleStartDca = async () => {
     try {
-      await startDca(usdcAmount, parseInt(slippageBps), parseInt(interval))
+      const outAddr = outToken === 'USDC' ? (USDC as `0x${string}`) : (CHOG as `0x${string}`)
+      await startNativeDca(monDcaAmount, parseInt(slippageBps), outAddr, parseInt(interval))
     } catch (error) {
       console.error('Failed to start DCA:', error)
     }
   }
+
+  const handleTopUp = async () => {
+    try {
+      await topUpMon(monAmount)
+    } catch (e) {
+      console.error('Top up failed:', e)
+    }
+  }
+
+  const handleWithdrawMon = async () => {
+    try {
+      await withdrawMon(withdrawMonAmount)
+    } catch (e) {
+      console.error('Withdraw failed:', e)
+    }
+  }
+
+  // removed: standalone native DCA panel (replaced main DCA to use MON)
 
   const handleStopDca = async () => {
     try {
@@ -39,7 +68,8 @@ export default function DcaControl() {
 
   const handleRunNow = async () => {
     try {
-      await runNow(usdcAmount, parseInt(slippageBps))
+      const outAddr = outToken === 'USDC' ? (USDC as `0x${string}`) : (CHOG as `0x${string}`)
+      await runNativeNow(monDcaAmount, parseInt(slippageBps), outAddr)
     } catch (error) {
       console.error('Failed to run DCA:', error)
     }
@@ -50,6 +80,14 @@ export default function DcaControl() {
       await unwrapAll()
     } catch (error) {
       console.error('Failed to unwrap WMON:', error)
+    }
+  }
+
+  const handleRenewDelegation = async () => {
+    try {
+      await renewDelegation()
+    } catch (error) {
+      console.error('Failed to renew delegation:', error)
     }
   }
 
@@ -69,14 +107,37 @@ export default function DcaControl() {
 
   return (
     <div className="max-w-4xl w-full space-y-6">
+      <style>{`
+        /* Hide number input arrows */
+        input[type=number]::-webkit-outer-spin-button,
+        input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+      `}</style>
       {/* Header */}
       <div className="text-center mb-8">
         <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">
           DCA Delegation
         </h1>
         <p className="text-gray-300">
-          Automated USDC → WMON swaps with delegation on Monad Testnet
+          Automated MON → Token swaps with delegation on Monad Testnet
         </p>
+        {delegationExpired && (
+          <div className="mt-4 bg-red-900/40 border border-red-600 text-red-200 rounded-xl px-4 py-3 inline-flex items-center gap-3">
+            <span>Delegation expired. Please renew to continue.</span>
+            <button
+              onClick={handleRenewDelegation}
+              disabled={isLoading}
+              className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-semibold py-2 px-3 rounded-lg flex items-center gap-2"
+            >
+              <RefreshCw size={14} /> Renew delegation
+            </button>
+          </div>
+        )}
+        {!delegationExpired && typeof delegationExpiresAt === 'number' && (
+          <div className="mt-3 text-sm text-gray-400">
+            Expires at: <span className="font-mono text-gray-300">{new Date(delegationExpiresAt * 1000).toLocaleString()}</span>
+          </div>
+        )}
         {(delegatorSmartAccount || delegateSmartAccount) && (
           <div className="mt-3 space-y-1">
             {delegatorSmartAccount && (
@@ -119,17 +180,19 @@ export default function DcaControl() {
           <h2 className="text-xl font-semibold mb-6 text-white">DCA Control</h2>
           
           <div className="space-y-4">
-            {/* USDC Amount */}
+            {/* MON Amount */}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                USDC Amount
+                MON Amount
               </label>
               <input
                 type="number"
-                value={usdcAmount}
-                onChange={(e) => setUsdcAmount(e.target.value)}
-                className="w-full bg-black/30 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
-                placeholder="100"
+                inputMode="decimal"
+                step="any"
+                value={monDcaAmount}
+                onChange={(e) => setMonDcaAmount(e.target.value)}
+                className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-base caret-white"
+                placeholder="0.05"
               />
             </div>
 
@@ -140,14 +203,31 @@ export default function DcaControl() {
               </label>
               <input
                 type="number"
+                inputMode="decimal"
+                step="any"
                 value={slippageBps}
                 onChange={(e) => setSlippageBps(e.target.value)}
-                className="w-full bg-black/30 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-base caret-white"
                 placeholder="300"
               />
               <p className="text-xs text-gray-400 mt-1">
                 {(parseInt(slippageBps) / 100).toFixed(2)}% slippage
               </p>
+            </div>
+
+            {/* Out Token */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Token
+              </label>
+              <select
+                value={outToken}
+                onChange={(e) => setOutToken(e.target.value as 'USDC' | 'CHOG')}
+                className="w-full bg-black/30 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+              >
+                <option value="USDC">USDC</option>
+                <option value="CHOG">CHOG</option>
+              </select>
             </div>
 
             {/* Interval */}
@@ -157,9 +237,11 @@ export default function DcaControl() {
               </label>
               <input
                 type="number"
+                inputMode="numeric"
+                step="1"
                 value={interval}
                 onChange={(e) => setInterval(e.target.value)}
-                className="w-full bg-black/30 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-base caret-white"
                 placeholder="60"
               />
             </div>
@@ -169,7 +251,7 @@ export default function DcaControl() {
               {!dcaStatus.isActive ? (
                 <button
                   onClick={handleStartDca}
-                  disabled={isLoading}
+                  disabled={isLoading || delegationExpired}
                   className="flex items-center justify-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 transform hover:scale-105"
                 >
                   <Play size={16} />
@@ -188,7 +270,7 @@ export default function DcaControl() {
 
               <button
                 onClick={handleRunNow}
-                disabled={isLoading}
+                disabled={isLoading || delegationExpired}
                 className="flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 transform hover:scale-105"
               >
                 <Zap size={16} />
@@ -199,7 +281,7 @@ export default function DcaControl() {
             {/* Unwrap Button */}
             <button
               onClick={handleUnwrapAll}
-              disabled={isLoading || parseFloat(balances.WMON) === 0}
+              disabled={isLoading || parseFloat(balances.WMON) === 0 || delegationExpired}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-700 hover:to-yellow-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 transform hover:scale-105"
             >
               <ArrowUpDown size={16} />
@@ -210,6 +292,51 @@ export default function DcaControl() {
 
         {/* Status & Monitoring */}
         <div className="space-y-6">
+          {/* MON Actions */}
+          <div className="glass rounded-2xl p-6">
+            <h3 className="text-lg font-semibold mb-4 text-white">MON Actions</h3>
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-300">TOP-UP MON</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  value={monAmount}
+                  onChange={(e) => setMonAmount(e.target.value)}
+                  className="appearance-none w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-3 text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-base caret-white"
+                  placeholder="0.1"
+                />
+                <button
+                  onClick={handleTopUp}
+                  disabled={isLoading}
+                  className="w-full bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-700 hover:to-blue-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-lg"
+                >
+                  TOP-UP MON
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-300">WITHDRAW MON</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  value={withdrawMonAmount}
+                  onChange={(e) => setWithdrawMonAmount(e.target.value)}
+                  className="appearance-none w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-3 text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-base caret-white"
+                  placeholder="0.05"
+                />
+                <button
+                  onClick={handleWithdrawMon}
+                  disabled={isLoading}
+                  className="w-full bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-lg"
+                >
+                  WITHDRAW MON
+                </button>
+              </div>
+            </div>
+          </div>
           {/* Balances */}
           <div className="glass rounded-2xl p-6">
             <div className="flex justify-between items-center mb-4">
@@ -235,6 +362,10 @@ export default function DcaControl() {
               <div className="flex justify-between">
                 <span className="text-gray-300">WMON</span>
                 <span className="text-white font-mono">{balances.WMON}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-300">CHOG</span>
+                <span className="text-white font-mono">{balances.CHOG}</span>
               </div>
             </div>
           </div>

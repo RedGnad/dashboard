@@ -1,6 +1,6 @@
 import { readContract, getBalance } from 'viem/actions'
 import { publicClient } from './clients'
-import { USDC, WMON, TOKEN_DECIMALS } from './tokens'
+import { USDC, WMON, CHOG, TOKEN_DECIMALS } from './tokens'
 import { formatUnits } from 'viem'
 
 // ERC20 ABI for balance reading
@@ -13,6 +13,22 @@ const ERC20_ABI = [
     stateMutability: 'view'
   }
 ] as const
+
+// Get CHOG balance
+export async function getChogBalance(address: `0x${string}`) {
+  try {
+    const balance = await readContract(publicClient, {
+      address: CHOG,
+      abi: ERC20_ABI,
+      functionName: 'balanceOf',
+      args: [address]
+    })
+    return formatUnits(balance, TOKEN_DECIMALS.CHOG)
+  } catch (error) {
+    console.error('Failed to get CHOG balance:', error)
+    return '0.0'
+  }
+}
 
 // Get MON (native token) balance
 export async function getMonBalance(address: `0x${string}`) {
@@ -59,11 +75,12 @@ export async function getWmonBalance(address: `0x${string}`) {
 
 // Get all balances for an address
 export async function getAllBalances(address: `0x${string}`) {
-  const [mon, usdc, wmon] = await Promise.all([
+  const [mon, usdc, wmon, chog] = await Promise.all([
     getMonBalance(address),
     getUsdcBalance(address),
-    getWmonBalance(address)
+    getWmonBalance(address),
+    getChogBalance(address),
   ])
 
-  return { MON: mon, USDC: usdc, WMON: wmon }
+  return { MON: mon, USDC: usdc, WMON: wmon, CHOG: chog }
 }

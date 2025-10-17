@@ -3,12 +3,103 @@ import {
   createDelegation, 
   createExecution, 
   ExecutionMode,
-  getDeleGatorEnvironment
+  getDeleGatorEnvironment,
+  createCaveat
 } from '@metamask/delegation-toolkit'
-import { encodeFunctionData, parseUnits } from 'viem'
-import { bundlerClient, paymasterClient } from './clients'
-import { USDC, WMON, UNISWAP_V2_ROUTER02, SWAP_PATH } from './tokens'
+import { encodeFunctionData, parseUnits, toHex } from 'viem'
+import { bundlerClient, paymasterClient, publicClient } from './clients'
+import { USDC, WMON, UNISWAP_V2_ROUTER02, SWAP_PATH, CHOG } from './tokens'
 import { CHAIN_ID } from './chain'
+
+async function sleep(ms: number) {
+  return new Promise((res) => setTimeout(res, ms))
+}
+
+export async function getOrCreateValueDelegation(
+  delegatorSmartAccount: any,
+  delegateSmartAccount: any,
+  recipient: `0x${string}`,
+  maxValueWei: bigint,
+) {
+  const stored = localStorage.getItem('dca-value-delegation')
+  if (stored) {
+    try {
+      const signed = JSON.parse(stored)
+      const scope = signed.delegation?.scope ?? signed.scope
+      const match = signed.from?.toLowerCase?.() === delegatorSmartAccount.address.toLowerCase()
+        && signed.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase()
+        && signed.recipient?.toLowerCase?.() === recipient.toLowerCase()
+        && !isDelegationExpired(signed)
+        && signed.valueDelegationVersion === 2
+      if (match) {
+        console.log('[value-delegation] Using cached value delegation with scope:', scope)
+        return signed
+      } else {
+        console.log('[value-delegation] Cached value delegation invalid or outdated. Recreating...')
+      }
+    } catch {}
+  }
+  return await createValueDelegation(delegatorSmartAccount, delegateSmartAccount, recipient, maxValueWei)
+}
+
+export async function redeemValueTransferDelegation(
+  delegateSmartAccount: any,
+  signedDelegation: any,
+  recipient: `0x${string}`,
+  amountWei: bigint,
+) {
+  const execution = createExecution({ target: recipient, value: amountWei, callData: '0x' as `0x${string}` })
+  const normalizedSignedDelegation = signedDelegation?.delegation
+    ? { ...signedDelegation.delegation, signature: signedDelegation.signature, permissionContexts: signedDelegation.permissionContexts ?? [] }
+    : { ...signedDelegation, permissionContexts: signedDelegation?.permissionContexts ?? [] }
+
+  const redeemCalldata = contracts.DelegationManager.encode.redeemDelegations({
+    delegations: [[normalizedSignedDelegation]],
+    modes: [ExecutionMode.SingleDefault],
+    executions: [[execution]],
+  })
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+  const uoHash = await sendUserOpWithRetry({
+    account: delegateSmartAccount,
+    calls: [{ to: env.DelegationManager, data: redeemCalldata }],
+    paymaster: paymasterClient,
+  })
+  const { receipt } = await bundlerClient.waitForUserOperationReceipt({ hash: uoHash })
+  console.log('[value] Transfer tx hash:', receipt.transactionHash)
+  return uoHash
+}
+
+async function sendUserOpWithRetry({
+  account,
+  calls,
+  paymaster,
+  maxRetries = 2,
+}: {
+  account: any
+  calls: { to: `0x${string}`; data: `0x${string}` }[]
+  paymaster: any
+  maxRetries?: number
+}) {
+  let attempt = 0
+  let lastError: any
+  while (attempt <= maxRetries) {
+    try {
+      return await bundlerClient.sendUserOperation({ account, calls, paymaster })
+    } catch (e: any) {
+      const msg = (e?.message || '').toString()
+      if (msg.includes('AA25') || msg.toLowerCase().includes('invalid account nonce')) {
+        const backoff = [250, 500, 1000][attempt] || 1000
+        console.warn(`[uop] AA25 invalid nonce, retrying in ${backoff}ms (attempt ${attempt + 1})`)
+        await sleep(backoff)
+        attempt++
+        lastError = e
+        continue
+      }
+      throw e
+    }
+  }
+  throw lastError
+}
 
 // ERC20 ABI for approve function
 const ERC20_ABI = [
@@ -48,6 +139,36 @@ const UNISWAP_V2_ROUTER_ABI = [
   }
 ] as const
 
+// Uniswap V2 Router ABI for ETH->Tokens
+const UNISWAP_V2_ROUTER_ETH_ABI = [
+  {
+    name: 'swapExactETHForTokens',
+    type: 'function',
+    inputs: [
+      { name: 'amountOutMin', type: 'uint256' },
+      { name: 'path', type: 'address[]' },
+      { name: 'to', type: 'address' },
+      { name: 'deadline', type: 'uint256' }
+    ],
+    outputs: [{ name: 'amounts', type: 'uint256[]' }],
+    stateMutability: 'payable'
+  }
+] as const
+
+// Uniswap V2 Router read ABI
+const UNISWAP_V2_ROUTER_READ_ABI = [
+  {
+    name: 'getAmountsOut',
+    type: 'function',
+    inputs: [
+      { name: 'amountIn', type: 'uint256' },
+      { name: 'path', type: 'address[]' }
+    ],
+    outputs: [{ name: 'amounts', type: 'uint256[]' }],
+    stateMutability: 'view'
+  }
+] as const
+
 // Create core delegation with function call scope for DCA operations
 export async function createCoreDelegation(delegatorSmartAccount: any, delegateSmartAccount: any) {
   console.log('[delegation] Creating delegation with targets:', {
@@ -61,10 +182,21 @@ export async function createCoreDelegation(delegatorSmartAccount: any, delegateS
   const selectors = [
     'approve(address,uint256)',
     'swapExactTokensForTokens(uint256,uint256,address[],address,uint256)',
+    'swapExactETHForTokens(uint256,address[],address,uint256)',
     'withdraw(uint256)',
   ]
 
   const env = getDeleGatorEnvironment(CHAIN_ID) as any
+
+  // 24h validity window using TimestampEnforcer
+  const nowSec = Math.floor(Date.now() / 1000)
+  const afterTs = BigInt(nowSec - 1) // allow immediate use
+  const beforeTs = BigInt(nowSec + 24 * 60 * 60) // +24h
+  const timestampTerms = toHex((afterTs << 128n) | beforeTs, { size: 32 }) as `0x${string}`
+  const timestampCaveat = createCaveat(
+    env.caveatEnforcers.TimestampEnforcer,
+    timestampTerms
+  )
 
   const delegation = createDelegation({
     from: delegatorSmartAccount.address,
@@ -72,14 +204,10 @@ export async function createCoreDelegation(delegatorSmartAccount: any, delegateS
     environment: env,
     scope: {
       type: 'functionCall',
-      targets: [
-        USDC,
-        UNISWAP_V2_ROUTER02,
-        WMON,
-        delegatorSmartAccount.address  // SA utilisateur
-      ],
+      targets: [USDC, UNISWAP_V2_ROUTER02, WMON, CHOG],
       selectors,
-    }
+    },
+    caveats: [timestampCaveat],
   })
   
   console.log('[delegation] Delegation created:', delegation)
@@ -91,7 +219,12 @@ export async function createCoreDelegation(delegatorSmartAccount: any, delegateS
 
   // Sign the delegation (DTK encoders expect a flat object with signature)
   const signature = await delegatorSmartAccount.signDelegation({ delegation })
-  const signedDelegation = { ...delegation, signature, permissionContexts: (delegation as any).permissionContexts ?? [] }
+  const signedDelegation = { 
+    ...delegation, 
+    signature, 
+    permissionContexts: (delegation as any).permissionContexts ?? [],
+    expiresAt: Number(beforeTs)
+  }
 
   // Store delegation locally for reuse
   localStorage.setItem('dca-delegation', JSON.stringify(signedDelegation))
@@ -116,6 +249,13 @@ export async function createCoreDelegation(delegatorSmartAccount: any, delegateS
   return signedDelegation
 }
 
+export function isDelegationExpired(delegation: any): boolean {
+  const now = Math.floor(Date.now() / 1000)
+  const exp = typeof delegation?.expiresAt === 'number' ? delegation.expiresAt : undefined
+  if (!exp) return false
+  return now >= exp
+}
+
 // Get stored delegation or create new one
 export async function getOrCreateDelegation(delegatorSmartAccount: any, delegateSmartAccount: any) {
   const stored = localStorage.getItem('dca-delegation')
@@ -134,12 +274,10 @@ export async function getOrCreateDelegation(delegatorSmartAccount: any, delegate
       const targets: string[] = (scope?.targets ?? []).map((t: string) => t.toLowerCase())
       const selectors: string[] = scope?.selectors ?? []
 
-      const env = getDeleGatorEnvironment(CHAIN_ID) as any
       const requiredTargets = [
-        USDC.toLowerCase(), 
-        UNISWAP_V2_ROUTER02.toLowerCase(), 
+        USDC.toLowerCase(),
+        UNISWAP_V2_ROUTER02.toLowerCase(),
         WMON.toLowerCase(),
-        env.DelegationManager.toLowerCase()
       ]
       const requiredSelectors = [
         'approve(address,uint256)',
@@ -262,7 +400,7 @@ export async function redeemSwapDelegation(
     callDataLength: redeemApprove.length
   })
 
-  const approveUoHash = await bundlerClient.sendUserOperation({
+  const approveUoHash = await sendUserOpWithRetry({
     account: delegateSmartAccount,
     calls: [{ to: env.DelegationManager, data: redeemApprove }],
     paymaster: paymasterClient,
@@ -285,7 +423,7 @@ export async function redeemSwapDelegation(
     callDataLength: redeemSwap.length
   })
 
-  const swapUoHash = await bundlerClient.sendUserOperation({
+  const swapUoHash = await sendUserOpWithRetry({
     account: delegateSmartAccount,
     calls: [{ to: env.DelegationManager, data: redeemSwap }],
     paymaster: paymasterClient,
@@ -336,7 +474,7 @@ export async function redeemUnwrapDelegation(
 
   const env = getDeleGatorEnvironment(CHAIN_ID) as any
 
-  const userOperationHash = await bundlerClient.sendUserOperation({
+  const userOperationHash = await sendUserOpWithRetry({
     account: delegateSmartAccount,
     calls: [{
       to: env.DelegationManager,
@@ -352,4 +490,180 @@ export async function redeemUnwrapDelegation(
 
   console.log('Unwrap transaction hash:', receipt.transactionHash)
   return userOperationHash
+}
+
+// Create a value-only delegation to allow native MON transfers to a specific recipient (EOA)
+export async function createValueDelegation(
+  delegatorSmartAccount: any,
+  delegateSmartAccount: any,
+  recipient: `0x${string}`,
+  maxValueWei: bigint,
+  ttlSeconds = 24 * 60 * 60,
+) {
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+  const nowSec = Math.floor(Date.now() / 1000)
+  const afterTs = BigInt(nowSec - 1)
+  const beforeTs = BigInt(nowSec + ttlSeconds)
+
+  const timestampTerms = toHex((afterTs << 128n) | beforeTs, { size: 32 }) as `0x${string}`
+
+  const caveats = [
+    createCaveat(env.caveatEnforcers.TimestampEnforcer, timestampTerms),
+  ]
+
+  const delegation = createDelegation({
+    from: delegatorSmartAccount.address,
+    to: delegateSmartAccount.address,
+    environment: env,
+    scope: {
+      type: 'nativeTokenTransferAmount',
+      maxAmount: maxValueWei,
+    } as any,
+    caveats,
+  } as any)
+
+  const signature = await delegatorSmartAccount.signDelegation({ delegation })
+  const signedDelegation = {
+    ...delegation,
+    signature,
+    permissionContexts: (delegation as any).permissionContexts ?? [],
+    recipient,
+    maxValueWei: maxValueWei.toString(),
+    expiresAt: Number(beforeTs),
+    valueDelegationVersion: 2,
+  }
+  localStorage.setItem('dca-value-delegation', JSON.stringify(signedDelegation))
+  return signedDelegation
+}
+
+// Delegation for native swap (MON -> token via router.swapExactETHForTokens)
+export async function createNativeSwapDelegation(
+  delegatorSmartAccount: any,
+  delegateSmartAccount: any,
+  maxValueWei: bigint,
+  ttlSeconds = 24 * 60 * 60,
+) {
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+  const nowSec = Math.floor(Date.now() / 1000)
+  const afterTs = BigInt(nowSec - 1)
+  const beforeTs = BigInt(nowSec + ttlSeconds)
+
+  const timestampTerms = toHex((afterTs << 128n) | beforeTs, { size: 32 }) as `0x${string}`
+  const valueTerms = toHex(maxValueWei, { size: 32 }) as `0x${string}`
+  const caveats = [
+    createCaveat(env.caveatEnforcers.TimestampEnforcer, timestampTerms),
+    createCaveat(env.caveatEnforcers.ValueLteEnforcer, valueTerms),
+  ]
+
+  const delegation = createDelegation({
+    from: delegatorSmartAccount.address,
+    to: delegateSmartAccount.address,
+    environment: env,
+    scope: {
+      type: 'functionCall',
+      targets: [UNISWAP_V2_ROUTER02],
+      selectors: ['swapExactETHForTokens(uint256,address[],address,uint256)']
+    },
+    caveats,
+  })
+
+  const signature = await delegatorSmartAccount.signDelegation({ delegation })
+  const signedDelegation = {
+    ...delegation,
+    signature,
+    permissionContexts: (delegation as any).permissionContexts ?? [],
+    maxValueWei: maxValueWei.toString(),
+    expiresAt: Number(beforeTs),
+  }
+  localStorage.setItem('dca-native-swap-delegation', JSON.stringify(signedDelegation))
+  return signedDelegation
+}
+
+export async function getOrCreateNativeSwapDelegation(
+  delegatorSmartAccount: any,
+  delegateSmartAccount: any,
+  maxValueWei: bigint,
+) {
+  const stored = localStorage.getItem('dca-native-swap-delegation')
+  if (stored) {
+    try {
+      const signed = JSON.parse(stored)
+      const scopeTargets: string[] = (signed.delegation?.scope?.targets || signed.scope?.targets || [])
+      const hasTargets = Array.isArray(scopeTargets) && scopeTargets.length > 0
+      const match = signed.from?.toLowerCase?.() === delegatorSmartAccount.address.toLowerCase()
+        && signed.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase()
+        && !isDelegationExpired(signed)
+        && hasTargets
+      if (match) return signed
+    } catch {}
+  }
+  return await createNativeSwapDelegation(delegatorSmartAccount, delegateSmartAccount, maxValueWei)
+}
+
+export async function redeemNativeSwapDelegation(
+  delegateSmartAccount: any,
+  signedDelegation: any,
+  amountMon: string,
+  slippageBps: number,
+  outToken: `0x${string}`,
+  recipient: `0x${string}`,
+) {
+  console.log('[native-swap] Starting', { amountMon, slippageBps, outToken, recipient })
+  const amountInWei = parseUnits(amountMon, 18)
+  const path = [WMON, outToken] as `0x${string}`[]
+
+  // Pre-check Delegator SA MON balance
+  const delegatorAddress = (signedDelegation?.from || signedDelegation?.delegation?.from) as `0x${string}`
+  if (delegatorAddress) {
+    const bal = await publicClient.getBalance({ address: delegatorAddress })
+    if (bal < amountInWei) {
+      throw new Error('Insufficient MON balance in Delegator SA for native swap')
+    }
+  }
+
+  // Compute amountOutMin using router.getAmountsOut
+  let amountOutMin = 0n
+  try {
+    const amounts = await publicClient.readContract({
+      address: UNISWAP_V2_ROUTER02,
+      abi: UNISWAP_V2_ROUTER_READ_ABI,
+      functionName: 'getAmountsOut',
+      args: [amountInWei, path]
+    }) as bigint[]
+    const out = amounts[amounts.length - 1]
+    amountOutMin = out * (BigInt(10000 - slippageBps) as bigint) / 10000n
+  } catch (e) {
+    console.warn('[native-swap] getAmountsOut failed, using amountOutMin=0', e)
+  }
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 300)
+
+  const execution = createExecution({
+    target: UNISWAP_V2_ROUTER02,
+    value: amountInWei,
+    callData: encodeFunctionData({
+      abi: UNISWAP_V2_ROUTER_ETH_ABI,
+      functionName: 'swapExactETHForTokens',
+      args: [amountOutMin, path, recipient, deadline]
+    })
+  })
+
+  const normalizedSignedDelegation = signedDelegation?.delegation
+    ? { ...signedDelegation.delegation, signature: signedDelegation.signature, permissionContexts: signedDelegation.permissionContexts ?? [] }
+    : { ...signedDelegation, permissionContexts: signedDelegation?.permissionContexts ?? [] }
+
+  const redeemCalldata = contracts.DelegationManager.encode.redeemDelegations({
+    delegations: [[normalizedSignedDelegation]],
+    modes: [ExecutionMode.SingleDefault],
+    executions: [[execution]],
+  })
+
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+  const uoHash = await sendUserOpWithRetry({
+    account: delegateSmartAccount,
+    calls: [{ to: env.DelegationManager, data: redeemCalldata }],
+    paymaster: paymasterClient,
+  })
+  const { receipt } = await bundlerClient.waitForUserOperationReceipt({ hash: uoHash })
+  console.log('[native-swap] tx hash:', receipt.transactionHash)
+  return uoHash
 }
