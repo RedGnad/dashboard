@@ -1,0 +1,110 @@
+[
+  {
+    "ts": 1760392355328,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "amountIntendedUSDC": "0",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {},
+    "balanceAtRunUSDC": "0",
+    "baselineManualUSDC": "0",
+    "userOperationHash": "0x0c4f61e90b51a6243f23021c8e2dbfc885d5d369560ef56231c3ebeee21bd884",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760395183426,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "1000000",
+    "amountIntendedUSDC": "1000000",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {},
+    "balanceAtRunUSDC": "1000000",
+    "baselineManualUSDC": "1000000",
+    "userOperationHash": "0x37db9d3050f3767c59108303d0496cd6a1647ef82b22e5c16c7719aab1e1f1bc",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760395189726,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "amountIntendedUSDC": "0",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {},
+    "balanceAtRunUSDC": "0",
+    "baselineManualUSDC": "0",
+    "userOperationHash": "0x6fa401a4a74f5ca978e07ea2650ce999f1fa37c86003f3e5f8e6080c0c5c2ee6",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760395220198,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "amountIntendedUSDC": "0",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {},
+    "balanceAtRunUSDC": "0",
+    "baselineManualUSDC": "0",
+    "userOperationHash": "0x56420b05cd9de458d260bdf44a8b634683b9563704378c160b26faa4301e25f4",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760407730908,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "amountIntendedUSDC": "0",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {},
+    "balanceAtRunUSDC": "0",
+    "baselineManualUSDC": "0",
+    "userOperationHash": "0x469badfa52d2a782dcee89df06ba2668a1331d4b3ab492e00da3736c00ec5a9c",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  },
+  {
+    "ts": 1760415722321,
+    "delegator": "0xa7640957e68dfe5416af725dedea2e9e4b5d9c63",
+    "amountInUSDC": "0",
+    "amountIntendedUSDC": "0",
+    "amountOutToken": "0",
+    "unwrap": false,
+    "ai": {},
+    "sizing": {},
+    "balanceAtRunUSDC": "0",
+    "baselineManualUSDC": "0",
+    "userOperationHash": "0x751b327822f817e95bf8d921a5292ce87657bac07a93d99e1b93787f4da44287",
+    "strategy": "dca-basic",
+    "gas": {
+      "maxFeePerGas": "81375000000",
+      "maxPriorityFeePerGas": "2625000000"
+    }
+  }
+]

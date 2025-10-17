@@ -83,6 +83,45 @@ contracts:
             - hash
             - from
             - value  # Include native value for MON/WMON correlation
+  - name: KuruRouter
+    abi_file_path: abis/KuruRouter.json
+    handler: src/EventHandlers_Kuru.ts
+    events:
+      - event: MarketRegistered(address baseAsset, address quoteAsset, address market, address vaultAddress, uint32 pricePrecision, uint96 sizePrecision, uint32 tickSize, uint96 minSize, uint96 maxSize, uint256 takerFeeBps, uint256 makerFeeBps)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+  - name: KuruOrderBook
+    abi_file_path: abis/KuruOrderBook.json
+    handler: src/EventHandlers_Kuru.ts
+    events:
+      - event: Trade(uint40 orderId, address makerAddress, bool isBuy, uint256 price, uint96 updatedSize, address takerAddress, address txOrigin, uint96 filledSize)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+  - name: MonadDeployer
+    abi_file_path: abis/MonadDeployer.json
+    handler: src/EventHandlers_Kuru.ts
+    events:
+      - event: PumpingTime(address indexed token, string tokenURI, address dev, uint256 supplyToDev, address market)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
 networks:
 - id: 10143
   start_block: 0
@@ -113,5 +152,11 @@ networks:
     - name: UniversalRouter
       address:
         - 0x3ae6d8a282d67893e17aa70ebffb33ee5aa65893
+    - name: KuruRouter
+      address:
+        - 0xc816865f172d640d93712C68a7E1F83F3fA63235
+    - name: MonadDeployer
+      address:
+        - 0x67a4e43C7Ce69e24d495A39c43489BC7070f009B
 unordered_multichain_mode: true
 preload_handlers: true

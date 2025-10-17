@@ -1,0 +1,17 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": false, "internalType": "uint40", "name": "orderId", "type": "uint40"},
+      {"indexed": false, "internalType": "address", "name": "makerAddress", "type": "address"},
+      {"indexed": false, "internalType": "bool", "name": "isBuy", "type": "bool"},
+      {"indexed": false, "internalType": "uint256", "name": "price", "type": "uint256"},
+      {"indexed": false, "internalType": "uint96", "name": "updatedSize", "type": "uint96"},
+      {"indexed": false, "internalType": "address", "name": "takerAddress", "type": "address"},
+      {"indexed": false, "internalType": "address", "name": "txOrigin", "type": "address"},
+      {"indexed": false, "internalType": "uint96", "name": "filledSize", "type": "uint96"}
+    ],
+    "name": "Trade",
+    "type": "event"
+  }
+]

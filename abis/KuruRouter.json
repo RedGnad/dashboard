@@ -1,0 +1,20 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": false, "internalType": "address", "name": "baseAsset", "type": "address"},
+      {"indexed": false, "internalType": "address", "name": "quoteAsset", "type": "address"},
+      {"indexed": false, "internalType": "address", "name": "market", "type": "address"},
+      {"indexed": false, "internalType": "address", "name": "vaultAddress", "type": "address"},
+      {"indexed": false, "internalType": "uint32", "name": "pricePrecision", "type": "uint32"},
+      {"indexed": false, "internalType": "uint96", "name": "sizePrecision", "type": "uint96"},
+      {"indexed": false, "internalType": "uint32", "name": "tickSize", "type": "uint32"},
+      {"indexed": false, "internalType": "uint96", "name": "minSize", "type": "uint96"},
+      {"indexed": false, "internalType": "uint96", "name": "maxSize", "type": "uint96"},
+      {"indexed": false, "internalType": "uint256", "name": "takerFeeBps", "type": "uint256"},
+      {"indexed": false, "internalType": "uint256", "name": "makerFeeBps", "type": "uint256"}
+    ],
+    "name": "MarketRegistered",
+    "type": "event"
+  }
+]

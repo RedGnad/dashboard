@@ -115,6 +115,7 @@ type PairMetrics {
   momentumShort: Float! # 15min momentum for AI
   momentumLong: Float!  # 1h momentum for AI
 }
+
 type DailyTxFeeCounted {
   id: ID!
   protocolId: String!
@@ -123,3 +124,38 @@ type DailyTxFeeCounted {
   feeWei: BigInt!
 }
 
+type Kuru_MarketRegistered {
+  id: ID!
+  market: String! @index
+  baseAsset: String! @index
+  quoteAsset: String! @index
+  vaultAddress: String
+  pricePrecision: Int
+  sizePrecision: BigInt
+  tickSize: Int
+  minSize: BigInt
+  maxSize: BigInt
+  takerFeeBps: BigInt
+  makerFeeBps: BigInt
+  blockNumber: Int! @index
+  blockTimestamp: Int! @index
+  transactionHash: String! @index
+}
+
+type Kuru_Trade {
+  id: ID!
+  market: String! @index
+  orderId: BigInt!
+  makerAddress: String! @index
+  takerAddress: String! @index
+  txOrigin: String
+  isBuy: Boolean! @index
+  price: BigInt!
+  updatedSize: BigInt
+  filledSize: BigInt!
+  blockNumber: Int! @index
+  blockTimestamp: Int! @index
+  transactionHash: String! @index
+  gasUsed: BigInt
+  gasPrice: BigInt
+}

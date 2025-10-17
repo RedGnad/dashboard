@@ -1,0 +1,13 @@
+{
+  "maxRiskScore": 100,
+  "minConfidence": 0.3,
+  "dailyCapUsd": 5000,
+  "minMinutesBetweenExec": 0.017,
+  "maxExecutionsPer24h": 5000,
+  "maxVolatilityDrift": 2.0,
+  "maxFeatureAgeMs": 600000,
+  "hashMismatchHardBlock": false,
+  "blockOnAbnormalHyperIndex": false,
+  "checkFeatureHashV1": false,
+  "checkFeatureHashV2": false
+}
