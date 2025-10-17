@@ -72,7 +72,20 @@ async function upsertDaily(
 
 // Register dynamically created OrderBook markets
 KuruRouter.MarketRegistered.contractRegister(({ event, context }) => {
-  context.KuruOrderBook.add(event.params.market);
+  let registered = false;
+  try {
+    // New API (docs): context.<Contract>.add(address)
+    (context as any).KuruOrderBook.add(event.params.market);
+    registered = true;
+  } catch (_e1) {
+    try {
+      // Legacy API: context.add<Contract>(address)
+      (context as any).addKuruOrderBook(event.params.market);
+      registered = true;
+    } catch (_e2) {
+      try { (context as any)?.log?.warn?.('KuruOrderBook dynamic register failed on both APIs'); } catch {}
+    }
+  }
 
   const entity: Kuru_MarketRegistered = {
     id: `${event.chainId}_${event.block.number}_${event.logIndex}`,
@@ -132,6 +145,14 @@ KuruOrderBook.Trade.handler(async ({ event, context }) => {
 // Optional: Register markets created via MonadDeployer
 MonadDeployer?.PumpingTime?.contractRegister?.(({ event, context }) => {
   if (event?.params?.market) {
-    context.KuruOrderBook.add(event.params.market);
+    try {
+      (context as any).KuruOrderBook.add(event.params.market);
+    } catch (_e1) {
+      try {
+        (context as any).addKuruOrderBook(event.params.market);
+      } catch (_e2) {
+        try { (context as any)?.log?.warn?.('KuruOrderBook dynamic register failed on both APIs'); } catch {}
+      }
+    }
   }
 });
