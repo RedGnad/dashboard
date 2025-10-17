@@ -1,6 +1,6 @@
 import { readContract, getBalance } from 'viem/actions'
 import { publicClient } from './clients'
-import { USDC, WMON, CHOG, TOKEN_DECIMALS } from './tokens'
+import { USDC, WMON, CHOG, TOKENS } from './tokens'
 import { formatUnits } from 'viem'
 
 // ERC20 ABI for balance reading
@@ -23,7 +23,7 @@ export async function getChogBalance(address: `0x${string}`) {
       functionName: 'balanceOf',
       args: [address]
     })
-    return formatUnits(balance, TOKEN_DECIMALS.CHOG)
+    return formatUnits(balance, TOKENS.CHOG.decimals)
   } catch (error) {
     console.error('Failed to get CHOG balance:', error)
     return '0.0'
@@ -34,7 +34,7 @@ export async function getChogBalance(address: `0x${string}`) {
 export async function getMonBalance(address: `0x${string}`) {
   try {
     const balance = await getBalance(publicClient, { address })
-    return formatUnits(balance, TOKEN_DECIMALS.MON)
+    return formatUnits(balance, TOKENS.MON.decimals)
   } catch (error) {
     console.error('Failed to get MON balance:', error)
     return '0.0'
@@ -50,7 +50,7 @@ export async function getUsdcBalance(address: `0x${string}`) {
       functionName: 'balanceOf',
       args: [address]
     })
-    return formatUnits(balance, TOKEN_DECIMALS.USDC)
+    return formatUnits(balance, TOKENS.USDC.decimals)
   } catch (error) {
     console.error('Failed to get USDC balance:', error)
     return '0.0'
@@ -66,7 +66,7 @@ export async function getWmonBalance(address: `0x${string}`) {
       functionName: 'balanceOf',
       args: [address]
     })
-    return formatUnits(balance, TOKEN_DECIMALS.WMON)
+    return formatUnits(balance, TOKENS.WMON.decimals)
   } catch (error) {
     console.error('Failed to get WMON balance:', error)
     return '0.0'
@@ -75,12 +75,29 @@ export async function getWmonBalance(address: `0x${string}`) {
 
 // Get all balances for an address
 export async function getAllBalances(address: `0x${string}`) {
-  const [mon, usdc, wmon, chog] = await Promise.all([
-    getMonBalance(address),
-    getUsdcBalance(address),
-    getWmonBalance(address),
-    getChogBalance(address),
-  ])
+  // Build balances for all tokens from TOKENS registry
+  const entries = await Promise.all(
+    Object.entries(TOKENS).map(async ([symbol, meta]) => {
+      try {
+        if (meta.isNative) {
+          const bal = await getBalance(publicClient, { address })
+          return [symbol, formatUnits(bal, meta.decimals)] as const
+        }
+        const bal = await readContract(publicClient, {
+          address: meta.address,
+          abi: ERC20_ABI,
+          functionName: 'balanceOf',
+          args: [address],
+        })
+        return [symbol, formatUnits(bal, meta.decimals)] as const
+      } catch (e) {
+        console.warn(`[balances] Failed to load ${symbol} balance`, e)
+        return [symbol, '0.0'] as const
+      }
+    })
+  )
 
-  return { MON: mon, USDC: usdc, WMON: wmon, CHOG: chog }
+  const map: Record<string, string> = {}
+  for (const [sym, val] of entries) map[sym] = val
+  return map
 }

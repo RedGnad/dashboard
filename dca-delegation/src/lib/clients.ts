@@ -1,11 +1,16 @@
-import { createPublicClient, createWalletClient, http, custom } from 'viem'
+import { createPublicClient, createWalletClient, http, custom, fallback } from 'viem'
 import { createBundlerClient, createPaymasterClient } from 'viem/account-abstraction'
 import { monadTestnet } from './chain'
 
 // Public client for reading blockchain state
+const primaryRpc = import.meta.env.VITE_RPC_URL as string | undefined
+const rpcTransports = [primaryRpc, 'https://testnet-rpc.monad.xyz']
+  .filter((u) => !!u)
+  .map((u) => http(u as string))
+
 export const publicClient = createPublicClient({
   chain: monadTestnet,
-  transport: http(import.meta.env.VITE_RPC_URL),
+  transport: rpcTransports.length > 1 ? fallback(rpcTransports) : rpcTransports[0],
 })
 
 // Bundler client for sending UserOperations via ZeroDev

@@ -50,6 +50,31 @@ class DcaScheduler {
     console.log('DCA scheduler stopped')
   }
 
+  updateInterval(newIntervalSeconds: number) {
+    if (this.config && this.isActive) {
+      this.config.intervalSeconds = newIntervalSeconds
+      
+      // Restart with new interval
+      if (this.intervalId) {
+        clearInterval(this.intervalId)
+      }
+      
+      this.intervalId = setInterval(async () => {
+        try {
+          await this.config!.onExecute()
+          
+          // Update next execution time
+          const nextExecution = new Date(Date.now() + this.config!.intervalSeconds * 1000)
+          this.config!.onStatusChange(true, nextExecution)
+        } catch (error) {
+          this.config!.onError(error as Error)
+        }
+      }, this.config.intervalSeconds * 1000)
+      
+      console.log(`DCA scheduler interval updated to ${newIntervalSeconds}s`)
+    }
+  }
+
   getStatus() {
     return {
       isActive: this.isActive,
