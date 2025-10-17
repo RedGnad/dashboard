@@ -1,4 +1,4 @@
-import { ERC20, TokenTransfer, TokenMetrics } from "../generated";
+import { ERC20, TokenTransfer, TokenMetrics } from "generated";
 
 // Monad Testnet key tokens we want to track (all tokens for AI trading decisions)
 const TRACKED_TOKENS = {
@@ -89,7 +89,6 @@ ERC20.Transfer.handler(
       logIndex: event.logIndex,
       gasUsed: event.transaction.gasUsed || 0n,
       gasPrice: event.transaction.effectiveGasPrice || 0n,
-      isWhaleMovement: isWhaleMovement,
     });
 
     // BONUS: Also capture native MON transfers if this transaction has native value
@@ -214,6 +213,20 @@ function getTokenSymbol(address: string): string {
     default:
       return "UNKNOWN";
   }
+}
+
+// Helper: minimum index threshold per token symbol
+function getMinIndexThreshold(symbol: string): bigint {
+  const map = MIN_INDEX_THRESHOLDS as Record<string, bigint>;
+  // Default to 1 MON for unknown tokens to avoid indexing dust
+  return map[symbol] ?? (1n * 10n ** 18n);
+}
+
+// Helper: whale threshold per token symbol
+function getWhaleThreshold(symbol: string): bigint {
+  const map = WHALE_THRESHOLDS as Record<string, bigint>;
+  // Very large fallback to avoid flagging unknown tokens as whales
+  return map[symbol] ?? (10n ** 30n);
 }
 
 function calculateSimpleVolatility(metrics: any): number {
