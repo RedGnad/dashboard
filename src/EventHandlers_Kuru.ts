@@ -72,7 +72,7 @@ async function upsertDaily(
 
 // Register dynamically created OrderBook markets
 KuruRouter.MarketRegistered.contractRegister(({ event, context }) => {
-  context.addKuruOrderBook(event.params.market);
+  context.KuruOrderBook.add(event.params.market);
 
   const entity: Kuru_MarketRegistered = {
     id: `${event.chainId}_${event.block.number}_${event.logIndex}`,
@@ -132,6 +132,6 @@ KuruOrderBook.Trade.handler(async ({ event, context }) => {
 // Optional: Register markets created via MonadDeployer
 MonadDeployer?.PumpingTime?.contractRegister?.(({ event, context }) => {
   if (event?.params?.market) {
-    context.addKuruOrderBook(event.params.market);
+    context.KuruOrderBook.add(event.params.market);
   }
 });
