@@ -47,10 +47,28 @@ contracts:
             - gasPrice
             - status
   - name: Curvance
-    abi_file_path: abis/curvance.json
+    abi_file_path: abis/vecve.json
     handler: src/EventHandlers_Curvance.ts
     events:
-      - event: Pump
+      - event: Locked
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+      - event: Unlocked
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+      - event: UnlockedWithPenalty
         field_selection:
           transaction_fields:
             - hash
@@ -135,7 +153,7 @@ networks:
         - 0x88B96aF200c8a9c35442C8AC6cd3D22695AaE4F0
     - name: Curvance
       address:
-        - 0x8462c247356d7deB7e26160dbFab16B351Eef242
+        - 0x2555223A15a931a71951707cb32A541f14e2c730
     # ERC20 tracking - EXPLICIT addresses only (no wildcard to avoid server crash)
     - name: ERC20
       # List only tokens needed for AI trading decisions

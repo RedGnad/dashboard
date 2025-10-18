@@ -71,24 +71,47 @@ async function upsertDaily(
 	context.DailyMetrics.set(dmNext);
 }
 
-Curvance.Pump.handler(async ({ event, context }) => {
-	const tsMs = Number(event.block.timestamp) * 1000;
-	const dateISO = dateISOFromTs(tsMs);
-		const txHash = (event.transaction?.hash as string) || null;
-		const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
-		const effPrice = (event.transaction as any)?.effectiveGasPrice
-			? BigInt((event.transaction as any).effectiveGasPrice)
-			: (event.transaction as any)?.gasPrice
-				? BigInt((event.transaction as any).gasPrice)
-				: null;
-		const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
-	await upsertDaily(context, {
-		protocolId: "curvance",
-		dateISO,
-		user: (event.params as any).account ?? null,
-		txDelta: 1,
-		txHash,
-		feeWei,
-	});
+Curvance.Locked.handler(async ({ event, context }) => {
+    const tsMs = Number(event.block.timestamp) * 1000;
+    const dateISO = dateISOFromTs(tsMs);
+    const txHash = (event.transaction?.hash as string) || null;
+    const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
+    const effPrice = (event.transaction as any)?.effectiveGasPrice
+        ? BigInt((event.transaction as any).effectiveGasPrice)
+        : (event.transaction as any)?.gasPrice
+            ? BigInt((event.transaction as any).gasPrice)
+            : null;
+    const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
+    const userKey = (event.params as any)?.user ?? (event.transaction?.from as string) ?? null;
+    await upsertDaily(context, { protocolId: "curvance", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
 });
 
+Curvance.Unlocked.handler(async ({ event, context }) => {
+    const tsMs = Number(event.block.timestamp) * 1000;
+    const dateISO = dateISOFromTs(tsMs);
+    const txHash = (event.transaction?.hash as string) || null;
+    const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
+    const effPrice = (event.transaction as any)?.effectiveGasPrice
+        ? BigInt((event.transaction as any).effectiveGasPrice)
+        : (event.transaction as any)?.gasPrice
+            ? BigInt((event.transaction as any).gasPrice)
+            : null;
+    const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
+    const userKey = (event.params as any)?.user ?? (event.transaction?.from as string) ?? null;
+    await upsertDaily(context, { protocolId: "curvance", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
+});
+
+Curvance.UnlockedWithPenalty.handler(async ({ event, context }) => {
+    const tsMs = Number(event.block.timestamp) * 1000;
+    const dateISO = dateISOFromTs(tsMs);
+    const txHash = (event.transaction?.hash as string) || null;
+    const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
+    const effPrice = (event.transaction as any)?.effectiveGasPrice
+        ? BigInt((event.transaction as any).effectiveGasPrice)
+        : (event.transaction as any)?.gasPrice
+            ? BigInt((event.transaction as any).gasPrice)
+            : null;
+    const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
+    const userKey = (event.params as any)?.user ?? (event.transaction?.from as string) ?? null;
+    await upsertDaily(context, { protocolId: "curvance", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
+});
