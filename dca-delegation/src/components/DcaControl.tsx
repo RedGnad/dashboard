@@ -53,12 +53,25 @@ export default function DcaControl() {
   const { metrics, loading: metricsLoading, error: metricsError } = useEnvioMetrics(delegatorSmartAccount?.address)
   const { series, dates, loading: dailyLoading, error: dailyError } = useProtocolDailyMetrics(metricKey, 30)
   const { todayData, latestData, loading: todayLoading, error: todayError } = useTodayProtocolMetrics()
-  const PROTOCOLS = ['magma','ambient','curvance','dex','kuru'] as const
+  const PROTOCOLS = ['magma','ambient','curvance','kuru','pyth','atlantis','octoswap','pingu'] as const
   const todayBarData = PROTOCOLS.map(p => ({ protocolId: p, value: Number((todayData.find(d=>d.protocolId===p) as any)?.[todayMetric] || 0) }))
   const [totalMetric, setTotalMetric] = useState<'txCumulative' | 'avgTxPerUser' | 'avgFeeNative'>('txCumulative')
-  const totalsBarData = PROTOCOLS.map(p => ({ protocolId: p, value: Number((latestData.find(l=>l.protocolId===p) as any)?.[totalMetric] || 0) }))
+  const totalsProtocols = totalMetric==='avgFeeNative' 
+    ? (PROTOCOLS.filter(p=>p!=='curvance' && p!=='octoswap') as typeof PROTOCOLS) 
+    : PROTOCOLS
+  const totalsBarData = totalsProtocols.map(p => ({ protocolId: p, value: Number((latestData.find(l=>l.protocolId===p) as any)?.[totalMetric] || 0) }))
   const { tokenMetrics, loading: tokenMetricsLoading } = useTokenMetrics()
-  const { personality, enabled: aiEnabled, decisions, isProcessing, error: aiError, setPersonality, setEnabled, makeDecision, markExecuted } = useAutonomousAi()
+  const { personality, enabled: aiEnabled, decisions, isProcessing, error: aiError, setPersonality, setEnabled, makeDecision, markExecuted, provider, setProvider } = useAutonomousAi()
+  const hasOpenAiKey = Boolean((import.meta as any).env?.VITE_OPENAI_API_KEY)
+
+  const todayTotals = useMemo(() => {
+    let users = 0, tx = 0
+    for (const r of todayData) {
+      users += Number((r as any)?.usersDaily || 0)
+      tx += Number((r as any)?.txDaily || 0)
+    }
+    return { users, tx }
+  }, [todayData])
 
   const hasConvertible = useMemo(() => {
     try {
@@ -234,7 +247,20 @@ export default function DcaControl() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-gray-300">DCA</span><span className={`font-semibold ${dcaStatus.isActive?'text-green-400':'text-gray-400'}`}>{dcaStatus.isActive?'Active':'Stopped'}</span></div>
                 {dcaStatus.nextExecution && <div className="flex justify-between"><span className="text-gray-300">Next</span><span className="text-white font-mono">{dcaStatus.nextExecution.toLocaleTimeString()}</span></div>}
-                {dcaStatus.lastUserOpHash && <div className="flex justify-between"><span className="text-gray-300">Last UO</span><span className="text-blue-400 font-mono">{dcaStatus.lastUserOpHash.slice(0,10)}...</span></div>}
+                {dcaStatus.lastUserOpHash && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-300">Last UO</span>
+                    <a 
+                      className="text-blue-400 font-mono hover:underline"
+                      href={`https://testnet.monadexplorer.com/tx/${dcaStatus.lastUserOpHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Open in explorer"
+                    >
+                      {dcaStatus.lastUserOpHash.slice(0,10)}...
+                    </a>
+                  </div>
+                )}
                 {dcaStatus.lastError && <div className="flex justify-between"><span className="text-gray-300">Last Error</span><span className="text-red-400">{dcaStatus.lastError}</span></div>}
               </div>
             </div>
@@ -248,7 +274,14 @@ export default function DcaControl() {
             <div className="flex items-center justify-between mb-4">
               <div className="text-xl font-semibold text-white flex items-center gap-2"><Brain size={18}/>Autonomous AI Agent</div>
               <label className="inline-flex items-center gap-2 text-sm text-gray-300">
-                <input type="checkbox" checked={aiEnabled} onChange={(e)=>setEnabled(e.target.checked)} className="accent-purple-500"/>
+                <input 
+                  type="checkbox" 
+                  checked={aiEnabled} 
+                  onChange={(e)=>setEnabled(e.target.checked)} 
+                  className="accent-purple-500"
+                  disabled={provider !== 'openai'}
+                  title={provider !== 'openai' ? (provider === 'opengradient' ? 'need faucet token' : 'coming soon') : 'active'}
+                />
                 Enable AI Control
               </label>
             </div>
@@ -295,6 +328,43 @@ export default function DcaControl() {
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="glass rounded-xl p-4 mb-4">
+              <div className="text-sm text-gray-300 mb-2">AI Provider</div>
+              <div className="flex items-center gap-3 mb-3 text-sm">
+                <button
+                  onClick={() => setProvider('openai')}
+                  className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='openai'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
+                  title="active"
+                >
+                  <span className={`w-2 h-2 rounded-full ${provider==='openai' ? (hasOpenAiKey ? 'bg-green-400' : 'bg-red-400') : 'bg-gray-400'}`}></span>
+                  OpenAI
+                </button>
+                <button
+                  onClick={() => setProvider('fortytwo')}
+                  className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='fortytwo'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
+                  title="coming soon"
+                >
+                  <span className={`w-2 h-2 rounded-full ${provider==='fortytwo' ? 'bg-yellow-400' : 'bg-gray-400'}`}></span>
+                  FortyTwo network (swarm inference)
+                </button>
+                <button
+                  onClick={() => setProvider('opengradient')}
+                  className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='opengradient'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
+                  title="need faucet token"
+                >
+                  <span className={`w-2 h-2 rounded-full ${provider==='opengradient' ? 'bg-yellow-400' : 'bg-gray-400'}`}></span>
+                  OpenGradient (swarm inference)
+                </button>
+              </div>
+              
+              {provider==='opengradient' && (
+                <div className="text-xs text-yellow-400">need faucet token</div>
+              )}
+              {provider==='fortytwo' && (
+                <div className="text-xs text-yellow-400">coming soon</div>
+              )}
             </div>
 
             {aiError && (
@@ -355,18 +425,15 @@ export default function DcaControl() {
 
       {active === 'metrics' && (
         <div className="space-y-4">
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid md:grid-cols-2 gap-4">
             <div className="glass rounded-2xl p-5">
-              <div className="text-sm text-gray-300">Tx Today</div>
-              <div className="text-2xl text-white font-bold">{metricsLoading ? '…' : metrics.txToday}</div>
+              <div className="text-sm text-gray-300">Users Today (all protocols)</div>
+              <div className="text-2xl text-white font-bold">{todayTotals.users}</div>
             </div>
             <div className="glass rounded-2xl p-5">
-              <div className="text-sm text-gray-300">Fees Today (MON)</div>
-              <div className="text-2xl text-white font-bold">{metricsLoading ? '…' : metrics.feesTodayMon.toFixed(6)}</div>
+              <div className="text-sm text-gray-300">Tx Today (all protocols)</div>
+              <div className="text-2xl text-white font-bold">{todayTotals.tx}</div>
             </div>
-            {metricsError && (
-              <div className="md:col-span-3 text-sm text-red-400">{metricsError}</div>
-            )}
           </div>
 
           <div className="glass rounded-2xl p-5">
@@ -385,7 +452,14 @@ export default function DcaControl() {
             {dailyLoading ? (
               <div className="text-sm text-gray-300">Loading…</div>
             ) : (
-              <ProtocolMetricsChart series={series} dates={dates} />
+              <ProtocolMetricsChart 
+                series={(
+                  metricKey==='avgFeeNative' 
+                    ? series.filter(s=>s.protocolId!=='curvance' && s.protocolId!=='octoswap' && s.protocolId!=='dex') 
+                    : series.filter(s=>s.protocolId!=='dex')
+                )} 
+                dates={dates} 
+              />
             )}
           </div>
 

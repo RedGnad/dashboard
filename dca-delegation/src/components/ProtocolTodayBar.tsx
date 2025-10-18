@@ -2,11 +2,14 @@ import { useMemo } from 'react'
 import type { ProtocolToday } from '../hooks/useTodayProtocolMetrics'
 
 const COLORS: Record<string, string> = {
-  magma: '#ef4444',
-  ambient: '#22c55e',
-  curvance: '#a855f7',
-  dex: '#f59e0b',
-  kuru: '#60a5fa',
+  magma: '#ef4444',      // red-500
+  ambient: '#fde047',    // light-yellow
+  curvance: '#a855f7',   // purple-500
+  kuru: '#86efac',       // light-green-300
+  pyth: '#eab308',       // yellow-500
+  atlantis: '#14b8a6',   // teal-500
+  octoswap: '#f59e0b',   // amber-500
+  pingu: '#0ea5e9',      // sky-500
 }
 
 type Props = {

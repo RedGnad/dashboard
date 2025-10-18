@@ -244,8 +244,14 @@ export async function createCoreDelegation(delegatorSmartAccount: any, delegateS
     expiresAt: Number(beforeTs)
   }
 
-  // Store delegation locally for reuse
-  localStorage.setItem('dca-delegation', JSON.stringify(signedDelegation))
+  // Store delegation locally for reuse (scoped + legacy)
+  try {
+    const scopedKey = `dca-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+    localStorage.setItem(scopedKey, JSON.stringify(signedDelegation))
+  } catch {}
+  try {
+    localStorage.setItem('dca-delegation', JSON.stringify(signedDelegation))
+  } catch {}
   
   console.log('[delegation] Signed delegation:', signedDelegation)
   console.log('[delegation] Signed delegation scope:', {
@@ -276,7 +282,9 @@ export function isDelegationExpired(delegation: any): boolean {
 
 // Get stored delegation or create new one
 export async function getOrCreateDelegation(delegatorSmartAccount: any, delegateSmartAccount: any) {
-  const stored = localStorage.getItem('dca-delegation')
+  const scopedKey = `dca-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+  let stored = localStorage.getItem(scopedKey)
+  if (!stored) stored = localStorage.getItem('dca-delegation')
   if (stored) {
     try {
       const signed = JSON.parse(stored)
@@ -287,51 +295,16 @@ export async function getOrCreateDelegation(delegatorSmartAccount: any, delegate
       const matchDelegate = signed.delegate?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase()
         || signed.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase()
 
-      // Validate scope includes required targets & selectors
-      const scope = signed.delegation?.scope ?? signed.scope
-      const targets: string[] = (scope?.targets ?? []).map((t: string) => t.toLowerCase())
-      const selectors: string[] = scope?.selectors ?? []
-
-      const requiredTargets = [
-        ...Object.values(TOKENS).filter(t => !t.isNative).map(t => t.address.toLowerCase()),
-        UNISWAP_V2_ROUTER02.toLowerCase(),
-        KURU_ROUTER.toLowerCase(),
-        FLOW_ROUTER.toLowerCase(),
-      ]
-      const requiredSelectors = [
-        'approve(address,uint256)',
-        'swapExactTokensForTokens(uint256,uint256,address[],address,uint256)',
-        'swapExactETHForTokens(uint256,address[],address,uint256)',
-        'withdraw(uint256)'
-      ]
-
-      console.log('[delegation] Cache validation:', {
-        matchDelegator,
-        matchDelegate,
-        hasSignature: !!signed.signature,
-        currentTargets: targets,
-        requiredTargets,
-        currentSelectors: selectors,
-        requiredSelectors
-      })
-
-      const hasTargets = requiredTargets.every((t) => targets.includes(t))
-      const hasSelectors = requiredSelectors.every((s) => selectors.includes(s))
-
-      console.log('[delegation] Cache validation result:', {
-        hasTargets,
-        hasSelectors,
-        missingTargets: requiredTargets.filter(t => !targets.includes(t)),
-        missingSelectors: requiredSelectors.filter(s => !selectors.includes(s))
-      })
-
-      if (matchDelegator && matchDelegate && signed.signature && hasTargets && hasSelectors) {
+      const notExpired = !isDelegationExpired(signed)
+      // Minimal checks: from/to match, signature present, not expired
+      if (matchDelegator && matchDelegate && signed.signature && notExpired) {
         // Ensure permissionContexts exists to satisfy encoder expectations
         if (!Array.isArray(signed.permissionContexts)) signed.permissionContexts = []
         console.log('[delegation] Using cached delegation')
         return signed
       }
-      console.log('[delegation] Cached delegation mismatch, creating new one')
+      console.log('[delegation] Cached delegation mismatch or expired, creating new one')
+      localStorage.removeItem(scopedKey)
       localStorage.removeItem('dca-delegation')
     } catch (error) {
       console.warn('Failed to parse stored delegation:', error)

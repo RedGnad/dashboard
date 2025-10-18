@@ -13,26 +13,30 @@ interface AiVerificationPanelProps {
 
 export default function AiVerificationPanel({ balances, portfolioValueMon, delegationExpired }: AiVerificationPanelProps) {
   const { auditHistory, isAuditing, auditDecision, getAuditStats, exportForSwarm } = useAiAudit()
-  const { decisions, enabled: aiEnabled } = useAutonomousAi()
+  const { decisions, enabled: aiEnabled, provider, modelId } = useAutonomousAi()
   const { metrics } = useEnvioMetrics()
   const [selectedReport, setSelectedReport] = useState<AuditReport | null>(null)
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false)
+  const [hashPreview, setHashPreview] = useState<Record<string, string>>({})
 
   const stats = getAuditStats()
   const latestDecision = decisions[0]
 
-  // Auto-audit latest decision
+  // Auto-audit latest decision (once), even if executed
   useEffect(() => {
-    if (latestDecision && !latestDecision.executed && aiEnabled) {
-      auditDecision(
-        latestDecision,
-        balances,
-        metrics,
-        portfolioValueMon,
-        delegationExpired
-      )
+    if (latestDecision && aiEnabled) {
+      const already = auditHistory.find(r => r.decision.id === latestDecision.id)
+      if (!already) {
+        auditDecision(
+          latestDecision,
+          balances,
+          metrics,
+          portfolioValueMon,
+          delegationExpired
+        )
+      }
     }
-  }, [latestDecision, balances, metrics, portfolioValueMon, delegationExpired, aiEnabled, auditDecision])
+  }, [latestDecision, auditHistory, balances, metrics, portfolioValueMon, delegationExpired, aiEnabled, auditDecision])
 
   const getStatusIcon = (status: 'PASS' | 'WARN' | 'FAIL') => {
     switch (status) {
@@ -50,33 +54,71 @@ export default function AiVerificationPanel({ balances, portfolioValueMon, deleg
     }
   }
 
-  const generateVerificationHash = (report: AuditReport) => {
-    // Simple hash for verification (in production, use proper cryptographic hash)
-    const data = JSON.stringify({
-      decisionId: report.decision.id,
-      timestamp: report.timestamp,
-      results: report.results.map(r => ({ ruleId: r.ruleId, passed: r.passed })),
-      overallStatus: report.overallStatus
-    })
-    return btoa(data).slice(0, 16)
+  const bytesToHex = (buffer: ArrayBuffer) => Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('')
+  const sha256Hex = async (str: string) => {
+    const data = new TextEncoder().encode(str)
+    const digest = await crypto.subtle.digest('SHA-256', data)
+    return bytesToHex(digest)
   }
 
-  const exportForVerification = (report: AuditReport) => {
-    const exportData = {
-      ...exportForSwarm(report.decision, {
-        balances,
-        metrics,
-        portfolioValueMon,
-        delegationExpired,
-        maxDailySpend: 1.0,
-        maxSlippageBps: 500
-      }),
+  useEffect(() => {
+    let mounted = true
+    const run = async () => {
+      const next: Record<string, string> = {}
+      for (const report of auditHistory.slice(0, 10)) {
+        const minimal = {
+          decisionId: report.decision.id,
+          timestamp: report.timestamp,
+          results: report.results.map(r => ({ ruleId: r.ruleId, passed: r.passed })),
+          overallStatus: report.overallStatus
+        }
+        const hex = await sha256Hex(JSON.stringify(minimal))
+        next[report.decision.id] = hex
+      }
+      if (mounted) setHashPreview(next)
+    }
+    run()
+    return () => { mounted = false }
+  }, [auditHistory])
+
+  const exportForVerification = async (report: AuditReport) => {
+    const core = exportForSwarm(report.decision, {
+      balances,
+      metrics,
+      portfolioValueMon,
+      delegationExpired,
+      maxDailySpend: 1.0,
+      maxSlippageBps: 500
+    })
+
+    const payload = {
+      ...core,
+      meta: {
+        provider,
+        modelId,
+        createdAt: new Date().toISOString()
+      },
       audit: {
         timestamp: report.timestamp,
         overallStatus: report.overallStatus,
         riskScore: report.riskScore,
-        results: report.results,
-        verificationHash: generateVerificationHash(report)
+        results: report.results
+      }
+    }
+
+    const jsonString = JSON.stringify(payload)
+    const hashHex = await sha256Hex(jsonString)
+
+    const exportData = {
+      ...payload,
+      hash: {
+        algorithm: 'SHA-256',
+        hex: hashHex
+      },
+      anchors: {
+        ipfsCid: null as string | null,
+        swarm: { reference: null as string | null },
+        chain: { network: 'monad-testnet', txHash: null as string | null }
       }
     }
 
@@ -97,12 +139,20 @@ export default function AiVerificationPanel({ balances, portfolioValueMon, deleg
           <div className="text-xl font-semibold text-white flex items-center gap-2">
             <Shield size={18}/>AI Verification
           </div>
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex items-center gap-3 text-sm">
             <button 
               onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
               className="flex items-center gap-1 text-gray-300 hover:text-white"
             >
               <Eye size={14}/>{showTechnicalDetails ? 'Hide' : 'Show'} Technical
+            </button>
+            <button
+              onClick={() => latestDecision && auditDecision(latestDecision, balances, metrics, portfolioValueMon, delegationExpired)}
+              disabled={!latestDecision || isAuditing}
+              className={`px-2 py-1 rounded ${isAuditing ? 'bg-white/5 text-gray-400' : 'bg-white/10 text-gray-200 hover:text-white'}`}
+              title={!latestDecision ? 'No decision to audit' : 'Run verification on latest decision'}
+            >
+              Audit latest decision
             </button>
           </div>
         </div>
@@ -198,7 +248,7 @@ export default function AiVerificationPanel({ balances, portfolioValueMon, deleg
                 {showTechnicalDetails && (
                   <div className="mt-2 text-xs text-gray-500 flex items-center gap-2">
                     <Hash size={12}/>
-                    {generateVerificationHash(report)}
+                    {(hashPreview[report.decision.id]?.slice(0, 16)) || 'computing…'}
                   </div>
                 )}
               </div>

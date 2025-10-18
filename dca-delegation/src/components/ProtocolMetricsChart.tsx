@@ -1,4 +1,5 @@
 import type { ProtocolSeries } from '../hooks/useProtocolDailyMetrics'
+import { useState } from 'react'
 
 type Props = {
   series: ProtocolSeries[]
@@ -7,10 +8,14 @@ type Props = {
 }
 
 const COLORS: Record<string, string> = {
-  magma: '#ef4444',     // red-500
-  ambient: '#22c55e',   // green-500
-  curvance: '#a855f7',  // purple-500
-  dex: '#f59e0b',       // amber-500
+  magma: '#ef4444',
+  ambient: '#fde047',
+  curvance: '#a855f7',
+  kuru: '#86efac',
+  pyth: '#eab308',
+  atlantis: '#14b8a6',
+  octoswap: '#f59e0b',
+  pingu: '#0ea5e9',
 }
 
 function getColor(name: string, i: number) {
@@ -25,6 +30,7 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
   const padding = { top: 10, right: 10, bottom: 20, left: 30 }
   const innerW = width - padding.left - padding.right
   const innerH = h - padding.top - padding.bottom
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
 
   // Build x indices
   const n = Math.max(1, dates.length)
@@ -98,16 +104,56 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
             </g>
           )
         })}
+
+        {/* Hover guideline */}
+        {hoverIdx != null && hoverIdx >= 0 && hoverIdx < dates.length && (
+          <g>
+            <line x1={xPos(hoverIdx)} y1={padding.top} x2={xPos(hoverIdx)} y2={h - padding.bottom} stroke="#666" strokeDasharray="3 3" />
+            {series.map((s, i) => {
+              const v = (()=>{
+                const d = dates[hoverIdx!]
+                const pt = s.points.find(pt=>pt.x===d)
+                return pt ? pt.y : null
+              })()
+              if (v == null) return null
+              const color = getColor(s.protocolId, i)
+              return <circle key={s.protocolId+"_dot"} cx={xPos(hoverIdx)} cy={yPos(v)} r={2} fill={color} />
+            })}
+          </g>
+        )}
+
+        {/* Mouse overlay */}
+        <rect x={padding.left} y={padding.top} width={innerW} height={innerH} fill="transparent"
+          onMouseMove={(e)=>{
+            const rect = (e.currentTarget as SVGRectElement).getBoundingClientRect()
+            const x = e.clientX - rect.left
+            const t = Math.max(0, Math.min(1, (x - 0) / rect.width))
+            // Map overlay coords to chart coords
+            const xChart = padding.left + t * innerW
+            const tChart = Math.max(0, Math.min(1, (xChart - padding.left) / innerW))
+            const idx = Math.round(tChart * Math.max(0, (n - 1)))
+            setHoverIdx(idx)
+          }}
+          onMouseLeave={()=>setHoverIdx(null)}
+        />
       </svg>
 
       {/* Legend */}
       <div className="flex flex-wrap gap-3 mt-2 text-xs">
-        {series.map((s, i) => (
-          <div key={s.protocolId} className="flex items-center gap-2">
-            <span className="inline-block w-3 h-3 rounded" style={{ background: getColor(s.protocolId, i) }} />
-            <span className="text-gray-300">{s.protocolId}</span>
-          </div>
-        ))}
+        {series.map((s, i) => {
+          const v = (hoverIdx != null && hoverIdx >=0 && hoverIdx < dates.length) ? (()=>{
+            const d = dates[hoverIdx!]
+            const pt = s.points.find(pt=>pt.x===d)
+            return pt ? pt.y : null
+          })() : null
+          return (
+            <div key={s.protocolId} className="flex items-center gap-2">
+              <span className="inline-block w-3 h-3 rounded" style={{ background: getColor(s.protocolId, i) }} />
+              <span className="text-gray-300">{s.protocolId}</span>
+              {v != null && <span className="text-gray-500">{Number.isFinite(v) ? v.toFixed(4) : '-'}</span>}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

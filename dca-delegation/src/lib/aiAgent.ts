@@ -1,6 +1,8 @@
 import type { EnvioMetrics } from '../hooks/useEnvioMetrics'
+import { getTargetTokens } from './tokens'
 
 export type AiPersonality = 'conservative' | 'balanced' | 'aggressive' | 'contrarian'
+export type AiProvider = 'openai' | 'opengradient' | 'fortytwo'
 
 export type AiAction = 
   | { type: 'BUY', sourceToken: 'MON' | 'USDC', targetToken: string, amount: string, reasoning: string }
@@ -40,6 +42,8 @@ export class AutonomousAiAgent {
   private decisions: AiDecision[] = []
   private personality: AiPersonality = 'balanced'
   private enabled: boolean = false
+  private provider: AiProvider = 'openai'
+  private modelId: string = 'gpt-4o'
 
   constructor() {
     this.apiKey = import.meta.env.VITE_OPENAI_API_KEY as string
@@ -57,6 +61,8 @@ export class AutonomousAiAgent {
         this.personality = state.personality || 'balanced'
         this.enabled = state.enabled || false
         this.decisions = state.decisions || []
+        this.provider = state.provider || 'openai'
+        this.modelId = state.modelId || 'gpt-4o'
       }
     } catch (e) {
       console.warn('Failed to load AI agent state', e)
@@ -68,7 +74,9 @@ export class AutonomousAiAgent {
       const state = {
         personality: this.personality,
         enabled: this.enabled,
-        decisions: this.decisions.slice(0, 100) // Keep last 100 decisions
+        decisions: this.decisions.slice(0, 100),
+        provider: this.provider,
+        modelId: this.modelId
       }
       localStorage.setItem('ai-agent-state', JSON.stringify(state))
     } catch (e) {
@@ -84,6 +92,57 @@ export class AutonomousAiAgent {
   setEnabled(enabled: boolean) {
     this.enabled = enabled
     this.saveState()
+  }
+
+  setProvider(provider: AiProvider) {
+    this.provider = provider
+    this.saveState()
+  }
+
+  getProvider(): AiProvider {
+    return this.provider
+  }
+
+  setModelId(modelId: string) {
+    this.modelId = modelId || 'gpt-4o'
+    this.saveState()
+  }
+
+  getModelId(): string {
+    return this.modelId
+  }
+
+  async testModelAvailability(): Promise<boolean> {
+    try {
+      if (this.provider !== 'openai') return false
+      const isGpt5 = /^gpt-5/.test(this.modelId)
+      const url = isGpt5 ? 'https://api.openai.com/v1/responses' : 'https://api.openai.com/v1/chat/completions'
+      const payload = isGpt5
+        ? {
+            model: this.modelId,
+            input: 'ping',
+            reasoning: { effort: 'minimal' },
+            text: { verbosity: 'low' },
+            max_output_tokens: 8,
+          }
+        : {
+            model: this.modelId,
+            messages: [{ role: 'user', content: 'ping' }],
+            temperature: 0,
+            max_tokens: 8,
+          }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+      return res.ok
+    } catch {
+      return false
+    }
   }
 
   getPersonality(): AiPersonality {
@@ -117,7 +176,8 @@ export class AutonomousAiAgent {
 - Use small position sizes (1-5% of portfolio per trade)
 - Longer intervals between decisions (300-1800 seconds)
 - Quick to sell to USDC during uncertainty
-- Only buy when clear bullish signals`
+- Only buy when clear bullish signals
+- Maintain diversification across at least 2 tokens; avoid repeating the same token consecutively`
 
       case 'aggressive':
         return `You are an AGGRESSIVE DeFi trader. Priorities:
@@ -126,7 +186,8 @@ export class AutonomousAiAgent {
 - Use larger position sizes (5-15% of portfolio per trade)
 - Shorter intervals between decisions (60-300 seconds)
 - Hold through volatility, sell to MON only on major reversals
-- Buy on dips and momentum`
+- Buy on dips and momentum
+- Diversify position entries across multiple tokens; do not buy the same token more than twice in a row`
 
       case 'contrarian':
         return `You are a CONTRARIAN DeFi trader. Priorities:
@@ -135,7 +196,8 @@ export class AutonomousAiAgent {
 - Medium position sizes (3-8% of portfolio per trade)
 - Medium intervals (180-600 seconds)
 - Fade whale activity and high volume spikes
-- Profit from market inefficiencies`
+- Profit from market inefficiencies
+- Favor underrepresented tokens in recent buys to maintain diversification`
 
       default: // balanced
         return `You are a BALANCED DeFi trader. Priorities:
@@ -144,7 +206,8 @@ export class AutonomousAiAgent {
 - Use moderate position sizes (2-8% of portfolio per trade)
 - Adaptive intervals based on market conditions (120-900 seconds)
 - Tactical allocation based on momentum and volatility
-- Risk management with stop-losses to USDC`
+- Risk management with stop-losses to USDC
+- Maintain diversification; avoid concentrating all buys in a single token`
     }
   }
 
@@ -163,27 +226,40 @@ export class AutonomousAiAgent {
     const prompt = this.buildDecisionPrompt(balances, metrics, portfolioValue, personalityPrompt, tokenMetrics)
     
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      if (this.provider !== 'openai') {
+        throw new Error(`Provider ${this.provider} not available`)
+      }
+
+      const isGpt5 = /^gpt-5/.test(this.modelId)
+      const url = isGpt5
+        ? 'https://api.openai.com/v1/responses'
+        : 'https://api.openai.com/v1/chat/completions'
+
+      const payload = isGpt5
+        ? {
+            model: this.modelId || 'gpt-5',
+            input: `SYSTEM: You are an autonomous DeFi trading AI agent. You make real trading decisions for a DCA bot on Monad testnet. Always respond with valid JSON only. ${personalityPrompt}\n\nUSER: ${prompt}`,
+            reasoning: { effort: 'minimal' },
+            text: { verbosity: 'low' },
+            max_output_tokens: 800,
+          }
+        : {
+            model: this.modelId || 'gpt-4o',
+            messages: [
+              { role: 'system', content: `You are an autonomous DeFi trading AI agent. You make real trading decisions for a DCA bot on Monad testnet. Always respond with valid JSON only. ${personalityPrompt}` },
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.4,
+            max_tokens: 800,
+          }
+
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [
-            {
-              role: 'system',
-              content: `You are an autonomous DeFi trading AI agent. You make real trading decisions for a DCA bot on Monad testnet. Always respond with valid JSON only. ${personalityPrompt}`
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          temperature: 0.4,
-          max_tokens: 800,
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (!response.ok) {
@@ -191,13 +267,35 @@ export class AutonomousAiAgent {
       }
 
       const data = await response.json()
-      const content = data.choices[0]?.message?.content
+      const content = (data && (data.output_text || data.choices?.[0]?.message?.content || data.content)) as string | undefined
 
       if (!content) {
         throw new Error('No response from OpenAI')
       }
 
-      const decision = this.parseDecision(content, balances, metrics, portfolioValue)
+      let decision = this.parseDecision(content, balances, metrics, portfolioValue)
+      if (decision.action.type === 'BUY') {
+        const lastSame = this.decisions
+          .filter(d => d.action.type === 'BUY')
+          .map(d => (d.action as any).targetToken as string)
+        const lastTarget = lastSame[0]
+        const maxRepeat = this.personality === 'aggressive' ? 2 : 1
+        const consecutive = lastSame.findIndex(t => t !== lastTarget)
+        const repeatCount = consecutive === -1 ? lastSame.length : consecutive
+        if (lastTarget && decision.action.targetToken === lastTarget && repeatCount >= maxRepeat) {
+          const allowed = Array.from(new Set([...getTargetTokens().map(t => t.symbol), 'WMON', 'USDC']))
+          const alternative = allowed.find(t => t !== lastTarget) || decision.action.targetToken
+          decision = {
+            ...decision,
+            action: {
+              ...decision.action,
+              type: 'BUY',
+              targetToken: alternative,
+              reasoning: `${decision.action.reasoning} | Adjusted for diversification`
+            }
+          }
+        }
+      }
       this.decisions.unshift(decision)
       this.saveState()
       
@@ -217,6 +315,20 @@ export class AutonomousAiAgent {
   ): string {
     const whaleActivity = metrics.whales24h.length > 10 ? 'HIGH' : metrics.whales24h.length > 5 ? 'MEDIUM' : 'LOW'
     const marketActivity = metrics.txToday > 50 ? 'HIGH' : metrics.txToday > 20 ? 'MEDIUM' : 'LOW'
+    // Summarize recent BUY decisions to encourage diversification
+    const recentBuys = this.decisions
+      .filter(d => d.action.type === 'BUY')
+      .slice(0, 5)
+      .map(d => (d.action as any).targetToken as string)
+    const recentSummary = recentBuys.length
+      ? recentBuys.reduce<Record<string, number>>((acc, t) => { acc[t] = (acc[t]||0)+1; return acc }, {})
+      : {}
+    const recentLines = Object.keys(recentSummary).length
+      ? Object.entries(recentSummary).map(([t,c]) => `- ${t}: ${c} recent buys`).join('\n')
+      : 'none'
+
+    // Diversification constraint by personality
+    const maxRepeat = this.personality === 'aggressive' ? 2 : 1
     
     return `
 CURRENT PORTFOLIO:
@@ -237,6 +349,9 @@ ${tokenMetrics.map(tm => `- ${tm.token}: Price ${tm.price.toFixed(6)}, Change 24
 PERSONALITY: ${this.personality.toUpperCase()}
 ${personalityPrompt}
 
+RECENT BUYS (last 5):
+${recentLines}
+
 DECISION REQUIRED:
 Choose ONE action for the next DCA execution. Consider portfolio balance, market conditions, and your personality.
 
@@ -246,6 +361,7 @@ CONSTRAINTS:
 - Source tokens (to spend): MON (native), USDC (stable), or ANY volatile token for swaps
 - Target tokens (to buy): WMON, BEAN, CHOG, DAK, YAKI, WBTC, DAKIMAKURA, USDC
 - Available actions: BUY (spend source to get target), SWAP (volatile→volatile), HOLD (wait), SELL_TO_MON (convert to native), SELL_TO_USDC (safe haven)
+- Diversification: avoid buying the same target token more than ${maxRepeat} time(s) in a row; prefer underrepresented tokens from RECENT BUYS
 
 DECISION LOGIC:
 - Choose source token based on available balance (MON or USDC)

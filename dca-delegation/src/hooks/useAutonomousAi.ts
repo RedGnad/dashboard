@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { autonomousAiAgent, type AiPersonality, type AiDecision } from '../lib/aiAgent'
+import { autonomousAiAgent, type AiPersonality, type AiDecision, type AiProvider } from '../lib/aiAgent'
 import type { EnvioMetrics } from './useEnvioMetrics'
 import type { TokenMetrics } from '../lib/aiAgent'
 
@@ -7,12 +7,27 @@ export function useAutonomousAi() {
   const [personality, setPersonalityState] = useState<AiPersonality>(autonomousAiAgent.getPersonality())
   const [enabled, setEnabledState] = useState<boolean>(autonomousAiAgent.isEnabled())
   const [decisions, setDecisions] = useState<AiDecision[]>(autonomousAiAgent.getDecisions())
+  const [provider, setProviderState] = useState<AiProvider>(autonomousAiAgent.getProvider())
+  const [modelId, setModelIdState] = useState<string>(autonomousAiAgent.getModelId())
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [modelAvailable, setModelAvailable] = useState<boolean | null>(null)
+  const [testingModel, setTestingModel] = useState(false)
 
   // Sync with agent state
   useEffect(() => {
     const interval = setInterval(() => {
+      const list = autonomousAiAgent.getDecisions()
+      const now = Date.now()
+      for (const d of list) {
+        if (!d.executed && d.action.type === 'HOLD') {
+          const dur = (d.action as any).duration ?? d.nextInterval
+          const ms = (Number(dur) || 0) * 1000
+          if (ms > 0 && now - d.timestamp >= ms) {
+            autonomousAiAgent.markDecisionExecuted(d.id)
+          }
+        }
+      }
       setDecisions(autonomousAiAgent.getDecisions())
     }, 1000)
     return () => clearInterval(interval)
@@ -27,6 +42,38 @@ export function useAutonomousAi() {
     autonomousAiAgent.setEnabled(newEnabled)
     setEnabledState(newEnabled)
   }, [])
+
+  const setProvider = useCallback((p: AiProvider) => {
+    autonomousAiAgent.setProvider(p)
+    setProviderState(p)
+  }, [])
+
+  const setModelId = useCallback((m: string) => {
+    autonomousAiAgent.setModelId(m)
+    setModelIdState(m)
+  }, [])
+
+  const testModel = useCallback(async () => {
+    setTestingModel(true)
+    try {
+      const ok = await (autonomousAiAgent as any).testModelAvailability()
+      setModelAvailable(ok)
+      return ok
+    } finally {
+      setTestingModel(false)
+    }
+  }, [])
+
+  // Auto-test on provider/model change (debounced light)
+  useEffect(() => {
+    let id: any
+    if (provider === 'openai' && modelId) {
+      id = setTimeout(() => { void testModel() }, 300)
+    } else {
+      setModelAvailable(null)
+    }
+    return () => id && clearTimeout(id)
+  }, [provider, modelId, testModel])
 
   const makeDecision = useCallback(async (
     balances: Record<string, string>,
@@ -71,10 +118,17 @@ export function useAutonomousAi() {
     personality,
     enabled,
     decisions,
+    provider,
+    modelId,
+    modelAvailable,
+    testingModel,
     isProcessing,
     error,
     setPersonality,
     setEnabled,
+    setProvider,
+    setModelId,
+    testModel,
     makeDecision,
     markExecuted,
     getLatestDecision,

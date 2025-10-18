@@ -150,9 +150,28 @@ export function useDcaDelegation() {
       await deploySmartAccount(delegatorSA)
       await deploySmartAccount(delegateSA)
 
-      // Create or get delegation (this also uses localStorage cache)
+      // Create or get delegation (prefer cached to avoid re-sign within TTL)
       console.log('[init] setting up delegation...')
-      const delegation = await getOrCreateDelegation(delegatorSA, delegateSA)
+      let delegation: any | null = null
+      try {
+        const scopedKey = `dca-delegation-${delegatorSA.address.toLowerCase()}-${delegateSA.address.toLowerCase()}`
+        const cached = localStorage.getItem(scopedKey) || localStorage.getItem('dca-delegation')
+        if (cached) {
+          const signed = JSON.parse(cached)
+          const from = (signed.delegator || signed.from || '').toLowerCase?.()
+          const to = (signed.delegate || signed.to || '').toLowerCase?.()
+          const match = from === delegatorSA.address.toLowerCase() && to === delegateSA.address.toLowerCase()
+          const nowSec = Math.floor(Date.now() / 1000)
+          const notExpired = typeof signed.expiresAt === 'number' ? nowSec < signed.expiresAt : true
+          if (match && signed.signature && notExpired) {
+            console.log('[init] using cached signed delegation (no re-sign)')
+            delegation = signed
+          }
+        }
+      } catch {}
+      if (!delegation) {
+        delegation = await getOrCreateDelegation(delegatorSA, delegateSA)
+      }
       
       setDelegatorSmartAccount(delegatorSA)
       setDelegateSmartAccount(delegateSA)
