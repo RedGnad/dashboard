@@ -1,0 +1,34 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "address", "name": "user", "type": "address" },
+      { "indexed": true, "internalType": "address", "name": "asset", "type": "address" },
+      { "indexed": false, "internalType": "string", "name": "market", "type": "string" },
+      { "indexed": false, "internalType": "bool", "name": "isLong", "type": "bool" },
+      { "indexed": false, "internalType": "uint256", "name": "size", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "margin", "type": "uint256" },
+      { "indexed": false, "internalType": "int256", "name": "pnl", "type": "int256" },
+      { "indexed": false, "internalType": "uint256", "name": "price", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "fee", "type": "uint256" }
+    ],
+    "name": "PositionLiquidated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "address", "name": "user", "type": "address" },
+      { "indexed": true, "internalType": "address", "name": "asset", "type": "address" },
+      { "indexed": false, "internalType": "string", "name": "market", "type": "string" },
+      { "indexed": false, "internalType": "bool", "name": "isLong", "type": "bool" },
+      { "indexed": false, "internalType": "uint256", "name": "size", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "margin", "type": "uint256" },
+      { "indexed": false, "internalType": "int256", "name": "pnl", "type": "int256" },
+      { "indexed": false, "internalType": "uint256", "name": "price", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "fee", "type": "uint256" }
+    ],
+    "name": "PositionADL",
+    "type": "event"
+  }
+]

@@ -132,6 +132,95 @@ contracts:
     handler: src/EventHandlers_Kuru.ts
     events:
       - event: PumpingTime(address indexed token, string tokenURI, address dev, uint256 supplyToDev, address market)
+  - name: Pyth
+    abi_file_path: abis/Pyth.json
+    handler: src/EventHandlers_Pyth.ts
+    events:
+      - event: PriceFeedUpdate(bytes32 indexed id, uint64 publishTime, int64 price, uint64 conf)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+      - event: BatchPriceFeedUpdate(uint16 chainId, uint64 sequenceNumber)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+  - name: PinguOrders
+    abi_file_path: abis/PinguOrders.json
+    handler: src/EventHandlers_Pingu.ts
+    events:
+      - event: OrderCreated(uint256 indexed orderId, address indexed user, address indexed asset, string market, uint256 margin, uint256 size, uint256 price, uint256 fee, bool isLong, uint8 orderType, bool isReduceOnly, uint256 expiry, uint256 cancelOrderId)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+      - event: OrderCancelled(uint256 indexed orderId, address indexed user, string reason)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+  - name: PinguProcessor
+    abi_file_path: abis/PinguProcessor.json
+    handler: src/EventHandlers_Pingu.ts
+    events:
+      - event: PositionLiquidated(address indexed user, address indexed asset, string market, bool isLong, uint256 size, uint256 margin, int256 pnl, uint256 price, uint256 fee)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+      - event: PositionADL(address indexed user, address indexed asset, string market, bool isLong, uint256 size, uint256 margin, int256 pnl, uint256 price, uint256 fee)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+  - name: PinguStaking
+    abi_file_path: abis/PinguStaking.json
+    handler: src/EventHandlers_Pingu.ts
+    events:
+      - event: CAPStaked(address indexed user, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+      - event: CAPUnstaked(address indexed user, uint256 amount)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+            - gasUsed
+            - effectiveGasPrice
+            - gasPrice
+            - status
+      - event: CollectedReward(address indexed user, address indexed asset, uint256 amount)
         field_selection:
           transaction_fields:
             - hash
@@ -182,5 +271,17 @@ networks:
     - name: MonadDeployer
       address:
         - 0x67a4e43C7Ce69e24d495A39c43489BC7070f009B
+    - name: Pyth
+      address:
+        - 0x36825bf3Fbdf5a29E2d5148bfe7Dcf7B5639e320
+    - name: PinguOrders
+      address:
+        - 0x3d7ec93875B6a6f0A5102fE29f887ee6E751b12F
+    - name: PinguProcessor
+      address:
+        - 0xeDb0f17E5B701C8A1278B94B961384Cf4015F240
+    - name: PinguStaking
+      address:
+        - 0xCf410B10C0f30948033e47b7209CC026054E9F18
 unordered_multichain_mode: true
 preload_handlers: true

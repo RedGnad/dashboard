@@ -1,0 +1,32 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "uint256", "name": "orderId", "type": "uint256" },
+      { "indexed": true, "internalType": "address", "name": "user", "type": "address" },
+      { "indexed": true, "internalType": "address", "name": "asset", "type": "address" },
+      { "indexed": false, "internalType": "string", "name": "market", "type": "string" },
+      { "indexed": false, "internalType": "uint256", "name": "margin", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "size", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "price", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "fee", "type": "uint256" },
+      { "indexed": false, "internalType": "bool", "name": "isLong", "type": "bool" },
+      { "indexed": false, "internalType": "uint8", "name": "orderType", "type": "uint8" },
+      { "indexed": false, "internalType": "bool", "name": "isReduceOnly", "type": "bool" },
+      { "indexed": false, "internalType": "uint256", "name": "expiry", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "cancelOrderId", "type": "uint256" }
+    ],
+    "name": "OrderCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "uint256", "name": "orderId", "type": "uint256" },
+      { "indexed": true, "internalType": "address", "name": "user", "type": "address" },
+      { "indexed": false, "internalType": "string", "name": "reason", "type": "string" }
+    ],
+    "name": "OrderCancelled",
+    "type": "event"
+  }
+]
