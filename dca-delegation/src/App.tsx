@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAccount, useSignMessage, useChainId, useSwitchChain } from 'wagmi'
 import { ConnectKitButton } from 'connectkit'
 import Background from './components/Background'
+import WhaleNotifications from './components/WhaleNotifications'
 import DcaControl from './components/DcaControl'
 import ModelStage from './components/ModelStage'
 import { CHAIN_ID } from './lib/chain'
@@ -44,6 +45,7 @@ function App() {
   return (
     <div className="min-h-screen relative">
       <Background />
+      <WhaleNotifications />
       {isAuthenticated && <ModelStage />}
       
       <div className="relative z-10 min-h-screen flex items-center justify-center p-4">

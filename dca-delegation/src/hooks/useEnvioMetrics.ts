@@ -22,11 +22,11 @@ export function useEnvioMetrics(saAddress?: string) {
   const [metrics, setMetrics] = useState<EnvioMetrics>({ txToday: 0, feesTodayMon: 0, whales24h: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const envioEnabled = (import.meta.env.VITE_ENVIO_ENABLED === 'true')
+  const envioEnabled = ((import.meta.env.VITE_ENVIO_ENABLED ?? 'true') === 'true')
 
   const tracked = useMemo(() => [USDC.toLowerCase(), WMON.toLowerCase(), CHOG.toLowerCase()], [])
   const since = useMemo(() => startOfDayEpoch(), [])
-  const sinceWhale = useMemo(() => Math.floor(Date.now() / 1000) - 86400, [])
+  const sinceWhale = useMemo(() => Math.floor(Date.now() / 1000) - 30 * 86400, [])
 
   useEffect(() => {
     if (!saAddress) return
@@ -46,7 +46,11 @@ export function useEnvioMetrics(saAddress?: string) {
         const from = (saAddress as string).toLowerCase()
         const transfers = await queryEnvio<{ TokenTransfer: Array<any> }>({
           query: `query T($from:String!,$since:Int!){
-            TokenTransfer(filter:{ from:{eq:$from}, blockTimestamp:{gt:$since} }, orderBy:{blockTimestamp:DESC}, limit:1000){
+            TokenTransfer(
+              where: { from: { _eq: $from }, blockTimestamp: { _gt: $since } }
+              order_by: { blockTimestamp: desc }
+              limit: 1000
+            ){
               tokenAddress from to value blockTimestamp transactionHash gasUsed gasPrice
             }
           }`,
@@ -70,12 +74,15 @@ export function useEnvioMetrics(saAddress?: string) {
         const whaleQueries = [
           { token: USDC.toLowerCase(), min: (10000n * 10n ** 6n).toString() },
           { token: WMON.toLowerCase(), min: (10000n * 10n ** 18n).toString() },
-          { token: CHOG.toLowerCase(), min: (100000n * 10n ** 18n).toString() },
         ]
         for (const w of whaleQueries) {
           const data = await queryEnvio<{ TokenTransfer: Array<any> }>({
-            query: `query W($token:String!,$min:BigInt!,$since:Int!){
-              TokenTransfer(filter:{ tokenAddress:{eq:$token}, value:{gt:$min}, blockTimestamp:{gt:$since} }, orderBy:{blockTimestamp:DESC}, limit:20){
+            query: `query W($token:String!,$min:numeric!,$since:Int!){
+              TokenTransfer(
+                where: { tokenAddress: { _eq: $token }, value: { _gt: $min }, blockTimestamp: { _gt: $since } }
+                order_by: { blockTimestamp: desc }
+                limit: 20
+              ){
                 tokenAddress from to value blockTimestamp transactionHash
               }
             }`,

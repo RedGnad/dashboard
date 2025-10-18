@@ -4,6 +4,10 @@ import { useDcaDelegation } from '../hooks/useDcaDelegation'
 import { USDC, CHOG, getTargetTokens, getToken, getAllTradableTokens, TOKENS } from '../lib/tokens'
 import { Play, Square, Zap, ArrowUpDown, RefreshCw, Copy, Settings, BarChart2, Cpu, SlidersHorizontal, Brain, Shield } from 'lucide-react'
 import { useEnvioMetrics } from '../hooks/useEnvioMetrics'
+import ProtocolMetricsChart from '../components/ProtocolMetricsChart'
+import ProtocolBarChart from '../components/ProtocolBarChart'
+import { useTodayProtocolMetrics } from '../hooks/useTodayProtocolMetrics'
+import { useProtocolDailyMetrics, type ProtocolMetricKey } from '../hooks/useProtocolDailyMetrics'
 import { useAutonomousAi } from '../hooks/useAutonomousAi'
 import { useTokenMetrics } from '../hooks/useTokenMetrics'
 import AiVerificationPanel from './AiVerificationPanel'
@@ -18,6 +22,8 @@ export default function DcaControl() {
   const [monAmount, setMonAmount] = useState('0.1')
   const [withdrawMonAmount, setWithdrawMonAmount] = useState('0.05')
   const [outToken, setOutToken] = useState<string>('USDC')
+  const [metricKey, setMetricKey] = useState<ProtocolMetricKey>('txDaily')
+  const [todayMetric, setTodayMetric] = useState<'usersDaily' | 'txDaily'>('txDaily')
 
   const {
     isInitialized,
@@ -45,6 +51,12 @@ export default function DcaControl() {
     return token ? (token.address as `0x${string}`) : (USDC as `0x${string}`)
   }, [outToken])
   const { metrics, loading: metricsLoading, error: metricsError } = useEnvioMetrics(delegatorSmartAccount?.address)
+  const { series, dates, loading: dailyLoading, error: dailyError } = useProtocolDailyMetrics(metricKey, 30)
+  const { todayData, latestData, loading: todayLoading, error: todayError } = useTodayProtocolMetrics()
+  const PROTOCOLS = ['magma','ambient','curvance','dex','kuru'] as const
+  const todayBarData = PROTOCOLS.map(p => ({ protocolId: p, value: Number((todayData.find(d=>d.protocolId===p) as any)?.[todayMetric] || 0) }))
+  const [totalMetric, setTotalMetric] = useState<'txCumulative' | 'avgTxPerUser' | 'avgFeeNative'>('txCumulative')
+  const totalsBarData = PROTOCOLS.map(p => ({ protocolId: p, value: Number((latestData.find(l=>l.protocolId===p) as any)?.[totalMetric] || 0) }))
   const { tokenMetrics, loading: tokenMetricsLoading } = useTokenMetrics()
   const { personality, enabled: aiEnabled, decisions, isProcessing, error: aiError, setPersonality, setEnabled, makeDecision, markExecuted } = useAutonomousAi()
 
@@ -342,22 +354,94 @@ export default function DcaControl() {
       )}
 
       {active === 'metrics' && (
-        <div className="grid md:grid-cols-3 gap-4">
-          <div className="glass rounded-2xl p-5">
-            <div className="text-sm text-gray-300">Tx Today</div>
-            <div className="text-2xl text-white font-bold">{metricsLoading ? '…' : metrics.txToday}</div>
+        <div className="space-y-4">
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="glass rounded-2xl p-5">
+              <div className="text-sm text-gray-300">Tx Today</div>
+              <div className="text-2xl text-white font-bold">{metricsLoading ? '…' : metrics.txToday}</div>
+            </div>
+            <div className="glass rounded-2xl p-5">
+              <div className="text-sm text-gray-300">Fees Today (MON)</div>
+              <div className="text-2xl text-white font-bold">{metricsLoading ? '…' : metrics.feesTodayMon.toFixed(6)}</div>
+            </div>
+            {metricsError && (
+              <div className="md:col-span-3 text-sm text-red-400">{metricsError}</div>
+            )}
           </div>
+
           <div className="glass rounded-2xl p-5">
-            <div className="text-sm text-gray-300">Fees Today (MON)</div>
-            <div className="text-2xl text-white font-bold">{metricsLoading ? '…' : metrics.feesTodayMon.toFixed(6)}</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-lg font-semibold text-white">Protocol Metrics</div>
+              <div className="flex items-center gap-2 text-sm">
+                <button onClick={()=>setMetricKey('txDaily')} className={`px-2 py-1 rounded ${metricKey==='txDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx/day</button>
+                <button onClick={()=>setMetricKey('usersDaily')} className={`px-2 py-1 rounded ${metricKey==='usersDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Users/day</button>
+                <button onClick={()=>setMetricKey('txCumulative')} className={`px-2 py-1 rounded ${metricKey==='txCumulative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx cumulative</button>
+                <button onClick={()=>setMetricKey('avgTxPerUser')} className={`px-2 py-1 rounded ${metricKey==='avgTxPerUser'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg tx/user</button>
+                <button onClick={()=>setMetricKey('avgFeeNative')} className={`px-2 py-1 rounded ${metricKey==='avgFeeNative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg fee (MON)</button>
+              </div>
+            </div>
+
+            {dailyError && <div className="text-sm text-red-400 mb-2">{dailyError}</div>}
+            {dailyLoading ? (
+              <div className="text-sm text-gray-300">Loading…</div>
+            ) : (
+              <ProtocolMetricsChart series={series} dates={dates} />
+            )}
           </div>
+
           <div className="glass rounded-2xl p-5">
-            <div className="text-sm text-gray-300">Whale Alerts (24h)</div>
-            <div className="text-2xl text-white font-bold">{metricsLoading ? '…' : metrics.whales24h.length}</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-lg font-semibold text-white">Today by Protocol</div>
+              <div className="flex items-center gap-2 text-sm">
+                <button onClick={()=>setTodayMetric('txDaily')} className={`px-2 py-1 rounded ${todayMetric==='txDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx/day</button>
+                <button onClick={()=>setTodayMetric('usersDaily')} className={`px-2 py-1 rounded ${todayMetric==='usersDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Users/day</button>
+              </div>
+            </div>
+
+            {todayError && <div className="text-sm text-red-400 mb-2">{todayError}</div>}
+            {todayLoading ? (
+              <div className="text-sm text-gray-300">Loading…</div>
+            ) : (
+              <ProtocolBarChart data={todayBarData} />
+            )}
           </div>
-          {metricsError && (
-            <div className="md:col-span-3 text-sm text-red-400">{metricsError}</div>
-          )}
+
+          <div className="glass rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-lg font-semibold text-white">Totals by Protocol</div>
+              <div className="flex items-center gap-2 text-sm">
+                <button onClick={()=>setTotalMetric('txCumulative')} className={`px-2 py-1 rounded ${totalMetric==='txCumulative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx cumulative</button>
+                <button onClick={()=>setTotalMetric('avgTxPerUser')} className={`px-2 py-1 rounded ${totalMetric==='avgTxPerUser'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg tx/user</button>
+                <button onClick={()=>setTotalMetric('avgFeeNative')} className={`px-2 py-1 rounded ${totalMetric==='avgFeeNative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg fee (MON)</button>
+              </div>
+            </div>
+
+            <ProtocolBarChart data={totalsBarData} />
+          </div>
+
+          <div className="glass rounded-2xl p-5">
+            <div className="text-lg font-semibold text-white mb-2">Realtime Protocol Totals</div>
+            <div className="grid grid-cols-5 gap-2 text-xs text-gray-300 mb-1">
+              <div className="font-semibold">Protocol</div>
+              <div className="font-semibold">Tx cumulative</div>
+              <div className="font-semibold">Avg tx/user</div>
+              <div className="font-semibold">Avg fee (MON)</div>
+              <div className="font-semibold">Today users/tx</div>
+            </div>
+            {PROTOCOLS.map(pid => {
+              const latest = latestData.find(l=>l.protocolId===pid)
+              const todayRow: any = todayData.find(t=>t.protocolId===pid)
+              return (
+                <div key={pid} className="grid grid-cols-5 gap-2 text-xs text-gray-300 py-1">
+                  <div className="text-white">{pid}</div>
+                  <div>{latest ? latest.txCumulative : 0}</div>
+                  <div>{latest ? latest.avgTxPerUser.toFixed(2) : '0.00'}</div>
+                  <div>{latest && latest.avgFeeNative != null ? latest.avgFeeNative.toFixed(6) : '-'}</div>
+                  <div>{todayRow ? `${todayRow.usersDaily}/${todayRow.txDaily}` : '0/0'}</div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 

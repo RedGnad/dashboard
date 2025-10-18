@@ -26,8 +26,8 @@ export function useTokenMetrics() {
         const swapsData = await queryEnvio<{ SwapEvent: Array<any> }>({
           query: `query RecentSwaps($since: Int!) {
             SwapEvent(
-              filter: { blockTimestamp: { gt: $since } }
-              orderBy: { blockTimestamp: DESC }
+              where: { blockTimestamp: { _gt: $since } }
+              order_by: { blockTimestamp: desc }
               limit: 500
             ) {
               pairKey
@@ -46,8 +46,8 @@ export function useTokenMetrics() {
         const pairData = await queryEnvio<{ PairMetrics: Array<any> }>({
           query: `query PairMetrics($since: Int!) {
             PairMetrics(
-              filter: { hour: { gt: $since } }
-              orderBy: { hour: DESC }
+              where: { lastUpdate: { _gt: $since } }
+              order_by: { lastUpdate: desc }
               limit: 100
             ) {
               pairKey
@@ -59,6 +59,7 @@ export function useTokenMetrics() {
               lowPrice
               openPrice
               closePrice
+              lastUpdate
             }
           }`,
           variables: { since: Math.floor(Date.now() / 1000) - 86400 }
