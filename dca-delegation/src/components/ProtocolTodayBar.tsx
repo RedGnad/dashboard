@@ -68,7 +68,7 @@ export default function ProtocolTodayBar({ data, metric, height = 220 }: Props) 
 
       {/* legend */}
       <div className="flex flex-wrap gap-3 mt-2 text-xs">
-        {items.map((it, i) => (
+        {items.map((it) => (
           <div key={it.protocolId} className="flex items-center gap-2">
             <span className="inline-block w-3 h-3 rounded" style={{ background: COLORS[it.protocolId] || '#94a3b8' }} />
             <span className="text-gray-300">{it.protocolId}</span>

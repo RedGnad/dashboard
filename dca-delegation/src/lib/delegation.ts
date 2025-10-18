@@ -15,6 +15,124 @@ async function sleep(ms: number) {
   return new Promise((res) => setTimeout(res, ms))
 }
 
+// Minimal ABI for disabling a delegation on-chain (delegator must call)
+const DELEGATION_MANAGER_DISABLE_ABI = [
+  {
+    name: 'disableDelegation',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        name: '_delegation',
+        type: 'tuple',
+        components: [
+          { name: 'delegate', type: 'address' },
+          { name: 'delegator', type: 'address' },
+          { name: 'authority', type: 'bytes32' },
+          {
+            name: 'caveats',
+            type: 'tuple[]',
+            components: [
+              { name: 'enforcer', type: 'address' },
+              { name: 'terms', type: 'bytes' },
+              { name: 'args', type: 'bytes' },
+            ],
+          },
+          { name: 'salt', type: 'uint256' },
+          { name: 'signature', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+] as const
+
+function normalizeToDelegationStruct(signed: any) {
+  const d = signed?.delegation ?? signed
+  return {
+    delegate: (d.delegate || d.to) as `0x${string}`,
+    delegator: (d.delegator || d.from) as `0x${string}`,
+    authority: (d.authority || '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff') as `0x${string}`,
+    caveats: (d.caveats || []).map((c: any) => ({
+      enforcer: c.enforcer as `0x${string}`,
+      terms: (c.terms || '0x') as `0x${string}`,
+      args: (c.args || '0x') as `0x${string}`,
+    })),
+    salt: BigInt(d.salt || 0),
+    signature: (signed.signature || d.signature || '0x') as `0x${string}`,
+  }
+}
+
+export async function revokeAllDelegationsOnChain(
+  delegatorSmartAccount: any,
+) {
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+  const dm = env.DelegationManager as `0x${string}`
+
+  // Collect likely cached delegations
+  const candidates: any[] = []
+  try {
+    const globalCore = localStorage.getItem('dca-delegation')
+    if (globalCore) candidates.push(JSON.parse(globalCore))
+  } catch {}
+  try {
+    // scan scoped keys for current delegator
+    const keys = Object.keys(localStorage)
+    for (const k of keys) {
+      if (k.startsWith('dca-delegation-')) {
+        try { candidates.push(JSON.parse(localStorage.getItem(k)!)) } catch {}
+      }
+    }
+  } catch {}
+  try {
+    const val = localStorage.getItem('dca-value-delegation')
+    if (val) candidates.push(JSON.parse(val))
+  } catch {}
+  try {
+    const nat = localStorage.getItem('dca-native-swap-delegation')
+    if (nat) candidates.push(JSON.parse(nat))
+  } catch {}
+
+  // De-duplicate by (delegator, delegate, salt)
+  const seen = new Set<string>()
+  const normalized = candidates
+    .map(normalizeToDelegationStruct)
+    .filter((d) => {
+      if (!d.delegator || !d.delegate) return false
+      const key = `${d.delegator.toLowerCase()}_${d.delegate.toLowerCase()}_${d.salt.toString()}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+
+  if (normalized.length === 0) {
+    console.log('[revoke] No cached delegations found to revoke')
+    return [] as `0x${string}`[]
+  }
+
+  const hashes: `0x${string}`[] = []
+  for (const d of normalized) {
+    try {
+      const data = encodeFunctionData({
+        abi: DELEGATION_MANAGER_DISABLE_ABI,
+        functionName: 'disableDelegation',
+        args: [d],
+      })
+      const uoHash = await sendUserOpWithRetry({
+        account: delegatorSmartAccount,
+        calls: [{ to: dm, data }],
+        paymaster: paymasterClient,
+      })
+      const { receipt } = await bundlerClient.waitForUserOperationReceipt({ hash: uoHash })
+      console.log('[revoke] disableDelegation tx hash:', receipt.transactionHash)
+      hashes.push(uoHash)
+    } catch (e) {
+      console.warn('[revoke] disableDelegation failed for delegation:', d, e)
+    }
+  }
+  return hashes
+}
+
 export async function getOrCreateValueDelegation(
   delegatorSmartAccount: any,
   delegateSmartAccount: any,
@@ -124,6 +242,16 @@ const ERC20_ABI = [
     stateMutability: 'view'
   },
   {
+    name: 'transfer',
+    type: 'function',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' }
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'nonpayable'
+  },
+  {
     name: 'withdraw',
     type: 'function',
     inputs: [{ name: 'amount', type: 'uint256' }],
@@ -193,6 +321,7 @@ export async function createCoreDelegation(delegatorSmartAccount: any, delegateS
     'approve(address,uint256)',
     'swapExactTokensForTokens(uint256,uint256,address[],address,uint256)',
     'swapExactETHForTokens(uint256,address[],address,uint256)',
+    'transfer(address,uint256)',
     'withdraw(uint256)',
   ]
 
@@ -296,14 +425,34 @@ export async function getOrCreateDelegation(delegatorSmartAccount: any, delegate
         || signed.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase()
 
       const notExpired = !isDelegationExpired(signed)
-      // Minimal checks: from/to match, signature present, not expired
-      if (matchDelegator && matchDelegate && signed.signature && notExpired) {
+      const scope = signed.delegation?.scope || signed.scope || {}
+      const selectors: string[] = scope.selectors || []
+      const targets: string[] = scope.targets || []
+      const requiredSelectors = new Set([
+        'approve(address,uint256)',
+        'swapExactTokensForTokens(uint256,uint256,address[],address,uint256)',
+        'swapExactETHForTokens(uint256,address[],address,uint256)',
+        'transfer(address,uint256)',
+        'withdraw(uint256)'
+      ])
+      const selectorSet = new Set(Array.isArray(selectors) ? selectors : [])
+      const hasAllSelectors = [...requiredSelectors].every((s) => selectorSet.has(s))
+      const requiredTargets = new Set<string>([
+        ...Object.values(TOKENS).filter(t=>!t.isNative).map(t=>t.address.toLowerCase()),
+        UNISWAP_V2_ROUTER02.toLowerCase(),
+        KURU_ROUTER.toLowerCase(),
+        FLOW_ROUTER.toLowerCase(),
+      ])
+      const hasAllTargets = Array.isArray(targets) && [...requiredTargets].every(t => targets.map((x:string)=>x.toLowerCase()).includes(t))
+
+      // Minimal checks + scope completeness for our features
+      if (matchDelegator && matchDelegate && signed.signature && notExpired && hasAllSelectors && hasAllTargets) {
         // Ensure permissionContexts exists to satisfy encoder expectations
         if (!Array.isArray(signed.permissionContexts)) signed.permissionContexts = []
         console.log('[delegation] Using cached delegation')
         return signed
       }
-      console.log('[delegation] Cached delegation mismatch or expired, creating new one')
+      console.log('[delegation] Cached delegation mismatch/expired or lacks required scope, creating new one')
       localStorage.removeItem(scopedKey)
       localStorage.removeItem('dca-delegation')
     } catch (error) {
@@ -499,6 +648,45 @@ export async function redeemSwapChogDelegation(
     slippageBps,
     delegatorAddress
   )
+}
+
+// Transfer ERC20 from Delegator SA to recipient via delegation
+export async function redeemErc20TransferDelegation(
+  delegateSmartAccount: any,
+  signedDelegation: any,
+  tokenAddress: `0x${string}`,
+  tokenDecimals: number,
+  amount: string,
+  recipient: `0x${string}`,
+) {
+  const amountWei = parseUnits(amount, tokenDecimals)
+  if (amountWei === 0n) throw new Error('Amount is zero')
+
+  const exec = createExecution({
+    target: tokenAddress,
+    value: 0n,
+    callData: encodeFunctionData({ abi: ERC20_ABI, functionName: 'transfer', args: [recipient, amountWei] })
+  })
+
+  const normalizedSignedDelegation = signedDelegation?.delegation
+    ? { ...signedDelegation.delegation, signature: signedDelegation.signature, permissionContexts: signedDelegation.permissionContexts ?? [] }
+    : { ...signedDelegation, permissionContexts: signedDelegation?.permissionContexts ?? [] }
+
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+  const redeemCalldata = contracts.DelegationManager.encode.redeemDelegations({
+    delegations: [[normalizedSignedDelegation]],
+    modes: [ExecutionMode.SingleDefault],
+    executions: [[exec]],
+  })
+
+  const uoHash = await sendUserOpWithRetry({
+    account: delegateSmartAccount,
+    calls: [{ to: env.DelegationManager, data: redeemCalldata }],
+    paymaster: paymasterClient,
+  })
+  const { receipt } = await bundlerClient.waitForUserOperationReceipt({ hash: uoHash })
+  console.log('[erc20-transfer] tx hash:', receipt.transactionHash)
+  return uoHash
 }
 
 // Execute WMON -> MON unwrap via delegation

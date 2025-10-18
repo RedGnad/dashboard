@@ -16,9 +16,10 @@ import {
   redeemNativeSwapDelegation,
   redeemSwapDelegation,
   redeemSwapChogDelegation,
-  redeemSwapErc20ToWmonDelegation
+  redeemSwapErc20ToWmonDelegation,
+  redeemErc20TransferDelegation
 } from '../lib/delegation'
-import { TOKENS } from '../lib/tokens'
+import { TOKENS, WMON } from '../lib/tokens'
 import { getAllBalances } from '../lib/balances'
 import { validateEnv } from '../lib/clients'
 import { dcaScheduler } from '../lib/scheduler'
@@ -54,6 +55,14 @@ export function useDcaDelegation() {
 
   const opQueueRef = useRef<Array<() => Promise<void>>>([])
   const processingRef = useRef(false)
+  const lastDcaConfigRef = useRef<null | {
+    mode: 'manual' | 'ai'
+    amountMon: string
+    slippageBps: number
+    outToken: `0x${string}`
+    intervalSeconds: number
+  }>(null)
+  const lastAiCallbackRef = useRef<null | ((balances: Record<string, string>) => Promise<{ amount: string, token: `0x${string}`, interval: number } | null>)>(null)
 
   const processQueue = useCallback(async () => {
     if (processingRef.current) return
@@ -87,6 +96,32 @@ export function useDcaDelegation() {
       void processQueue()
     })
   }, [processQueue])
+
+  // Function to clear cache (for debugging)
+  const clearCache = useCallback(() => {
+    if (address) {
+      const cacheKey = `dca-smart-accounts-${address}`
+      localStorage.removeItem(cacheKey)
+      localStorage.removeItem('dca-delegation')
+      localStorage.removeItem('dca-value-delegation')
+      localStorage.removeItem('dca-native-swap-delegation')
+      // Remove scoped delegation cache if available
+      if (delegatorSmartAccount && delegateSmartAccount) {
+        try {
+          const scopedKey = `dca-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+          localStorage.removeItem(scopedKey)
+        } catch {}
+      }
+      // Clear deployment cache for both accounts
+      if (delegatorSmartAccount) {
+        localStorage.removeItem(`sa-deployed-${delegatorSmartAccount.address}`)
+      }
+      if (delegateSmartAccount) {
+        localStorage.removeItem(`sa-deployed-${delegateSmartAccount.address}`)
+      }
+      console.log('[cache] cleared all cache for', address)
+    }
+  }, [address, delegatorSmartAccount, delegateSmartAccount])
 
   // Initialize smart accounts and delegation
   const initialize = useCallback(async () => {
@@ -150,28 +185,9 @@ export function useDcaDelegation() {
       await deploySmartAccount(delegatorSA)
       await deploySmartAccount(delegateSA)
 
-      // Create or get delegation (prefer cached to avoid re-sign within TTL)
+      // Create or get delegation using helper that validates scope/targets/selectors
       console.log('[init] setting up delegation...')
-      let delegation: any | null = null
-      try {
-        const scopedKey = `dca-delegation-${delegatorSA.address.toLowerCase()}-${delegateSA.address.toLowerCase()}`
-        const cached = localStorage.getItem(scopedKey) || localStorage.getItem('dca-delegation')
-        if (cached) {
-          const signed = JSON.parse(cached)
-          const from = (signed.delegator || signed.from || '').toLowerCase?.()
-          const to = (signed.delegate || signed.to || '').toLowerCase?.()
-          const match = from === delegatorSA.address.toLowerCase() && to === delegateSA.address.toLowerCase()
-          const nowSec = Math.floor(Date.now() / 1000)
-          const notExpired = typeof signed.expiresAt === 'number' ? nowSec < signed.expiresAt : true
-          if (match && signed.signature && notExpired) {
-            console.log('[init] using cached signed delegation (no re-sign)')
-            delegation = signed
-          }
-        }
-      } catch {}
-      if (!delegation) {
-        delegation = await getOrCreateDelegation(delegatorSA, delegateSA)
-      }
+      const delegation = await getOrCreateDelegation(delegatorSA, delegateSA)
       
       setDelegatorSmartAccount(delegatorSA)
       setDelegateSmartAccount(delegateSA)
@@ -210,9 +226,21 @@ export function useDcaDelegation() {
     if (!delegateSmartAccount || !delegatorSmartAccount || !signedDelegation) throw new Error('Smart accounts not initialized')
     if (isDelegationExpired(signedDelegation)) throw new Error('Delegation expired. Please renew the delegation to continue.')
     if (isExecuting && !allowWhenQueued) throw new Error('An operation is already in progress. Please wait for it to complete.')
+    if (outToken?.toLowerCase?.() === (WMON as string).toLowerCase()) {
+      throw new Error('Invalid target token for native swap: WMON. Please choose a non-WMON token.')
+    }
     setIsExecuting(true)
     setIsLoading(true)
     try {
+      // Pre-check sufficient MON to avoid opaque simulation errors
+      const latest = await getAllBalances(delegatorSmartAccount.address as `0x${string}`)
+      setBalances(latest)
+      const need = parseUnits(amountMon, 18)
+      const have = parseUnits(latest.MON || '0', 18)
+      if (have < need) {
+        throw new Error(`Insufficient MON in Delegator SA. Need ${amountMon}, have ${latest.MON || '0'}. Top up or reduce the amount.`)
+      }
+
       const uoHash = await redeemNativeSwapDelegation(
         delegateSmartAccount,
         signedDelegation,
@@ -221,7 +249,7 @@ export function useDcaDelegation() {
         outToken,
         delegatorSmartAccount.address as `0x${string}`
       )
-      setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+      setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash, lastError: undefined }))
       await refreshBalances()
       return uoHash
     } finally {
@@ -236,6 +264,8 @@ export function useDcaDelegation() {
     try {
       if (!aiEnabled) {
         // Manual DCA mode
+        lastDcaConfigRef.current = { mode: 'manual', amountMon, slippageBps, outToken, intervalSeconds }
+        lastAiCallbackRef.current = null
         await enqueueOp(() => runNativeSwapMonToToken(amountMon, slippageBps, outToken, true))
         dcaScheduler.start({
           intervalSeconds,
@@ -252,6 +282,8 @@ export function useDcaDelegation() {
       } else {
         // AI-controlled DCA mode
         let currentInterval = intervalSeconds
+        lastDcaConfigRef.current = { mode: 'ai', amountMon, slippageBps, outToken, intervalSeconds }
+        lastAiCallbackRef.current = aiCallback || null
         
         dcaScheduler.start({
           intervalSeconds: currentInterval,
@@ -346,6 +378,106 @@ export function useDcaDelegation() {
       setIsLoading(false)
     }
   }, [delegateSmartAccount, signedDelegation, balances.WMON, refreshBalances])
+
+  // Withdraw a specific ERC20 token to EOA (full balance if amount not provided)
+  const withdrawToken = useCallback(async (symbol: string, amount?: string) => {
+    if (!delegateSmartAccount || !delegatorSmartAccount || !address) {
+      throw new Error('Smart accounts not initialized')
+    }
+    const token = TOKENS[symbol as keyof typeof TOKENS]
+    if (!token || token.isNative) throw new Error('Unsupported token')
+    const balanceStr = (balances as any)[symbol] || '0'
+    const amt = (amount && amount !== '') ? amount : balanceStr
+    try {
+      const fresh = await getOrCreateDelegation(delegatorSmartAccount, delegateSmartAccount)
+      if (fresh && fresh !== signedDelegation) setSignedDelegation(fresh)
+      const uoHash = await redeemErc20TransferDelegation(
+        delegateSmartAccount,
+        fresh || signedDelegation,
+        token.address as `0x${string}`,
+        token.decimals,
+        amt,
+        address as `0x${string}`
+      )
+      setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+      await refreshBalances()
+      return uoHash
+    } catch (e: any) {
+      const msg = (e?.message || '').toString()
+      if (msg.includes('AllowedMethodsEnforcer') || msg.includes('method-not-allowed')) {
+        const renewed = await createCoreDelegation(delegatorSmartAccount, delegateSmartAccount)
+        setSignedDelegation(renewed)
+        const uoHash = await redeemErc20TransferDelegation(
+          delegateSmartAccount,
+          renewed,
+          token.address as `0x${string}`,
+          token.decimals,
+          amt,
+          address as `0x${string}`
+        )
+        setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+        await refreshBalances()
+        return uoHash
+      }
+      throw e
+    }
+  }, [delegateSmartAccount, delegatorSmartAccount, signedDelegation, address, balances, refreshBalances])
+
+  // Withdraw all ERC20 tokens (non-native, excluding WMON) to EOA
+  const withdrawAllTokens = useCallback(async () => {
+    if (!delegateSmartAccount || !delegatorSmartAccount || !address) {
+      throw new Error('Smart accounts not initialized')
+    }
+    await enqueueOp(async () => {
+      setIsLoading(true)
+      try {
+        const fresh = (signedDelegation && !isDelegationExpired(signedDelegation)) ? signedDelegation : null
+        if (!fresh) {
+          console.warn('[withdrawAllTokens] No valid ERC20 delegation; skipping token withdrawals to avoid extra signature')
+        }
+        let hadNonzero = false
+        for (const t of Object.values(TOKENS)) {
+          if (t.isNative || t.symbol === 'WMON') continue
+          const balStr = (balances as any)[t.symbol] || '0'
+          let hasBalance = false
+          try {
+            hasBalance = parseUnits(balStr, t.decimals) > 0n
+          } catch {
+            hasBalance = parseFloat(balStr) > 0
+          }
+          if (!hasBalance) continue
+          hadNonzero = true
+          if (!fresh) continue
+          try {
+            const uoHash = await redeemErc20TransferDelegation(
+              delegateSmartAccount,
+              fresh,
+              t.address as `0x${string}`,
+              t.decimals,
+              balStr,
+              address as `0x${string}`
+            )
+            setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+          } catch (err: any) {
+            const msg = String(err?.message || '')
+            if (msg.includes('AllowedMethodsEnforcer') || msg.includes('method-not-allowed') || msg.includes('expired')) {
+              console.warn(`[withdrawAllTokens] Missing/expired scope for ${t.symbol}; skipping without prompting.`)
+              continue
+            }
+            console.warn(`[withdrawAllTokens] ${t.symbol} withdraw failed:`, err)
+          }
+        }
+        if (!fresh && hadNonzero) {
+          setDcaStatus(prev => ({ ...prev, lastError: 'ERC20 skipped: missing/expired delegation. Click Renew.' }))
+        }
+        await refreshBalances()
+      } finally {
+        setIsLoading(false)
+      }
+    })
+  }, [delegateSmartAccount, delegatorSmartAccount, signedDelegation, address, balances, enqueueOp, refreshBalances])
+
+  
 
   const convertAllToMon = useCallback(async (slippageBps: number = 300) => {
     if (!delegateSmartAccount || !delegatorSmartAccount || !signedDelegation) {
@@ -455,6 +587,7 @@ export function useDcaDelegation() {
     })
   }, [delegateSmartAccount, delegatorSmartAccount, signedDelegation, balances, enqueueOp, refreshBalances, dcaStatus.isActive])
 
+
   const renewDelegation = useCallback(async () => {
     if (!delegatorSmartAccount || !delegateSmartAccount) {
       throw new Error('Smart accounts not initialized')
@@ -486,6 +619,7 @@ export function useDcaDelegation() {
       })
       console.log('[topup] tx hash:', hash)
       await refreshBalances(delegatorSmartAccount.address)
+      setDcaStatus(prev => ({ ...prev, lastError: undefined }))
       return hash
     } finally {
       setIsLoading(false)
@@ -519,6 +653,235 @@ export function useDcaDelegation() {
     }
   }, [delegateSmartAccount, delegatorSmartAccount, address, isExecuting, refreshBalances])
 
+  // Sell a specific ERC20 to MON (via WMON), optionally for a given amount. Defaults to full balance.
+  const sellTokenToMon = useCallback(async (symbol: string, amount?: string, slippage: number = 300) => {
+    if (!delegateSmartAccount || !delegatorSmartAccount || !signedDelegation) {
+      throw new Error('Smart accounts not initialized')
+    }
+    const t = TOKENS[symbol as keyof typeof TOKENS]
+    if (!t) throw new Error('Unknown token')
+    if (t.isNative) throw new Error('Use value transfer for MON; selling MON is not supported')
+
+    // Determine amount string (defaults to full balance string)
+    const balStr = (balances as any)[symbol] || '0'
+    const amt = (amount && amount !== '') ? amount : balStr
+    if (!amt || parseFloat(amt) <= 0) throw new Error('Amount must be > 0')
+
+    // Perform swap to WMON, or unwrap if token is WMON
+    if (symbol === 'WMON') {
+      const wmonAmount = parseUnits(amt, 18)
+      if (wmonAmount === 0n) throw new Error('No WMON to unwrap')
+      const uoHash = await redeemUnwrapDelegation(
+        delegateSmartAccount,
+        signedDelegation,
+        wmonAmount
+      )
+      setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+      await refreshBalances()
+      return uoHash
+    }
+
+    const delegatorAddr = delegatorSmartAccount.address as `0x${string}`
+    let uoHash: `0x${string}`
+    if (symbol === 'USDC') {
+      uoHash = await redeemSwapDelegation(
+        delegateSmartAccount,
+        signedDelegation,
+        amt,
+        slippage,
+        delegatorAddr
+      )
+    } else if (symbol === 'CHOG') {
+      uoHash = await redeemSwapChogDelegation(
+        delegateSmartAccount,
+        signedDelegation,
+        amt,
+        slippage,
+        delegatorAddr
+      )
+    } else {
+      uoHash = await redeemSwapErc20ToWmonDelegation(
+        delegateSmartAccount,
+        signedDelegation,
+        t.address,
+        t.decimals,
+        amt,
+        slippage,
+        delegatorAddr
+      )
+    }
+    setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+
+    // After swap, unwrap any WMON to MON
+    const latest = await getAllBalances(delegatorAddr)
+    setBalances(latest)
+    const wmonBal = parseUnits(latest.WMON || '0', 18)
+    if (wmonBal > 0n) {
+      const unwrapHash = await redeemUnwrapDelegation(
+        delegateSmartAccount,
+        signedDelegation,
+        wmonBal
+      )
+      setDcaStatus(prev => ({ ...prev, lastUserOpHash: unwrapHash }))
+    }
+    await refreshBalances()
+    return uoHash
+  }, [delegateSmartAccount, delegatorSmartAccount, signedDelegation, balances, refreshBalances])
+
+  // Withdraw all MON to EOA (uses current MON balance)
+  const withdrawAllMon = useCallback(async () => {
+    if (!delegatorSmartAccount) return
+    const latest = await getAllBalances(delegatorSmartAccount.address)
+    const monBal = latest.MON || '0'
+    try {
+      if (parseUnits(monBal, 18) > 0n) {
+        await withdrawMon(monBal)
+        // Second pass: attempt to withdraw residual dust if any
+        try {
+          await new Promise(res => setTimeout(res, 800))
+        } catch {}
+        const after = await getAllBalances(delegatorSmartAccount.address)
+        const residualWei = parseUnits(after.MON || '0', 18)
+        if (residualWei > 0n) {
+          await withdrawMon(after.MON)
+        }
+      }
+    } catch (e) {
+      throw e
+    }
+  }, [delegatorSmartAccount, withdrawMon])
+
+  // Withdraw all assets: pause DCA, pre-create value delegation (single prompt now), withdraw ERC20s, redeem MON, then resume DCA
+  const withdrawAll = useCallback(async () => {
+    if (!delegatorSmartAccount || !delegateSmartAccount || !address) throw new Error('Smart accounts not initialized')
+    const wasActive = dcaStatus.isActive
+    if (wasActive) {
+      try { dcaScheduler.stop() } catch {}
+      setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+    }
+    // Prepare value delegation immediately to show the signature prompt now
+    const latest = await getAllBalances(delegatorSmartAccount.address as `0x${string}`)
+    const monWei = parseUnits(latest.MON || '0', 18)
+    let vd: any = null
+    if (monWei > 0n) {
+      vd = await getOrCreateValueDelegation(
+        delegatorSmartAccount,
+        delegateSmartAccount,
+        address as `0x${string}`,
+        monWei
+      )
+    }
+    // Withdraw ERC20s (no prompt; skips if no valid ERC20 delegation)
+    await withdrawAllTokens()
+    // Redeem prepared value delegation to transfer MON
+    if (vd) {
+      await enqueueOp(async () => {
+        setIsLoading(true)
+        try {
+          const uoHash = await redeemValueTransferDelegation(
+            delegateSmartAccount,
+            vd,
+            address as `0x${string}`,
+            monWei
+          )
+          setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+          await refreshBalances()
+        } finally {
+          setIsLoading(false)
+        }
+      })
+    } else {
+      await refreshBalances()
+    }
+
+    // Resume DCA if it was active, without immediate run
+    if (wasActive && lastDcaConfigRef.current) {
+      const cfg = lastDcaConfigRef.current
+      if (cfg.mode === 'manual') {
+        dcaScheduler.start({
+          intervalSeconds: cfg.intervalSeconds,
+          onExecute: async () => {
+            await enqueueOp(() => runNativeSwapMonToToken(cfg.amountMon, cfg.slippageBps, cfg.outToken, true))
+          },
+          onError: (error) => {
+            setDcaStatus(prev => ({ ...prev, lastError: error.message }))
+          },
+          onStatusChange: (isActive, nextExecution) => {
+            setDcaStatus(prev => ({ ...prev, isActive, nextExecution }))
+          }
+        })
+      } else {
+        let currentInterval = cfg.intervalSeconds
+        const aiCb = lastAiCallbackRef.current
+        dcaScheduler.start({
+          intervalSeconds: currentInterval,
+          onExecute: async () => {
+            if (aiCb) {
+              try {
+                const aiDecision = await aiCb(balances as Record<string, string>)
+                if (aiDecision) {
+                  await enqueueOp(() => runNativeSwapMonToToken(aiDecision.amount, cfg.slippageBps, aiDecision.token, true))
+                  currentInterval = aiDecision.interval
+                  dcaScheduler.updateInterval(currentInterval)
+                }
+              } catch (error) {
+                console.error('[ai-dca][resume] AI decision failed; fallback manual params:', error)
+                await enqueueOp(() => runNativeSwapMonToToken(cfg.amountMon, cfg.slippageBps, cfg.outToken, true))
+              }
+            } else {
+              await enqueueOp(() => runNativeSwapMonToToken(cfg.amountMon, cfg.slippageBps, cfg.outToken, true))
+            }
+          },
+          onError: (error) => {
+            setDcaStatus(prev => ({ ...prev, lastError: error.message }))
+          },
+          onStatusChange: (isActive, nextExecution) => {
+            setDcaStatus(prev => ({ ...prev, isActive, nextExecution }))
+          }
+        })
+      }
+    }
+  }, [delegatorSmartAccount, delegateSmartAccount, address, withdrawAllTokens, enqueueOp, refreshBalances, dcaStatus.isActive, runNativeSwapMonToToken, balances])
+
+  // Panic: convert everything to MON, withdraw all MON to EOA, clear cache
+  const panic = useCallback(async () => {
+    try {
+      await convertAllToMon(300)
+    } catch (e) {
+      console.warn('[panic] convertAllToMon failed:', e)
+    }
+    try {
+      await withdrawAllMon()
+    } catch (e) {
+      console.warn('[panic] withdrawAllMon failed:', e)
+    }
+    try {
+      // Revoke all active delegations on-chain for safety
+      const { revokeAllDelegationsOnChain } = await import('../lib/delegation')
+      if (delegatorSmartAccount) {
+        await revokeAllDelegationsOnChain(delegatorSmartAccount)
+      }
+    } catch (e) {
+      console.warn('[panic] revokeAllDelegationsOnChain failed:', e)
+    }
+    try {
+      clearCache()
+    } catch {}
+    try {
+      dcaScheduler.stop()
+      setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+    } catch {}
+    // Force re-initialization and fresh signature next time
+    try {
+      setSignedDelegation(null)
+      setDelegatorSmartAccount(null)
+      setDelegateSmartAccount(null)
+      setIsInitialized(false)
+      setDelegationExpiresAt(undefined)
+      setDelegationExpired(true)
+      setBalances({ MON: '0.0', USDC: '0.0', WMON: '0.0', CHOG: '0.0' })
+    } catch {}
+  }, [convertAllToMon, withdrawAllMon, clearCache, delegatorSmartAccount])
   // Native swap: MON -> token (e.g., USDC) via router.swapExactETHForTokens
   // moved above and enhanced with isLoading + expiry checks
 
@@ -553,25 +916,6 @@ export function useDcaDelegation() {
     }
   }, [isConnected])
 
-  // Function to clear cache (for debugging)
-  const clearCache = useCallback(() => {
-    if (address) {
-      const cacheKey = `dca-smart-accounts-${address}`
-      localStorage.removeItem(cacheKey)
-      localStorage.removeItem('dca-delegation')
-      localStorage.removeItem('dca-value-delegation')
-      localStorage.removeItem('dca-native-swap-delegation')
-      // Clear deployment cache for both accounts
-      if (delegatorSmartAccount) {
-        localStorage.removeItem(`sa-deployed-${delegatorSmartAccount.address}`)
-      }
-      if (delegateSmartAccount) {
-        localStorage.removeItem(`sa-deployed-${delegateSmartAccount.address}`)
-      }
-      console.log('[cache] cleared all cache for', address)
-    }
-  }, [address, delegatorSmartAccount, delegateSmartAccount])
-
   return {
     // State
     isInitialized,
@@ -589,10 +933,16 @@ export function useDcaDelegation() {
     convertAllToMon,
     topUpMon,
     withdrawMon,
+    sellTokenToMon,
+    withdrawToken,
+    withdrawAllTokens,
+    withdrawAll,
+    
     runNativeSwapMonToToken,
     refreshBalances: () => refreshBalances(),
     reinitialize: initialize,
     clearCache,
+    panic,
     delegationExpired,
     delegationExpiresAt,
     renewDelegation,

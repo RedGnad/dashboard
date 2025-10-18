@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { parseUnits } from 'viem'
 import { useDcaDelegation } from '../hooks/useDcaDelegation'
 import { USDC, CHOG, getTargetTokens, getToken, getAllTradableTokens, TOKENS } from '../lib/tokens'
-import { Play, Square, Zap, ArrowUpDown, RefreshCw, Copy, Settings, BarChart2, Cpu, SlidersHorizontal, Brain, Shield } from 'lucide-react'
+import { Play, Square, ArrowUpDown, RefreshCw, Copy, Settings, BarChart2, Cpu, SlidersHorizontal, Brain } from 'lucide-react'
 import { useEnvioMetrics } from '../hooks/useEnvioMetrics'
 import ProtocolMetricsChart from '../components/ProtocolMetricsChart'
 import ProtocolBarChart from '../components/ProtocolBarChart'
@@ -11,6 +11,7 @@ import { useProtocolDailyMetrics, type ProtocolMetricKey } from '../hooks/usePro
 import { useAutonomousAi } from '../hooks/useAutonomousAi'
 import { useTokenMetrics } from '../hooks/useTokenMetrics'
 import AiVerificationPanel from './AiVerificationPanel'
+import WithdrawModal from './WithdrawModal'
 
 type TabKey = 'trade' | 'ai' | 'metrics' | 'verification' | 'settings'
 
@@ -20,8 +21,10 @@ export default function DcaControl() {
   const [slippageBps, setSlippageBps] = useState('300')
   const [interval, setInterval] = useState('60')
   const [monAmount, setMonAmount] = useState('0.1')
-  const [withdrawMonAmount, setWithdrawMonAmount] = useState('0.05')
-  const [outToken, setOutToken] = useState<string>('USDC')
+  const [outToken, setOutToken] = useState<string>(() => {
+    const allowed = getTargetTokens().filter(t => t.symbol !== 'WMON')
+    return allowed[0]?.symbol || 'CHOG'
+  })
   const [metricKey, setMetricKey] = useState<ProtocolMetricKey>('txDaily')
   const [todayMetric, setTodayMetric] = useState<'usersDaily' | 'txDaily'>('txDaily')
 
@@ -36,14 +39,15 @@ export default function DcaControl() {
     delegationExpiresAt,
     startNativeDca,
     stopDca,
-    runNativeNow,
-    unwrapAll,
     refreshBalances,
     renewDelegation,
     topUpMon,
     withdrawMon,
     convertAllToMon,
-    clearCache,
+    withdrawToken,
+    withdrawAllTokens,
+    withdrawAll,
+    panic,
   } = useDcaDelegation()
 
   const outAddr = useMemo(() => {
@@ -53,16 +57,31 @@ export default function DcaControl() {
   const { metrics, loading: metricsLoading, error: metricsError } = useEnvioMetrics(delegatorSmartAccount?.address)
   const { series, dates, loading: dailyLoading, error: dailyError } = useProtocolDailyMetrics(metricKey, 30)
   const { todayData, latestData, loading: todayLoading, error: todayError } = useTodayProtocolMetrics()
-  const PROTOCOLS = ['magma','ambient','curvance','kuru','pyth','atlantis','octoswap','pingu'] as const
+  const PROTOCOLS = ['magma','ambient','curvance','kuru','atlantis','octoswap','pingu'] as const
   const todayBarData = PROTOCOLS.map(p => ({ protocolId: p, value: Number((todayData.find(d=>d.protocolId===p) as any)?.[todayMetric] || 0) }))
   const [totalMetric, setTotalMetric] = useState<'txCumulative' | 'avgTxPerUser' | 'avgFeeNative'>('txCumulative')
   const totalsProtocols = totalMetric==='avgFeeNative' 
-    ? (PROTOCOLS.filter(p=>p!=='curvance' && p!=='octoswap') as typeof PROTOCOLS) 
-    : PROTOCOLS
+    ? PROTOCOLS.filter(p=>p!=='curvance') 
+    : Array.from(PROTOCOLS)
   const totalsBarData = totalsProtocols.map(p => ({ protocolId: p, value: Number((latestData.find(l=>l.protocolId===p) as any)?.[totalMetric] || 0) }))
   const { tokenMetrics, loading: tokenMetricsLoading } = useTokenMetrics()
   const { personality, enabled: aiEnabled, decisions, isProcessing, error: aiError, setPersonality, setEnabled, makeDecision, markExecuted, provider, setProvider } = useAutonomousAi()
   const hasOpenAiKey = Boolean((import.meta as any).env?.VITE_OPENAI_API_KEY)
+  const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [withdrawSymbol, setWithdrawSymbol] = useState<string>('')
+  const [withdrawDecimals, setWithdrawDecimals] = useState<number>(18)
+  const [withdrawBalance, setWithdrawBalance] = useState<string>('0')
+
+  // Ensure selected outToken is always a valid target at startup
+  useEffect(() => {
+    const allowed = getTargetTokens().filter(t => t.symbol !== 'WMON').map(t => t.symbol)
+    if (!allowed.includes(outToken)) {
+      const fallback = allowed[0]
+      if (fallback) setOutToken(fallback)
+    }
+    // We intentionally depend only on outToken to correct initial invalid state
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outToken])
 
   const todayTotals = useMemo(() => {
     let users = 0, tx = 0
@@ -72,6 +91,55 @@ export default function DcaControl() {
     }
     return { users, tx }
   }, [todayData])
+
+  function formatMonDisplay(v: string) {
+    const n = Number(v || '0')
+    if (n > 0 && n < 0.001) return '<0.001'
+    if (!Number.isFinite(n)) return '0'
+    const s = n.toFixed(6)
+    return s.replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1')
+  }
+
+  const visibleError = useMemo(() => {
+    const err = dcaStatus.lastError || ''
+    if (!err) return ''
+    if (err.startsWith('Insufficient MON')) {
+      const have = parseFloat(balances.MON || '0')
+      // Hide if current requested DCA amount is affordable now
+      const currentNeed = parseFloat(monDcaAmount || '0')
+      if (Number.isFinite(currentNeed) && have >= currentNeed) return ''
+      // Fallback: parse previous error 'Need X'
+      const m = /Need\s+(\d*\.?\d+)/.exec(err)
+      if (m) {
+        const need = parseFloat(m[1])
+        if (have >= need) return ''
+      }
+    }
+    return err
+  }, [dcaStatus.lastError, balances.MON, monDcaAmount])
+
+  const openWithdraw = (symbol: string) => {
+    setWithdrawSymbol(symbol)
+    if (symbol === 'MON') {
+      setWithdrawDecimals(18)
+      setWithdrawBalance(balances.MON || '0')
+    } else {
+      const token = TOKENS[symbol as keyof typeof TOKENS]
+      setWithdrawDecimals(token?.decimals || 18)
+      setWithdrawBalance((balances as any)[symbol] || '0')
+    }
+    setWithdrawOpen(true)
+  }
+
+  const handleWithdrawConfirm = async (amount: string) => {
+    if (!withdrawSymbol) return
+    if (withdrawSymbol === 'MON') {
+      await withdrawMon(amount)
+    } else {
+      await withdrawToken(withdrawSymbol, amount)
+    }
+    setWithdrawOpen(false)
+  }
 
   const hasConvertible = useMemo(() => {
     try {
@@ -112,8 +180,10 @@ export default function DcaControl() {
             'WBTC': '0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d',
             'DAKIMAKURA': '0x0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8'
           }
-          
-          const targetAddress = tokenMap[decision.action.targetToken] || USDC
+          // Forbid WMON as a final target for AI-controlled DCA
+          const requested = (decision.action.targetToken || '').toUpperCase()
+          const finalSymbol = requested === 'WMON' ? 'USDC' : requested
+          const targetAddress = tokenMap[finalSymbol] || USDC
           
           return {
             amount: decision.action.amount || '0.05',
@@ -168,7 +238,20 @@ export default function DcaControl() {
       {active === 'trade' && (
         <div className="grid md:grid-cols-2 gap-4">
           <div className="glass rounded-2xl p-5">
-            <div className="text-xl font-semibold mb-4 text-white flex items-center gap-2"><SlidersHorizontal size={18}/>DCA</div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-xl font-semibold text-white flex items-center gap-2"><SlidersHorizontal size={18}/>DCA</div>
+              <label className="inline-flex items-center gap-2 text-sm text-gray-300">
+                <input 
+                  type="checkbox" 
+                  checked={aiEnabled} 
+                  onChange={(e)=>setEnabled(e.target.checked)} 
+                  className="accent-purple-500"
+                  disabled={provider !== 'openai'}
+                  title={provider !== 'openai' ? (provider === 'opengradient' ? 'need faucet token' : 'coming soon') : 'active'}
+                />
+                AI Control
+              </label>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-300 mb-1">MON Amount</label>
@@ -191,10 +274,14 @@ export default function DcaControl() {
                 <input type="number" inputMode="numeric" step="1" value={interval} onChange={(e)=>setInterval(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 mt-4">
+            <div className="grid grid-cols-1 gap-3 mt-4">
               {!dcaStatus.isActive ? (
                 <button 
-                  onClick={()=>startNativeDca(monDcaAmount, parseInt(slippageBps), outAddr, parseInt(interval), aiEnabled, aiEnabled ? aiCallback : undefined)} 
+                  onClick={()=>{
+                    const selected = getToken(outToken)
+                    const addr = (selected && selected.symbol !== 'WMON' ? selected.address : (getTargetTokens().find(t=>t.symbol!=='WMON')?.address || USDC)) as `0x${string}`
+                    return startNativeDca(monDcaAmount, parseInt(slippageBps), addr, parseInt(interval), aiEnabled, aiEnabled ? aiCallback : undefined)
+                  }} 
                   disabled={isLoading || delegationExpired || (aiEnabled && (metricsLoading || tokenMetricsLoading))} 
                   className="flex items-center justify-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl"
                 >
@@ -203,9 +290,7 @@ export default function DcaControl() {
               ) : (
                 <button onClick={()=>stopDca()} disabled={isLoading} className="flex items-center justify-center gap-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl"><Square size={16}/>Stop</button>
               )}
-              <button onClick={()=>runNativeNow(monDcaAmount, parseInt(slippageBps), outAddr)} disabled={isLoading || delegationExpired} className="flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl"><Zap size={16}/>Run Now</button>
             </div>
-            <button onClick={()=>convertAllToMon(parseInt(slippageBps))} disabled={isLoading || delegationExpired || !hasConvertible} className="w-full mt-3 flex items-center justify-center gap-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl"><ArrowUpDown size={16}/>Convert ALL to MON</button>
           </div>
 
           <div className="space-y-4">
@@ -220,28 +305,58 @@ export default function DcaControl() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-300 mb-1">Withdraw MON</label>
-                  <div className="flex gap-2">
-                    <input type="number" inputMode="decimal" step="any" value={withdrawMonAmount} onChange={(e)=>setWithdrawMonAmount(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
-                    <button onClick={()=>withdrawMon(withdrawMonAmount)} disabled={isLoading} className="px-4 rounded-lg bg-gradient-to-r from-pink-600 to-rose-600 text-white font-semibold">Withdraw</button>
-                  </div>
+                  <label className="block text-xs text-gray-300 mb-1">Portfolio Actions</label>
+                  <button onClick={()=>convertAllToMon(parseInt(slippageBps))} disabled={isLoading || delegationExpired || !hasConvertible} className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl"><ArrowUpDown size={16}/>Convert ALL to MON</button>
                 </div>
               </div>
             </div>
-
             <div className="glass rounded-2xl p-5">
               <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2"><BarChart2 size={18}/>Balances</div>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="flex justify-between"><span className="text-gray-300">MON</span><span className="text-white font-mono">{balances.MON}</span></div>
-                {getAllTradableTokens().filter(t => t.symbol !== 'WMON').map(t => (
-                  <div key={t.symbol} className="flex justify-between">
-                    <span className="text-gray-300">{t.symbol}</span>
-                    <span className="text-white font-mono">{(balances as any)[t.symbol] ?? '0.0'}</span>
+              <div className="grid grid-cols-1 gap-2 text-sm">
+                {parseFloat(balances.MON || '0') > 0 && (
+                  <div className="flex justify-between items-center gap-3 flex-wrap">
+                    <span className="text-gray-300">MON</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-mono truncate max-w-[140px]">{formatMonDisplay(balances.MON)}</span>
+                      <button 
+                        onClick={() => openWithdraw('MON')} 
+                        disabled={isLoading}
+                        className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-pink-600 to-rose-600 text-white disabled:opacity-50"
+                      >
+                        Withdraw
+                      </button>
+                    </div>
                   </div>
-                ))}
+                )}
+                {getAllTradableTokens()
+                  .filter(t => t.symbol !== 'WMON')
+                  .filter(t => parseFloat((balances as any)[t.symbol] || '0') > 0)
+                  .map(t => (
+                    <div key={t.symbol} className="flex justify-between items-center gap-3 flex-wrap">
+                      <span className="text-gray-300">{t.symbol}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white font-mono truncate max-w-[140px]">{(balances as any)[t.symbol] ?? '0.0'}</span>
+                        <button 
+                          onClick={() => openWithdraw(t.symbol)} 
+                          disabled={isLoading}
+                          className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-rose-600 to-pink-600 text-white disabled:opacity-50"
+                        >
+                          Withdraw
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              <div className="mt-3">
+                <button 
+                  onClick={() => withdrawAll()} 
+                  disabled={isLoading}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-rose-700 to-pink-700 hover:from-rose-800 hover:to-pink-800 disabled:opacity-50 text-white font-semibold py-2 px-3 rounded-xl text-sm"
+                >
+                  Withdraw ALL
+                </button>
               </div>
             </div>
-
             <div className="glass rounded-2xl p-5">
               <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2"><Settings size={18}/>Status</div>
               <div className="space-y-2 text-sm">
@@ -261,7 +376,24 @@ export default function DcaControl() {
                     </a>
                   </div>
                 )}
-                {dcaStatus.lastError && <div className="flex justify-between"><span className="text-gray-300">Last Error</span><span className="text-red-400">{dcaStatus.lastError}</span></div>}
+                {visibleError && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-gray-300">Last Error</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-red-400">{visibleError}</span>
+                      {visibleError.startsWith('ERC20 skipped') && (
+                        <button
+                          onClick={renewDelegation}
+                          disabled={isLoading}
+                          className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-amber-600 to-yellow-600 text-white disabled:opacity-50"
+                          title="Renew core delegation to enable ERC20 withdrawals"
+                        >
+                          Renew
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -455,8 +587,8 @@ export default function DcaControl() {
               <ProtocolMetricsChart 
                 series={(
                   metricKey==='avgFeeNative' 
-                    ? series.filter(s=>s.protocolId!=='curvance' && s.protocolId!=='octoswap' && s.protocolId!=='dex') 
-                    : series.filter(s=>s.protocolId!=='dex')
+                    ? series.filter(s=>s.protocolId!=='curvance' && s.protocolId!=='dex' && s.protocolId!=='pyth') 
+                    : series.filter(s=>s.protocolId!=='dex' && s.protocolId!=='pyth')
                 )} 
                 dates={dates} 
               />
@@ -524,7 +656,7 @@ export default function DcaControl() {
           <div className="text-xl font-semibold text-white flex items-center gap-2"><Settings size={18}/>Settings</div>
           <div className="grid md:grid-cols-2 gap-3">
             <button onClick={renewDelegation} disabled={isLoading} className="py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold">Renew Delegation</button>
-            <button onClick={clearCache} className="py-3 rounded-xl bg-white/10 text-white font-semibold">Clear Cache</button>
+            <button onClick={panic} disabled={isLoading} className="py-3 rounded-xl bg-gradient-to-r from-red-700 to-red-600 text-white font-semibold">Panik</button>
           </div>
           <div className="text-sm text-gray-300">
             {delegationExpired && <div className="text-red-400">Delegation expired</div>}
@@ -556,6 +688,15 @@ export default function DcaControl() {
           delegationExpired={delegationExpired}
         />
       )}
+      <WithdrawModal 
+        open={withdrawOpen}
+        symbol={withdrawSymbol}
+        decimals={withdrawDecimals}
+        balance={withdrawBalance}
+        isLoading={isLoading}
+        onClose={() => setWithdrawOpen(false)}
+        onConfirm={handleWithdrawConfirm}
+      />
     </div>
   )
 }

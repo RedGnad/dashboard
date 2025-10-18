@@ -1,5 +1,5 @@
 import type { ProtocolSeries } from '../hooks/useProtocolDailyMetrics'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 type Props = {
   series: ProtocolSeries[]
@@ -25,12 +25,13 @@ function getColor(name: string, i: number) {
 }
 
 export default function ProtocolMetricsChart({ series, dates, height = 220 }: Props) {
-  const width = 600
+  const width = 640
   const h = height
-  const padding = { top: 10, right: 10, bottom: 20, left: 30 }
+  const padding = { top: 10, right: 12, bottom: 22, left: 48 }
   const innerW = width - padding.left - padding.right
   const innerH = h - padding.top - padding.bottom
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const [hoverY, setHoverY] = useState<number | null>(null)
 
   // Build x indices
   const n = Math.max(1, dates.length)
@@ -49,6 +50,17 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
   if (yMin === yMax) { yMin = 0; yMax = yMax || 1 }
 
   const yPos = (val: number) => padding.top + innerH - ((val - yMin) / (yMax - yMin)) * innerH
+
+  // Number formatter (compact, integer-friendly)
+  const formatNumber = useMemo(() => {
+    const intl = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 })
+    return (v: number) => {
+      if (!Number.isFinite(v)) return '0'
+      if (Math.abs(v) >= 1000) return intl.format(v)
+      if (Math.abs(v) >= 100) return v.toFixed(0)
+      return v.toFixed(2).replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1')
+    }
+  }, [])
 
   // Date index map
   const dateIndex: Record<string, number> = {}
@@ -70,19 +82,19 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
 
   return (
     <div className="w-full">
-      <svg viewBox={`0 0 ${width} ${h}`} className="w-full h-auto">
+      <svg viewBox={`0 0 ${width} ${h}`} className="w-full h-auto select-none">
         {/* Axes */}
         <line x1={padding.left} y1={padding.top} x2={padding.left} y2={h - padding.bottom} stroke="#444" strokeWidth={1}/>
         <line x1={padding.left} y1={h - padding.bottom} x2={width - padding.right} y2={h - padding.bottom} stroke="#444" strokeWidth={1}/>
         {/* Y ticks */}
-        {Array.from({ length: 4 }).map((_, i) => {
-          const v = yMin + (i / 3) * (yMax - yMin)
+        {Array.from({ length: 5 }).map((_, i) => {
+          const v = yMin + (i / 4) * (yMax - yMin)
           const y = yPos(v)
           return (
             <g key={i}>
               <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#333" strokeWidth={0.5}/>
-              <text x={padding.left - 6} y={y} textAnchor="end" dominantBaseline="middle" fill="#9ca3af" fontSize={10}>
-                {Number.isFinite(v) ? v.toFixed(2) : '0'}
+              <text x={padding.left - 8} y={y} textAnchor="end" dominantBaseline="middle" fill="#9ca3af" fontSize={10}>
+                {formatNumber(v)}
               </text>
             </g>
           )
@@ -105,7 +117,7 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
           )
         })}
 
-        {/* Hover guideline */}
+        {/* Hover guidelines (X and Y) */}
         {hoverIdx != null && hoverIdx >= 0 && hoverIdx < dates.length && (
           <g>
             <line x1={xPos(hoverIdx)} y1={padding.top} x2={xPos(hoverIdx)} y2={h - padding.bottom} stroke="#666" strokeDasharray="3 3" />
@@ -121,20 +133,33 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
             })}
           </g>
         )}
+        {hoverY != null && hoverY >= yMin && hoverY <= yMax && (
+          <g>
+            <line x1={padding.left} y1={yPos(hoverY)} x2={width - padding.right} y2={yPos(hoverY)} stroke="#666" strokeDasharray="3 3" />
+            <text x={padding.left - 8} y={yPos(hoverY)} textAnchor="end" dominantBaseline="middle" fill="#e5e7eb" fontSize={10}>{formatNumber(hoverY)}</text>
+          </g>
+        )}
 
         {/* Mouse overlay */}
         <rect x={padding.left} y={padding.top} width={innerW} height={innerH} fill="transparent"
           onMouseMove={(e)=>{
             const rect = (e.currentTarget as SVGRectElement).getBoundingClientRect()
             const x = e.clientX - rect.left
-            const t = Math.max(0, Math.min(1, (x - 0) / rect.width))
-            // Map overlay coords to chart coords
-            const xChart = padding.left + t * innerW
+            const y = e.clientY - rect.top
+            const tx = Math.max(0, Math.min(1, (x - 0) / rect.width))
+            const xChart = padding.left + tx * innerW
             const tChart = Math.max(0, Math.min(1, (xChart - padding.left) / innerW))
             const idx = Math.round(tChart * Math.max(0, (n - 1)))
             setHoverIdx(idx)
+
+            // Map y to chart value
+            const ty = Math.max(0, Math.min(1, (y - 0) / rect.height))
+            const yChart = padding.top + ty * innerH
+            const rel = Math.max(0, Math.min(1, (yChart - padding.top) / innerH))
+            const val = yMin + (1 - rel) * (yMax - yMin)
+            setHoverY(val)
           }}
-          onMouseLeave={()=>setHoverIdx(null)}
+          onMouseLeave={()=>{ setHoverIdx(null); setHoverY(null) }}
         />
       </svg>
 
@@ -150,7 +175,7 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
             <div key={s.protocolId} className="flex items-center gap-2">
               <span className="inline-block w-3 h-3 rounded" style={{ background: getColor(s.protocolId, i) }} />
               <span className="text-gray-300">{s.protocolId}</span>
-              {v != null && <span className="text-gray-500">{Number.isFinite(v) ? v.toFixed(4) : '-'}</span>}
+              {v != null && <span className="text-white">{formatNumber(v)}</span>}
             </div>
           )
         })}
