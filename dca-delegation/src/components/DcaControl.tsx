@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { parseUnits } from 'viem'
 import { useDcaDelegation } from '../hooks/useDcaDelegation'
-import { USDC, CHOG, getTargetTokens, getToken, getAllTradableTokens, TOKENS } from '../lib/tokens'
+import { USDC, getTargetTokens, getToken, getAllTradableTokens, TOKENS } from '../lib/tokens'
 import { Play, Square, ArrowUpDown, RefreshCw, Copy, Settings, BarChart2, Cpu, SlidersHorizontal, Brain } from 'lucide-react'
 import { useEnvioMetrics } from '../hooks/useEnvioMetrics'
 import ProtocolMetricsChart from '../components/ProtocolMetricsChart'
@@ -12,6 +12,7 @@ import { useProtocolDailyMetrics, type ProtocolMetricKey } from '../hooks/usePro
 import { useAutonomousAi } from '../hooks/useAutonomousAi'
 import { useTokenMetrics } from '../hooks/useTokenMetrics'
 import { useWhaleTransfers } from '../hooks/useWhaleTransfers'
+import { useWhaleAlerts } from '../hooks/useWhaleAlerts'
 import AiVerificationPanel from './AiVerificationPanel'
 import WithdrawModal from './WithdrawModal'
 
@@ -23,8 +24,6 @@ export default function DcaControl() {
   const [slippageBps, setSlippageBps] = useState('300')
   const [interval, setInterval] = useState('60')
   const [monAmount, setMonAmount] = useState('0.1')
-  const [magmaStakeAmount, setMagmaStakeAmount] = useState('0.1')
-  const [magmaUnstakeAmount, setMagmaUnstakeAmount] = useState('0.1')
   const [outToken, setOutToken] = useState<string>(() => {
     const allowed = getTargetTokens().filter(t => t.symbol !== 'WMON')
     return allowed[0]?.symbol || 'CHOG'
@@ -50,17 +49,12 @@ export default function DcaControl() {
     withdrawMon,
     convertAllToMon,
     withdrawToken,
-    withdrawAllTokens,
     withdrawAll,
-    stakeMagma,
-    unstakeMagma,
+    
     panic,
   } = useDcaDelegation()
 
-  const outAddr = useMemo(() => {
-    const token = getToken(outToken)
-    return token ? (token.address as `0x${string}`) : (USDC as `0x${string}`)
-  }, [outToken])
+  // outToken address resolved on demand when starting DCA
   const { metrics, loading: metricsLoading, error: metricsError } = useEnvioMetrics(delegatorSmartAccount?.address)
   const { series, dates, loading: dailyLoading, error: dailyError, loadOlder, hasMore } = useProtocolDailyMetrics(metricKey, historyDays)
   const { todayData, latestData, loading: todayLoading, error: todayError } = useTodayProtocolMetrics()
@@ -111,6 +105,15 @@ export default function DcaControl() {
   const [showEMA21, setShowEMA21] = useState(false)
   const [emaGate, setEmaGate] = useState(false)
 
+  const [restakeAi, setRestakeAi] = useState<boolean>(() => {
+    try { return localStorage.getItem('restake-ai') === '1' } catch { return false }
+  })
+  const [restakeManual, setRestakeManual] = useState<boolean>(() => {
+    try { return localStorage.getItem('restake-manual') === '1' } catch { return false }
+  })
+  useEffect(() => { try { localStorage.setItem('restake-ai', restakeAi ? '1' : '0') } catch {} }, [restakeAi])
+  useEffect(() => { try { localStorage.setItem('restake-manual', restakeManual ? '1' : '0') } catch {} }, [restakeManual])
+
   const [envioMode, setEnvioMode] = useState<'FAST'|'PRECISE'|'DEFAULT'>(() => {
     try {
       const sp = new URLSearchParams(window.location.search)
@@ -160,6 +163,28 @@ export default function DcaControl() {
   }, [tokenMetrics, tokenMetricsLoading, tokenMetricKind])
 
   const { moves: whaleMoves, loading: whalesLoading, error: whalesError } = useWhaleTransfers(7)
+  const { alerts: whaleAlerts } = useWhaleAlerts()
+  const whaleRows = useMemo(() => {
+    if (whaleMoves && whaleMoves.length) return whaleMoves
+    return (whaleAlerts || []).map((a, i) => {
+      const addr = String(a.token).toLowerCase() as `0x${string}`
+      const tok = Object.values(TOKENS).find(t => (t.address as string).toLowerCase() === addr)
+      const dec = tok?.decimals || 18
+      let valNum = 0
+      try { valNum = Number(a.value) / Math.pow(10, dec) } catch { valNum = 0 }
+      return {
+        id: `${a.tx}_${i}`,
+        token: tok?.symbol || addr.slice(0,6)+"…"+addr.slice(-4),
+        tokenAddress: addr,
+        from: a.from,
+        to: a.to,
+        valueRaw: a.value,
+        value: valNum,
+        blockTimestamp: Number(a.ts),
+        transactionHash: a.tx,
+      }
+    })
+  }, [whaleMoves, whaleAlerts])
 
   // Ensure selected outToken is always a valid target at startup
   useEffect(() => {
@@ -388,7 +413,7 @@ export default function DcaControl() {
   }
 
   return (
-    <div className="w-full max-w-5xl">
+    <div className="w-full max-w-[1280px] mx-auto px-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex gap-2">
           <button onClick={() => setActive('trade')} className={`px-3 py-2 rounded-lg text-sm ${active==='trade'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>Trade</button>
@@ -403,27 +428,22 @@ export default function DcaControl() {
       </div>
 
       {active === 'trade' && (
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="glass rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-xl font-semibold text-white flex items-center gap-2"><SlidersHorizontal size={18}/>DCA</div>
-              <label className="inline-flex items-center gap-2 text-sm text-gray-300">
-                <input 
-                  type="checkbox" 
-                  checked={aiEnabled} 
-                  onChange={(e)=>setEnabled(e.target.checked)} 
-                  className="accent-purple-500"
-                  disabled={provider !== 'openai'}
-                  title={provider !== 'openai' ? (provider === 'opengradient' ? 'Ready. Needs Devnet Token.' : 'Coming Soon') : 'active'}
-                />
-                AI Control
-              </label>
-            </div>
-
-            {aiEnabled && (
-              <div className="glass rounded-xl p-4 mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-sm text-gray-300">AI Execution</div>
+        <div className="flex items-stretch justify-center gap-4">
+          <div className="w-[360px] shrink-0 space-y-4 max-h-[78vh] overflow-y-auto pr-1">
+            <div className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-xl font-semibold text-white flex items-center gap-2"><SlidersHorizontal size={18}/>DCA</div>
+                <label className="inline-flex items-center gap-2 text-sm text-gray-300">
+                  <input 
+                    type="checkbox" 
+                    checked={aiEnabled} 
+                    onChange={(e)=>setEnabled(e.target.checked)} 
+                    className="accent-purple-500"
+                    disabled={provider !== 'openai'}
+                    title={provider !== 'openai' ? (provider === 'opengradient' ? 'Ready. Needs Devnet Token.' : 'Coming Soon') : 'active'}
+                  />
+                  AI Control
+                </label>
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${(!metricsLoading && !metricsError) ? 'bg-green-400' : 'bg-yellow-400'}`}></span>
                     <span className="text-[11px] text-gray-400">Envio {(!metricsLoading && !metricsError) ? 'Available' : 'Pending'}</span>
@@ -464,7 +484,6 @@ export default function DcaControl() {
                   </div>
                 )}
               </div>
-            )}
 
           
             {aiEnabled ? (
@@ -562,7 +581,9 @@ export default function DcaControl() {
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="w-[560px] shrink-0" />
+
+          <div className="w-[360px] shrink-0 space-y-4 max-h-[78vh] overflow-y-auto pr-1">
             <div className="glass rounded-2xl p-5">
               <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2"><Cpu size={18}/>MON Actions</div>
               <div className="space-y-3">
@@ -581,25 +602,22 @@ export default function DcaControl() {
             </div>
             <div className="glass rounded-2xl p-5">
               <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2"><Cpu size={18}/>Magma Restaking</div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-300">gMON Balance</span>
-                  <span className="text-white font-mono">{(balances as any).gMON ?? '0.0'}</span>
+              <div className="space-y-3 text-sm text-gray-300">
+                <div className="flex items-center justify-between">
+                  <span>AI restaking</span>
+                  <label className="inline-flex items-center gap-2">
+                    <input type="checkbox" className="accent-purple-500" checked={restakeAi} onChange={(e)=>setRestakeAi(e.target.checked)} />
+                    <span className="text-xs">Enable</span>
+                  </label>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-300 mb-1">Stake MON → gMON</label>
-                  <div className="flex gap-2">
-                    <input type="number" inputMode="decimal" step="any" value={magmaStakeAmount} onChange={(e)=>setMagmaStakeAmount(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
-                    <button onClick={()=>stakeMagma(magmaStakeAmount)} disabled={isLoading || delegationExpired} className="px-4 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold disabled:opacity-50">Stake</button>
-                  </div>
+                <div className="flex items-center justify-between">
+                  <span>Manual DCA restaking</span>
+                  <label className="inline-flex items-center gap-2">
+                    <input type="checkbox" className="accent-purple-500" checked={restakeManual} onChange={(e)=>setRestakeManual(e.target.checked)} />
+                    <span className="text-xs">Enable</span>
+                  </label>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-300 mb-1">Unstake gMON → MON (amount in MON)</label>
-                  <div className="flex gap-2">
-                    <input type="number" inputMode="decimal" step="any" value={magmaUnstakeAmount} onChange={(e)=>setMagmaUnstakeAmount(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
-                    <button onClick={()=>unstakeMagma(magmaUnstakeAmount)} disabled={isLoading || delegationExpired} className="px-4 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold disabled:opacity-50">Unstake</button>
-                  </div>
-                </div>
+                <div className="text-[11px] text-gray-400">If enabled, staking actions may be performed automatically according to your mode (AI or manual). No manual stake/unstake controls are shown here.</div>
               </div>
             </div>
             <div className="glass rounded-2xl p-5">
@@ -626,6 +644,7 @@ export default function DcaControl() {
                 {parseFloat((balances as any).gMON || '0') > 0 && (
                   <div className="flex justify-between items-center gap-3 flex-wrap">
                     <span className="text-gray-300 flex items-center gap-2">
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-semibold">g</span>
                       gMON
                     </span>
                     <div className="flex items-center gap-2">
@@ -709,163 +728,169 @@ export default function DcaControl() {
       )}
 
       {active === 'ai' && (
-        <div className="space-y-4">
-          <div className="glass rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-xl font-semibold text-white flex items-center gap-2"><Brain size={18}/>Autonomous AI Agent</div>
-              <label className="inline-flex items-center gap-2 text-sm text-gray-300">
-                <input 
-                  type="checkbox" 
-                  checked={aiEnabled} 
-                  onChange={(e)=>setEnabled(e.target.checked)} 
-                  className="accent-purple-500"
-                  disabled={provider !== 'openai'}
-                  title={provider !== 'openai' ? (provider === 'opengradient' ? 'Ready. Needs Devnet Token.' : 'Coming Soon') : 'active'}
-                />
-                Enable AI Control
-              </label>
-            </div>
-            
-            <div className="grid md:grid-cols-4 gap-3 mb-4">
-              <button 
-                onClick={() => setPersonality('conservative')} 
-                className={`py-2 px-3 rounded-lg text-sm ${personality === 'conservative' ? 'bg-blue-600 text-white' : 'bg-white/10 text-gray-300 hover:text-white'}`}
-              >
-                Conservative
-              </button>
-              <button 
-                onClick={() => setPersonality('balanced')} 
-                className={`py-2 px-3 rounded-lg text-sm ${personality === 'balanced' ? 'bg-blue-600 text-white' : 'bg-white/10 text-gray-300 hover:text-white'}`}
-              >
-                Balanced
-              </button>
-              <button 
-                onClick={() => setPersonality('aggressive')} 
-                className={`py-2 px-3 rounded-lg text-sm ${personality === 'aggressive' ? 'bg-blue-600 text-white' : 'bg-white/10 text-gray-300 hover:text-white'}`}
-              >
-                Aggressive
-              </button>
-              <button 
-                onClick={() => setPersonality('contrarian')} 
-                className={`py-2 px-3 rounded-lg text-sm ${personality === 'contrarian' ? 'bg-blue-600 text-white' : 'bg-white/10 text-gray-300 hover:text-white'}`}
-              >
-                Contrarian
-              </button>
-            </div>
-
-            <div className="glass rounded-xl p-4 mb-4">
-              <div className="text-sm text-gray-300 mb-2">AI Status</div>
-              <div className="flex items-center gap-4">
-                <div className={`flex items-center gap-2 ${aiEnabled ? 'text-green-400' : 'text-gray-400'}`}>
-                  <div className={`w-2 h-2 rounded-full ${aiEnabled ? 'bg-green-400' : 'bg-gray-400'}`}></div>
-                  {aiEnabled ? 'AI Enabled' : 'AI Disabled'}
-                </div>
-                <div className="text-gray-300">Personality: <span className="text-white capitalize">{personality}</span></div>
-                {isProcessing && (
-                  <div className="flex items-center gap-2 text-yellow-400">
-                    <div className="animate-spin w-3 h-3 border border-yellow-400 border-t-transparent rounded-full"></div>
-                    Processing...
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="glass rounded-xl p-4 mb-4">
-              <div className="text-sm text-gray-300 mb-2">AI Provider</div>
-              <div className="flex items-center gap-3 mb-3 text-sm">
-                <button
-                  onClick={() => setProvider('openai')}
-                  className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='openai'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
-                  title="active"
-                >
-                  <span className={`w-2 h-2 rounded-full ${provider==='openai' ? (hasOpenAiKey ? 'bg-green-400' : 'bg-red-400') : 'bg-gray-400'}`}></span>
-                  OpenAI
-                </button>
-                <button
-                  onClick={() => setProvider('fortytwo')}
-                  className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='fortytwo'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
-                  title="Coming Soon"
-                >
-                  <span className={`w-2 h-2 rounded-full ${provider==='fortytwo' ? 'bg-yellow-400' : 'bg-gray-400'}`}></span>
-                  FortyTwo network (swarm inference)
-                </button>
-                <button
-                  onClick={() => setProvider('opengradient')}
-                  className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='opengradient'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
-                  title="Ready. Needs Devnet Token."
-                >
-                  <span className={`w-2 h-2 rounded-full ${provider==='opengradient' ? 'bg-yellow-400' : 'bg-gray-400'}`}></span>
-                  OpenGradient (swarm inference)
-                </button>
+        <div className="flex items-stretch justify-center gap-4">
+          <div className="w-[360px] shrink-0 space-y-4 max-h-[78vh] overflow-y-auto pr-1">
+            <div className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-xl font-semibold text-white flex items-center gap-2"><Brain size={18}/>Autonomous AI Agent</div>
+                <label className="inline-flex items-center gap-2 text-sm text-gray-300">
+                  <input 
+                    type="checkbox" 
+                    checked={aiEnabled} 
+                    onChange={(e)=>setEnabled(e.target.checked)} 
+                    className="accent-purple-500"
+                    disabled={provider !== 'openai'}
+                    title={provider !== 'openai' ? (provider === 'opengradient' ? 'Ready. Needs Devnet Token.' : 'Coming Soon') : 'active'}
+                  />
+                  Enable AI Control
+                </label>
               </div>
               
-              {provider==='opengradient' && (
-                <div className="text-xs text-yellow-400">Ready. Needs Devnet Token.</div>
-              )}
-              {provider==='fortytwo' && (
-                <div className="text-xs text-yellow-400">Coming Soon</div>
-              )}
-            </div>
-
-            {aiError && (
-              <div className="p-3 bg-red-600/20 border border-red-600/30 rounded-lg text-red-400 text-sm mb-4">
-                {aiError}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                <button 
+                  onClick={() => setPersonality('conservative')} 
+                  className={`py-2 px-3 rounded-lg text-sm ${personality === 'conservative' ? 'bg-blue-600 text-white' : 'bg-white/10 text-gray-300 hover:text-white'}`}
+                >
+                  Conservative
+                </button>
+                <button 
+                  onClick={() => setPersonality('balanced')} 
+                  className={`py-2 px-3 rounded-lg text-sm ${personality === 'balanced' ? 'bg-blue-600 text-white' : 'bg-white/10 text-gray-300 hover:text-white'}`}
+                >
+                  Balanced
+                </button>
+                <button 
+                  onClick={() => setPersonality('aggressive')} 
+                  className={`py-2 px-3 rounded-lg text-sm ${personality === 'aggressive' ? 'bg-blue-600 text-white' : 'bg-white/10 text-gray-300 hover:text-white'}`}
+                >
+                  Aggressive
+                </button>
+                <button 
+                  onClick={() => setPersonality('contrarian')} 
+                  className={`py-2 px-3 rounded-lg text-sm ${personality === 'contrarian' ? 'bg-blue-600 text-white' : 'bg-white/10 text-gray-300 hover:text-white'}`}
+                >
+                  Contrarian
+                </button>
               </div>
-            )}
 
-            <div className="text-center py-4">
-              <p className="text-gray-300 text-sm mb-2">
-                {aiEnabled 
-                  ? 'AI will automatically control DCA decisions when started' 
-                  : 'Enable AI to let the agent make autonomous trading decisions'
-                }
-              </p>
-              <p className="text-gray-400 text-xs">
-                The AI analyzes market metrics, whale activity, and portfolio balance to make optimal decisions
-              </p>
+              <div className="glass rounded-xl p-4 mb-4">
+                <div className="text-sm text-gray-300 mb-2">AI Status</div>
+                <div className="flex items-center gap-4">
+                  <div className={`flex items-center gap-2 ${aiEnabled ? 'text-green-400' : 'text-gray-400'}`}>
+                    <div className={`w-2 h-2 rounded-full ${aiEnabled ? 'bg-green-400' : 'bg-gray-400'}`}></div>
+                    {aiEnabled ? 'AI Enabled' : 'AI Disabled'}
+                  </div>
+                  <div className="text-gray-300">Personality: <span className="text-white capitalize">{personality}</span></div>
+                  {isProcessing && (
+                    <div className="flex items-center gap-2 text-yellow-400">
+                      <div className="animate-spin w-3 h-3 border border-yellow-400 border-t-transparent rounded-full"></div>
+                      Processing...
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="glass rounded-xl p-4 mb-4">
+                <div className="text-sm text-gray-300 mb-2">AI Provider</div>
+                <div className="flex items-center gap-3 mb-3 text-sm">
+                  <button
+                    onClick={() => setProvider('openai')}
+                    className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='openai'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
+                    title="active"
+                  >
+                    <span className={`w-2 h-2 rounded-full ${provider==='openai' ? (hasOpenAiKey ? 'bg-green-400' : 'bg-red-400') : 'bg-gray-400'}`}></span>
+                    OpenAI
+                  </button>
+                  <button
+                    onClick={() => setProvider('fortytwo')}
+                    className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='fortytwo'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
+                    title="Coming Soon"
+                  >
+                    <span className={`w-2 h-2 rounded-full ${provider==='fortytwo' ? 'bg-yellow-400' : 'bg-gray-400'}`}></span>
+                    FortyTwo network (swarm inference)
+                  </button>
+                  <button
+                    onClick={() => setProvider('opengradient')}
+                    className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='opengradient'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
+                    title="Ready. Needs Devnet Token."
+                  >
+                    <span className={`w-2 h-2 rounded-full ${provider==='opengradient' ? 'bg-yellow-400' : 'bg-gray-400'}`}></span>
+                    OpenGradient (swarm inference)
+                  </button>
+                </div>
+                
+                {provider==='opengradient' && (
+                  <div className="text-xs text-yellow-400">Ready. Needs Devnet Token.</div>
+                )}
+                {provider==='fortytwo' && (
+                  <div className="text-xs text-yellow-400">Coming Soon</div>
+                )}
+              </div>
+
+              {aiError && (
+                <div className="p-3 bg-red-600/20 border border-red-600/30 rounded-lg text-red-400 text-sm mb-4">
+                  {aiError}
+                </div>
+              )}
+
+              <div className="text-center py-4">
+                <p className="text-gray-300 text-sm mb-2">
+                  {aiEnabled 
+                    ? 'AI will automatically control DCA decisions when started' 
+                    : 'Enable AI to let the agent make autonomous trading decisions'
+                  }
+                </p>
+                <p className="text-gray-400 text-xs">
+                  The AI analyzes market metrics, whale activity, and portfolio balance to make optimal decisions
+                </p>
+              </div>
             </div>
           </div>
-          
-          {decisions.length > 0 && (
-            <div className="glass rounded-2xl p-5">
-              <div className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                <BarChart2 size={18}/>Decision History
-              </div>
-              <div className="space-y-3 max-h-60 overflow-y-auto">
-                {decisions.slice(0, 10).map((decision) => (
-                  <div key={decision.id} className="glass rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm text-gray-300">
-                        {new Date(decision.timestamp).toLocaleString()}
+
+          <div className="w-[560px] shrink-0" />
+
+          <div className="w-[360px] shrink-0 space-y-4 max-h-[78vh] overflow-y-auto pr-1">
+            {decisions.length > 0 && (
+              <div className="glass rounded-2xl p-5">
+                <div className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <BarChart2 size={18}/>Decision History
+                </div>
+                <div className="space-y-3 max-h-60 overflow-y-auto">
+                  {decisions.slice(0, 10).map((decision) => (
+                    <div key={decision.id} className="glass rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm text-gray-300">
+                          {new Date(decision.timestamp).toLocaleString()}
+                        </div>
+                        <div className={`px-2 py-1 rounded text-xs ${
+                          decision.executed ? 'bg-green-600/20 text-green-400' : 'bg-yellow-600/20 text-yellow-400'
+                        }`}>
+                          {decision.executed ? 'Executed' : 'Pending'}
+                        </div>
                       </div>
-                      <div className={`px-2 py-1 rounded text-xs ${
-                        decision.executed ? 'bg-green-600/20 text-green-400' : 'bg-yellow-600/20 text-yellow-400'
-                      }`}>
-                        {decision.executed ? 'Executed' : 'Pending'}
+                      <div className="text-white text-sm">
+                        <span className="capitalize">{decision.personality}</span>: {decision.action.type}
+                        {decision.action.type === 'BUY' && ` ${decision.action.amount} ${decision.action.sourceToken} → ${decision.action.targetToken}`}
+                        {decision.action.type === 'SELL_TO_MON' && ` ${decision.action.amount} ${decision.action.fromToken} → MON`}
+                        {decision.action.type === 'SELL_TO_USDC' && ` ${decision.action.amount} ${decision.action.fromToken} → USDC`}
+                        {decision.action.type === 'HOLD' && ` for ${decision.action.duration}s`}
+                      </div>
+                      <div className="text-gray-400 text-xs mt-1">{decision.action.reasoning}</div>
+                      <div className="text-gray-500 text-xs mt-1">
+                        Confidence: {Math.round(decision.confidence * 100)}% | Next: {decision.nextInterval}s
                       </div>
                     </div>
-                    <div className="text-white text-sm">
-                      <span className="capitalize">{decision.personality}</span>: {decision.action.type}
-                      {decision.action.type === 'BUY' && ` ${decision.action.amount} ${decision.action.sourceToken} → ${decision.action.targetToken}`}
-                      {decision.action.type === 'SELL_TO_MON' && ` ${decision.action.amount} ${decision.action.fromToken} → MON`}
-                      {decision.action.type === 'SELL_TO_USDC' && ` ${decision.action.amount} ${decision.action.fromToken} → USDC`}
-                      {decision.action.type === 'HOLD' && ` for ${decision.action.duration}s`}
-                    </div>
-                    <div className="text-gray-400 text-xs mt-1">{decision.action.reasoning}</div>
-                    <div className="text-gray-500 text-xs mt-1">
-                      Confidence: {Math.round(decision.confidence * 100)}% | Next: {decision.nextInterval}s
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
-
+    
       {active === 'metrics' && (
-        <div className="space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
+        <div className="flex items-stretch justify-center gap-4">
+          <div className="w-[360px] shrink-0 space-y-4 max-h-[78vh] overflow-y-auto pr-1">
             <div className="glass rounded-2xl p-5">
               <div className="text-sm text-gray-300">Users Today (all protocols)</div>
               <div className="text-2xl text-white font-bold">{todayTotals.users}</div>
@@ -876,23 +901,29 @@ export default function DcaControl() {
             </div>
           </div>
 
-          <div className="glass rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-lg font-semibold text-white">Protocol Metrics</div>
-              <div className="flex items-center gap-2 text-sm">
-                <button onClick={()=>setMetricKey('txDaily')} className={`px-2 py-1 rounded ${metricKey==='txDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx/day</button>
-                <button onClick={()=>setMetricKey('usersDaily')} className={`px-2 py-1 rounded ${metricKey==='usersDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Users/day</button>
-                <button onClick={()=>setMetricKey('txCumulative')} className={`px-2 py-1 rounded ${metricKey==='txCumulative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx cumulative</button>
-                <button onClick={()=>setMetricKey('avgTxPerUser')} className={`px-2 py-1 rounded ${metricKey==='avgTxPerUser'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg tx/user</button>
-                <button onClick={()=>setMetricKey('avgFeeNative')} className={`px-2 py-1 rounded ${metricKey==='avgFeeNative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg fee (MON)</button>
-                <span className="mx-2 h-5 w-px bg-white/10"/>
-                <button onClick={()=>setHistoryDays(30)} className={`px-2 py-1 rounded ${historyDays===30?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>30d</button>
-                <button onClick={()=>setHistoryDays(90)} className={`px-2 py-1 rounded ${historyDays===90?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>90d</button>
-                <button onClick={()=>setHistoryDays(180)} className={`px-2 py-1 rounded ${historyDays===180?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>180d</button>
-                <button onClick={()=>setHistoryDays(d=>Math.min(365, d + 30))} className="px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white" title="Increase range">+30d</button>
-                <button onClick={()=>loadOlder?.()} disabled={!hasMore} className={`px-2 py-1 rounded ${hasMore? 'bg-white/5 text-gray-300 hover:text-white':'bg-white/5 text-gray-500 cursor-not-allowed'}`} title="Charger plus ancien">Load older</button>
+          <div className="w-[560px] shrink-0" />
+
+          <div className="w-[360px] shrink-0 space-y-4 max-h-[78vh] overflow-y-auto pr-1">
+            <div className="glass rounded-2xl p-5">
+              <div className="mb-3">
+                <div className="text-lg font-semibold text-white mb-2">Protocol Metrics</div>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={()=>setMetricKey('txDaily')} className={`px-2 py-1 rounded ${metricKey==='txDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx/day</button>
+                    <button onClick={()=>setMetricKey('usersDaily')} className={`px-2 py-1 rounded ${metricKey==='usersDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Users/day</button>
+                    <button onClick={()=>setMetricKey('txCumulative')} className={`px-2 py-1 rounded ${metricKey==='txCumulative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx cumulative</button>
+                    <button onClick={()=>setMetricKey('avgTxPerUser')} className={`px-2 py-1 rounded ${metricKey==='avgTxPerUser'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg tx/user</button>
+                    <button onClick={()=>setMetricKey('avgFeeNative')} className={`px-2 py-1 rounded ${metricKey==='avgFeeNative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg fee (MON)</button>
+                  </div>
+                  <div className="flex items-center gap-2 ml-auto">
+                    <button onClick={()=>setHistoryDays(30)} className={`px-2 py-1 rounded ${historyDays===30?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>30d</button>
+                    <button onClick={()=>setHistoryDays(90)} className={`px-2 py-1 rounded ${historyDays===90?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>90d</button>
+                    <button onClick={()=>setHistoryDays(180)} className={`px-2 py-1 rounded ${historyDays===180?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>180d</button>
+                    <button onClick={()=>setHistoryDays(d=>Math.min(365, d + 30))} className="px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white" title="Increase range">+30d</button>
+                    <button onClick={()=>loadOlder?.()} disabled={!hasMore} className={`px-2 py-1 rounded ${hasMore? 'bg-white/5 text-gray-300 hover:text-white':'bg-white/5 text-gray-500 cursor-not-allowed'}`} title="Charger plus ancien">Load older</button>
+                  </div>
+                </div>
               </div>
-            </div>
 
             {dailyError && <div className="text-sm text-red-400 mb-2">{dailyError}</div>}
             {dailyLoading ? (
@@ -907,187 +938,202 @@ export default function DcaControl() {
                 dates={dates} 
               />
             )}
-          </div>
-
-          <div className="glass rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-lg font-semibold text-white">Token Metrics (live)</div>
-              <div className="flex items-center gap-2 text-sm">
-                <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('price') }} className={`px-2 py-1 rounded ${tokenMetricKind==='price'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Price</button>
-                <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('momentum') }} className={`px-2 py-1 rounded ${tokenMetricKind==='momentum'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Momentum</button>
-                <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('volatility') }} className={`px-2 py-1 rounded ${tokenMetricKind==='volatility'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Volatility</button>
-              </div>
-            </div>
-            {tokenMetricsLoading ? (
-              <div className="text-sm text-gray-300">Loading…</div>
-            ) : (
-              tokenMetricKind === 'volatility' ? (
-                <ProtocolBarChart
-                  data={getTargetTokens().map(t => {
-                    const m = tokenMetrics.find(tm => tm.token === t.symbol)
-                    return { protocolId: t.symbol, value: Number(m?.volatility || 0) }
-                  })}
-                />
-              ) : (
-                (() => {
-                  const selected = getToken(outToken)
-                  const sym = selected?.symbol || ''
-                  const baseSeries = Object.values(tokenSeries)
-                  const s = tokenSeries[sym]?.points || []
-                  function ma(points: {x:string;y:number}[], window: number) {
-                    const out: {x:string;y:number}[] = []
-                    let sum = 0
-                    for (let i = 0; i < points.length; i++) {
-                      sum += points[i].y
-                      if (i >= window) sum -= points[i-window].y
-                      if (i >= window-1) out.push({ x: points[i].x, y: sum / window })
-                    }
-                    return out
-                  }
-                  function ema(points: {x:string;y:number}[], window: number) {
-                    const k = 2 / (window + 1)
-                    let e: number | null = null
-                    const out: {x:string;y:number}[] = []
-                    for (let i = 0; i < points.length; i++) {
-                      const y = points[i].y
-                      e = e == null ? y : (y * k + (e as number) * (1 - k))
-                      out.push({ x: points[i].x, y: e })
-                    }
-                    return out
-                  }
-                  const overlays = [] as { token: string; points: {x:string;y:number}[] }[]
-                  if (tokenMetricKind === 'price') {
-                    if (showMA5 && s.length) overlays.push({ token: 'MA5', points: ma(s, 5) })
-                    if (showMA15 && s.length) overlays.push({ token: 'MA15', points: ma(s, 15) })
-                    if (showEMA9 && s.length) overlays.push({ token: 'EMA9', points: ema(s, 9) })
-                    if (showEMA21 && s.length) overlays.push({ token: 'EMA21', points: ema(s, 21) })
-                  }
-                  return (
-                    <div>
-                      <div className="flex items-center gap-3 mb-2 text-xs text-gray-300">
-                        {tokenMetricKind==='price' && (
-                          <>
-                            <label className="inline-flex items-center gap-1">
-                              <input type="checkbox" className="accent-purple-500" checked={showMA5} onChange={(e)=>setShowMA5(e.target.checked)} /> MA5
-                            </label>
-                            <label className="inline-flex items-center gap-1">
-                              <input type="checkbox" className="accent-purple-500" checked={showMA15} onChange={(e)=>setShowMA15(e.target.checked)} /> MA15
-                            </label>
-                            <label className="inline-flex items-center gap-1">
-                              <input type="checkbox" className="accent-purple-500" checked={showEMA9} onChange={(e)=>setShowEMA9(e.target.checked)} /> EMA9
-                            </label>
-                            <label className="inline-flex items-center gap-1">
-                              <input type="checkbox" className="accent-purple-500" checked={showEMA21} onChange={(e)=>setShowEMA21(e.target.checked)} /> EMA21
-                            </label>
-                            <label className="inline-flex items-center gap-1 ml-2" title="Gate DCA by EMA cross (EMA9 ≥ EMA21)">
-                              <input type="checkbox" className="accent-emerald-500" checked={emaGate} onChange={(e)=>setEmaGate(e.target.checked)} /> Use EMA cross gate
-                            </label>
-                            <span className="text-gray-500">for {sym || 'selected token'}</span>
-                          </>
-                        )}
-                      </div>
-                      <TokenMetricsChart 
-                        series={baseSeries}
-                        dates={tokenDates}
-                        zeroAxis={tokenMetricKind==='momentum'}
-                        overlays={overlays}
-                        volBars={(tokenVolSeries[sym]?.points || []).map(p => ({ x: p.x, y: p.y }))}
-                      />
-                    </div>
-                  )
-                })()
-              )
-            )}
-            <div className="text-xs text-gray-400 mt-2">Values normalized against USDC or WMON for comparability. Includes UniversalRouter and Kuru OrderBook trades. Refreshes as metrics update.</div>
-          </div>
-
-          <div className="glass rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-lg font-semibold text-white">Whale Movements (7d)</div>
-            </div>
-            {whalesError && <div className="text-sm text-red-400 mb-2">{whalesError}</div>}
-            {whalesLoading ? (
-              <div className="text-sm text-gray-300">Loading…</div>
-            ) : (
-              <div className="max-h-56 overflow-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-gray-400">
-                      <th className="text-left">Token</th>
-                      <th className="text-left">Amount</th>
-                      <th className="text-left">From → To</th>
-                      <th className="text-left">Time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(whaleMoves || []).slice(0, 50).map((m, i) => (
-                      <tr key={m.id || i} className="text-gray-200">
-                        <td className="py-1">{m.token}</td>
-                        <td className="py-1">{Number(m.value).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                        <td className="py-1">
-                          {m.from.slice(0,6)}…{m.from.slice(-4)} → {m.to.slice(0,6)}…{m.to.slice(-4)}
-                        </td>
-                        <td className="py-1">{new Date(m.blockTimestamp * 1000).toISOString().slice(5,16)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <div className="glass rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-lg font-semibold text-white">Today by Protocol</div>
-              <div className="flex items-center gap-2 text-sm">
-                <button onClick={()=>setTodayMetric('txDaily')} className={`px-2 py-1 rounded ${todayMetric==='txDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx/day</button>
-                <button onClick={()=>setTodayMetric('usersDaily')} className={`px-2 py-1 rounded ${todayMetric==='usersDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Users/day</button>
-              </div>
             </div>
 
-            {todayError && <div className="text-sm text-red-400 mb-2">{todayError}</div>}
-            {todayLoading ? (
-              <div className="text-sm text-gray-300">Loading…</div>
-            ) : (
-              <ProtocolBarChart data={todayBarData} />
-            )}
-          </div>
-
-          <div className="glass rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-lg font-semibold text-white">Totals by Protocol</div>
-              <div className="flex items-center gap-2 text-sm">
-                <button onClick={()=>setTotalMetric('txCumulative')} className={`px-2 py-1 rounded ${totalMetric==='txCumulative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx cumulative</button>
-                <button onClick={()=>setTotalMetric('avgTxPerUser')} className={`px-2 py-1 rounded ${totalMetric==='avgTxPerUser'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg tx/user</button>
-                <button onClick={()=>setTotalMetric('avgFeeNative')} className={`px-2 py-1 rounded ${totalMetric==='avgFeeNative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg fee (MON)</button>
-              </div>
-            </div>
-
-            <ProtocolBarChart data={totalsBarData} />
-          </div>
-
-          <div className="glass rounded-2xl p-5">
-            <div className="text-lg font-semibold text-white mb-2">Realtime Protocol Totals</div>
-            <div className="grid grid-cols-5 gap-2 text-xs text-gray-300 mb-1">
-              <div className="font-semibold">Protocol</div>
-              <div className="font-semibold">Tx cumulative</div>
-              <div className="font-semibold">Avg tx/user</div>
-              <div className="font-semibold">Avg fee (MON)</div>
-              <div className="font-semibold">Today users/tx</div>
-            </div>
-            {PROTOCOLS.map(pid => {
-              const latest = latestData.find(l=>l.protocolId===pid)
-              const todayRow: any = todayData.find(t=>t.protocolId===pid)
-              return (
-                <div key={pid} className="grid grid-cols-5 gap-2 text-xs text-gray-300 py-1">
-                  <div className="text-white">{pid}</div>
-                  <div>{latest ? latest.txCumulative : 0}</div>
-                  <div>{latest ? latest.avgTxPerUser.toFixed(2) : '0.00'}</div>
-                  <div>{latest && latest.avgFeeNative != null ? latest.avgFeeNative.toFixed(6) : '-'}</div>
-                  <div>{todayRow ? `${todayRow.usersDaily}/${todayRow.txDaily}` : '0/0'}</div>
+            <div className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-lg font-semibold text-white">Token Metrics (live)</div>
+                <div className="flex items-center gap-2 text-sm">
+                  <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('price') }} className={`px-2 py-1 rounded ${tokenMetricKind==='price'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Price</button>
+                  <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('momentum') }} className={`px-2 py-1 rounded ${tokenMetricKind==='momentum'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Momentum</button>
+                  <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('volatility') }} className={`px-2 py-1 rounded ${tokenMetricKind==='volatility'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Volatility</button>
                 </div>
-              )
-            })}
+              </div>
+              {tokenMetricsLoading ? (
+                <div className="text-sm text-gray-300">Loading…</div>
+              ) : (
+                tokenMetricKind === 'volatility' ? (
+                  <ProtocolBarChart
+                    data={getTargetTokens().map(t => {
+                      const m = tokenMetrics.find(tm => tm.token === t.symbol)
+                      return { protocolId: t.symbol, value: Number(m?.volatility || 0) }
+                    })}
+                  />
+                ) : (
+                  (() => {
+                    const selected = getToken(outToken)
+                    const sym = selected?.symbol || ''
+                    const baseSeries = Object.values(tokenSeries)
+                    const s = tokenSeries[sym]?.points || []
+                    function ma(points: {x:string;y:number}[], window: number) {
+                      const out: {x:string;y:number}[] = []
+                      let sum = 0
+                      for (let i = 0; i < points.length; i++) {
+                        sum += points[i].y
+                        if (i >= window) sum -= points[i-window].y
+                        if (i >= window-1) out.push({ x: points[i].x, y: sum / window })
+                      }
+                      return out
+                    }
+                    function ema(points: {x:string;y:number}[], window: number) {
+                      const k = 2 / (window + 1)
+                      let e: number | null = null
+                      const out: {x:string;y:number}[] = []
+                      for (let i = 0; i < points.length; i++) {
+                        const y = points[i].y
+                        e = e == null ? y : (y * k + (e as number) * (1 - k))
+                        out.push({ x: points[i].x, y: e })
+                      }
+                      return out
+                    }
+                    const overlays = [] as { token: string; points: {x:string;y:number}[] }[]
+                    if (tokenMetricKind === 'price') {
+                      if (showMA5 && s.length) overlays.push({ token: 'MA5', points: ma(s, 5) })
+                      if (showMA15 && s.length) overlays.push({ token: 'MA15', points: ma(s, 15) })
+                      if (showEMA9 && s.length) overlays.push({ token: 'EMA9', points: ema(s, 9) })
+                      if (showEMA21 && s.length) overlays.push({ token: 'EMA21', points: ema(s, 21) })
+                    }
+                    return (
+                      <div>
+                        <div className="flex items-center gap-3 mb-2 text-xs text-gray-300">
+                          {tokenMetricKind==='price' && (
+                            <>
+                              <label className="inline-flex items-center gap-1">
+                                <input type="checkbox" className="accent-purple-500" checked={showMA5} onChange={(e)=>setShowMA5(e.target.checked)} /> MA5
+                              </label>
+                              <label className="inline-flex items-center gap-1">
+                                <input type="checkbox" className="accent-purple-500" checked={showMA15} onChange={(e)=>setShowMA15(e.target.checked)} /> MA15
+                              </label>
+                              <label className="inline-flex items-center gap-1">
+                                <input type="checkbox" className="accent-purple-500" checked={showEMA9} onChange={(e)=>setShowEMA9(e.target.checked)} /> EMA9
+                              </label>
+                              <label className="inline-flex items-center gap-1">
+                                <input type="checkbox" className="accent-purple-500" checked={showEMA21} onChange={(e)=>setShowEMA21(e.target.checked)} /> EMA21
+                              </label>
+                              <label className="inline-flex items-center gap-1 ml-2" title="Gate DCA by EMA cross (EMA9 ≥ EMA21)">
+                                <input type="checkbox" className="accent-emerald-500" checked={emaGate} onChange={(e)=>setEmaGate(e.target.checked)} /> Use EMA cross gate
+                              </label>
+                              <span className="text-gray-500">for {sym || 'selected token'}</span>
+                            </>
+                          )}
+                        </div>
+                        <TokenMetricsChart 
+                          series={baseSeries}
+                          dates={tokenDates}
+                          zeroAxis={tokenMetricKind==='momentum'}
+                          overlays={overlays}
+                          volBars={(tokenVolSeries[sym]?.points || []).map(p => ({ x: p.x, y: p.y }))}
+                        />
+                      </div>
+                    )
+                  })()
+                )
+              )}
+              <div className="text-xs text-gray-400 mt-2">Values normalized against USDC or WMON for comparability. Includes UniversalRouter and Kuru OrderBook trades. Refreshes as metrics update.</div>
+            </div>
+
+            <div className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-lg font-semibold text-white">Whale Movements (7d)</div>
+              </div>
+              {whalesError && <div className="text-sm text-red-400 mb-2">{whalesError}</div>}
+              {whalesLoading ? (
+                <div className="text-sm text-gray-300">Loading…</div>
+              ) : (
+                <div className="max-h-80 overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-gray-400">
+                        <th className="text-left">Token</th>
+                        <th className="text-left">Amount</th>
+                        <th className="text-left">From → To</th>
+                        <th className="text-left">Tx</th>
+                        <th className="text-left">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(whaleRows || []).slice(0, 150).map((m, i) => (
+                        <tr key={m.id || i} className="text-gray-200">
+                          <td className="py-1">{m.token}</td>
+                          <td className="py-1">{Number(m.value).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                          <td className="py-1">
+                            {m.from.slice(0,6)}…{m.from.slice(-4)} → {m.to.slice(0,6)}…{m.to.slice(-4)}
+                          </td>
+                          <td className="py-1">
+                            {m.transactionHash ? (
+                              <button
+                                className="text-indigo-300 hover:text-white underline underline-offset-2"
+                                onClick={() => navigator.clipboard?.writeText?.(m.transactionHash)}
+                                title="Copy tx hash"
+                              >
+                                {m.transactionHash.slice(0,8)}…{m.transactionHash.slice(-6)}
+                              </button>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                          <td className="py-1">{new Date(m.blockTimestamp * 1000).toISOString().slice(5,16)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-lg font-semibold text-white">Today by Protocol</div>
+                <div className="flex items-center gap-2 text-sm">
+                  <button onClick={()=>setTodayMetric('txDaily')} className={`px-2 py-1 rounded ${todayMetric==='txDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx/day</button>
+                  <button onClick={()=>setTodayMetric('usersDaily')} className={`px-2 py-1 rounded ${todayMetric==='usersDaily'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Users/day</button>
+                </div>
+              </div>
+
+              {todayError && <div className="text-sm text-red-400 mb-2">{todayError}</div>}
+              {todayLoading ? (
+                <div className="text-sm text-gray-300">Loading…</div>
+              ) : (
+                <ProtocolBarChart data={todayBarData} />
+              )}
+            </div>
+
+            <div className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-lg font-semibold text-white">Totals by Protocol</div>
+                <div className="flex items-center gap-2 text-sm">
+                  <button onClick={()=>setTotalMetric('txCumulative')} className={`px-2 py-1 rounded ${totalMetric==='txCumulative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx cumulative</button>
+                  <button onClick={()=>setTotalMetric('avgTxPerUser')} className={`px-2 py-1 rounded ${totalMetric==='avgTxPerUser'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg tx/user</button>
+                  <button onClick={()=>setTotalMetric('avgFeeNative')} className={`px-2 py-1 rounded ${totalMetric==='avgFeeNative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg fee (MON)</button>
+                </div>
+              </div>
+
+              <ProtocolBarChart data={totalsBarData} />
+            </div>
+
+            <div className="glass rounded-2xl p-5">
+              <div className="text-lg font-semibold text-white mb-2">Realtime Protocol Totals</div>
+              <div className="grid grid-cols-5 gap-2 text-xs text-gray-300 mb-1">
+                <div className="font-semibold">Protocol</div>
+                <div className="font-semibold">Tx cumulative</div>
+                <div className="font-semibold">Avg tx/user</div>
+                <div className="font-semibold">Avg fee (MON)</div>
+                <div className="font-semibold">Today users/tx</div>
+              </div>
+              {PROTOCOLS.map(pid => {
+                const latest = latestData.find(l=>l.protocolId===pid)
+                const todayRow: any = todayData.find(t=>t.protocolId===pid)
+                return (
+                  <div key={pid} className="grid grid-cols-5 gap-2 text-xs text-gray-300 py-1">
+                    <div className="text-white">{pid}</div>
+                    <div>{latest ? latest.txCumulative : 0}</div>
+                    <div>{latest ? latest.avgTxPerUser.toFixed(2) : '0.00'}</div>
+                    <div>{latest && latest.avgFeeNative != null ? latest.avgFeeNative.toFixed(6) : '-'}</div>
+                    <div>{todayRow ? `${todayRow.usersDaily}/${todayRow.txDaily}` : '0/0'}</div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
       )}

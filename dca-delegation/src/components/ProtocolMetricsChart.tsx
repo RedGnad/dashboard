@@ -84,8 +84,18 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
   }
 
   return (
-    <div className="w-full overflow-x-auto">
-      <svg width={width} height={h} viewBox={`0 0 ${width} ${h}`} className="select-none">
+    <div className="w-full">
+      <div className="w-full overflow-x-auto">
+        <svg width={width} height={h} viewBox={`0 0 ${width} ${h}`} className="select-none">
+        <defs>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="4.5" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
         {/* Axes */}
         <line x1={padding.left} y1={padding.top} x2={padding.left} y2={h - padding.bottom} stroke="#444" strokeWidth={1}/>
         <line x1={padding.left} y1={h - padding.bottom} x2={width - padding.right} y2={h - padding.bottom} stroke="#444" strokeWidth={1}/>
@@ -109,12 +119,13 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
           </text>
         ) : null)}
 
-        {/* Series */}
+        {/* Series with neon glow */}
         {series.map((s, i) => {
           const path = buildPath(s.points)
           const color = getColor(s.protocolId, i)
           return (
             <g key={s.protocolId}>
+              <path d={path} fill="none" stroke={color} strokeWidth={8} opacity={0.45} filter="url(#glow)" />
               <path d={path} fill="none" stroke={color} strokeWidth={2} />
             </g>
           )
@@ -164,9 +175,10 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
           }}
           onMouseLeave={()=>{ setHoverIdx(null); setHoverY(null) }}
         />
-      </svg>
+        </svg>
+      </div>
 
-      {/* Legend */}
+      {/* Legend (outside scroll) */}
       <div className="flex flex-wrap gap-3 mt-2 text-xs">
         {series.map((s, i) => {
           const v = (hoverIdx != null && hoverIdx >=0 && hoverIdx < dates.length) ? (()=>{
@@ -174,9 +186,13 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
             const pt = s.points.find(pt=>pt.x===d)
             return pt ? pt.y : null
           })() : null
+          const color = getColor(s.protocolId, i)
           return (
             <div key={s.protocolId} className="flex items-center gap-2">
-              <span className="inline-block w-3 h-3 rounded" style={{ background: getColor(s.protocolId, i) }} />
+              <span
+                className="inline-block w-3 h-3 rounded"
+                style={{ background: color, boxShadow: `0 0 8px ${color}, 0 0 2px ${color}` }}
+              />
               <span className="text-gray-300">{s.protocolId}</span>
               {v != null && <span className="text-white">{formatNumber(v)}</span>}
             </div>

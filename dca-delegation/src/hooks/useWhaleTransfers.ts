@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { queryEnvio } from '../lib/envioClient'
-import { TOKENS } from '../lib/tokens'
+import { TOKENS, USDC } from '../lib/tokens'
+import { useTokenMetrics } from './useTokenMetrics'
 
 export type WhaleMove = {
   id: string
@@ -48,6 +49,15 @@ export function useWhaleTransfers(days: number = 7) {
   const [error, setError] = useState<string | null>(null)
   const envioEnabled = (import.meta.env.VITE_ENVIO_ENABLED === 'true')
 
+  const { tokenMetrics } = useTokenMetrics()
+  const priceBySymbol = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const tm of tokenMetrics) {
+      if (Number.isFinite(tm.price) && tm.price > 0) m[tm.token] = tm.price
+    }
+    return m
+  }, [tokenMetrics])
+
   const since = useMemo(() => {
     const nowSec = Math.floor(Date.now() / 1000)
     return nowSec - days * 86400
@@ -76,12 +86,21 @@ export function useWhaleTransfers(days: number = 7) {
         for (const r of rows) {
           const sym = symbolFromAddress(r.tokenAddress)
           if (!sym) continue
-          const thr = thresholdForSymbol(sym)
           try {
+            const dec = decimalsForSymbol(sym)
             const val = BigInt(r.value)
-            if (val >= thr) {
-              const dec = decimalsForSymbol(sym)
-              const norm = Number(val) / Math.pow(10, dec)
+            const amount = Number(val) / Math.pow(10, dec)
+            if (!Number.isFinite(amount)) continue
+            let eqUSDC = 0
+            if ((TOKENS[sym as keyof typeof TOKENS]?.address as string)?.toLowerCase() === USDC.toLowerCase()) {
+              eqUSDC = amount
+            } else {
+              const price = priceBySymbol[sym]
+              if (!Number.isFinite(price) || price <= 0) continue
+              eqUSDC = amount * price
+            }
+            // Abaisser le seuil pour "remplir" le registre (>= 1000 USDC eq)
+            if (eqUSDC >= 1000) {
               out.push({
                 id: r.id,
                 token: sym,
@@ -89,7 +108,7 @@ export function useWhaleTransfers(days: number = 7) {
                 from: r.from,
                 to: r.to,
                 valueRaw: r.value,
-                value: norm,
+                value: amount,
                 blockTimestamp: Number(r.blockTimestamp),
                 transactionHash: r.transactionHash,
               })

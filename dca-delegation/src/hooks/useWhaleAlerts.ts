@@ -116,15 +116,15 @@ export function useWhaleAlerts() {
             eqUSDC = amount
           } else {
             const price = priceBySymbol[tok.symbol]
-            if (!Number.isFinite(price) || price <= 0) continue // skip if no price
+            if (!Number.isFinite(price) || price <= 0) continue
             eqUSDC = amount * price
           }
 
-          // Ignore small moves (< 100 USDC eq)
           if (eqUSDC < 100) continue
 
-          // Keep only whales >= 30000 USDC eq
-          if (eqUSDC >= 30000) {
+          const isWMon = tok.symbol === 'WMON'
+          const isWhale = isWMon ? (amount >= 10000) : (eqUSDC >= 30000)
+          if (isWhale) {
             combined.push({ token: t.tokenAddress, from: t.from, to: t.to, value: String(t.value), ts: Number(t.blockTimestamp), tx: t.transactionHash })
           }
         }

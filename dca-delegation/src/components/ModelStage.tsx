@@ -89,7 +89,7 @@ export default function ModelStage({ modelUrl = '/model.glb' }: { modelUrl?: str
   }, [modelUrl])
 
   return (
-    <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0 w-[560px] h-[560px]">
+    <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-[560px] h-[560px]">
       <Canvas shadows dpr={[1, 2]} camera={{ position: [0, 0, 3.2], fov: 40 }} gl={{ antialias: true }} style={{ pointerEvents: 'none' }}>
         <group ref={root}>
           {hasModel ? (

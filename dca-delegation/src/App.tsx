@@ -2,10 +2,13 @@ import { useState } from 'react'
 import { useAccount, useSignMessage, useChainId, useSwitchChain } from 'wagmi'
 import { ConnectKitButton } from 'connectkit'
 import Background from './components/Background'
+import ParticlesLayer from './components/ParticlesLayer'
 import WhaleNotifications from './components/WhaleNotifications'
 import DcaControl from './components/DcaControl'
 import ModelStage from './components/ModelStage'
+import AiBubbleOverlay from './components/AiBubbleOverlay'
 import { CHAIN_ID } from './lib/chain'
+import { useAutonomousAi } from './hooks/useAutonomousAi'
 
 function App() {
   const { address, isConnected } = useAccount()
@@ -14,6 +17,17 @@ function App() {
   const { switchChain } = useSwitchChain()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isAuthenticating, setIsAuthenticating] = useState(false)
+  const { personality } = useAutonomousAi()
+
+  const modelUrl = (() => {
+    const map: Record<string, string> = {
+      conservative: '/models/conservative.glb',
+      balanced: '/models/balanced.glb',
+      aggressive: '/models/aggressive.glb',
+      contrarian: '/models/contrarian.glb',
+    }
+    return map[personality] || '/model.glb'
+  })()
 
   const handlePersonalSign = async () => {
     if (!address) return
@@ -45,8 +59,10 @@ function App() {
   return (
     <div className="min-h-screen relative">
       <Background />
+      <ParticlesLayer />
       {isConnected && isAuthenticated && <WhaleNotifications />}
-      {isAuthenticated && <ModelStage />}
+      {isAuthenticated && <ModelStage modelUrl={modelUrl} />}
+      {isAuthenticated && <AiBubbleOverlay />}
       
       <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
         {!isConnected ? (

@@ -23,7 +23,7 @@ import {
   redeemDepositMonDelegation,
   redeemWithdrawMonDelegation
 } from '../lib/delegation'
-import { TOKENS, WMON } from '../lib/tokens'
+import { TOKENS, WMON, STAKE_MANAGER } from '../lib/tokens'
 import { getAllBalances } from '../lib/balances'
 import { validateEnv } from '../lib/clients'
 import { dcaScheduler } from '../lib/scheduler'
@@ -675,6 +675,21 @@ export function useDcaDelegation() {
         console.log('[convertAllToMon] Starting conversion for address:', addr)
         console.log('[convertAllToMon] Current balances:', balances)
 
+        // Pre-create value delegation now (popup here), to avoid popup later during withdraws
+        try {
+          if (address) {
+            const capWei = parseUnits('1000000', 18)
+            await getOrCreateValueDelegation(
+              delegatorSmartAccount,
+              delegateSmartAccount,
+              address as `0x${string}`,
+              capWei
+            )
+          }
+        } catch (e) {
+          console.warn('[convertAllToMon] Pre-create value delegation failed or skipped:', e)
+        }
+
         // Convert every ERC20 (excluding WMON) into WMON
         for (const t of Object.values(TOKENS)) {
           if (t.isNative) continue // skip MON (native)
@@ -743,6 +758,46 @@ export function useDcaDelegation() {
           )
           console.log('[convertAllToMon] WMON unwrap UO:', uoHash)
           setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+        }
+
+        // Try to unstake gMON to MON if an existing Magma delegation is already cached (silent/no new popup)
+        try {
+          const afterUnwrap = await getAllBalances(addr)
+          setBalances(afterUnwrap)
+          const gmonStr = (afterUnwrap as any).gMON || '0'
+          const gmonWei = parseUnits(gmonStr || '0', 18)
+          if (gmonWei > 0n) {
+            const key = `dca-magma-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+            const stored = localStorage.getItem(key)
+            if (stored) {
+              try {
+                const md = JSON.parse(stored)
+                const targets: string[] = (md.delegation?.scope?.targets || md.scope?.targets || [])
+                const sels: string[] = (md.delegation?.scope?.selectors || md.scope?.selectors || [])
+                const hasTarget = Array.isArray(targets) && targets.map((x:string)=>x.toLowerCase()).includes((STAKE_MANAGER as string).toLowerCase())
+                const selSet = new Set(Array.isArray(sels) ? sels : [])
+                const hasSelectors = selSet.has('withdrawMon(uint256)')
+                const match = (md.from?.toLowerCase?.() === delegatorSmartAccount.address.toLowerCase()) && (md.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase())
+                if (match && hasTarget && hasSelectors && !isDelegationExpired(md)) {
+                  console.log('[convertAllToMon] Unstaking gMON silently:', gmonStr)
+                  const uoHash2 = await redeemWithdrawMonDelegation(
+                    delegateSmartAccount,
+                    md,
+                    gmonStr
+                  )
+                  setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash2 }))
+                } else {
+                  console.log('[convertAllToMon] No valid cached Magma delegation; skipping gMON unstake to avoid popup')
+                }
+              } catch (e) {
+                console.warn('[convertAllToMon] Failed to parse cached Magma delegation; skipping unstake', e)
+              }
+            } else {
+              console.log('[convertAllToMon] No cached Magma delegation found; skipping gMON unstake to avoid popup')
+            }
+          }
+        } catch (e) {
+          console.warn('[convertAllToMon] Silent gMON unstake skipped:', e)
         }
 
         // Final balance refresh

@@ -36,6 +36,15 @@ export default function ProtocolBarChart({ data, height = 220 }: Props) {
 
   return (
     <svg viewBox={`0 0 ${width} ${h}`} className="w-full h-auto">
+      <defs>
+        <filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width={width} height={h}>
+          <feGaussianBlur stdDeviation="1.8" result="coloredBlur" />
+          <feMerge>
+            <feMergeNode in="coloredBlur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
       {/* axes */}
       <line x1={padding.left} y1={padding.top} x2={padding.left} y2={h - padding.bottom} stroke="#444" strokeWidth={1} />
       <line x1={padding.left} y1={h - padding.bottom} x2={width - padding.right} y2={h - padding.bottom} stroke="#444" strokeWidth={1} />
@@ -52,15 +61,19 @@ export default function ProtocolBarChart({ data, height = 220 }: Props) {
         )
       })}
 
-      {/* bars */}
+      {/* bars with neon glow */}
       {items.map((it, idx) => {
         const x = padding.left + idx * (barWidth + barGap)
         const val = Number(it.value || 0)
         const y = yPos(val)
         const color = COLORS[it.protocolId] || '#94a3b8'
+        const heightVal = padding.top + innerH - y
         return (
-          <g key={it.protocolId}>
-            <rect x={x} y={y} width={barWidth} height={padding.top + innerH - y} fill={color} opacity={0.9} />
+          <g key={it.protocolId} style={{ filter: `drop-shadow(0 0 3px ${color}) drop-shadow(0 0 1px ${color})`, mixBlendMode: 'screen' as any }}>
+            <rect x={x} y={y} width={barWidth} height={heightVal} fill="none" stroke={color} strokeWidth={6} opacity={0.08} />
+            <rect x={x} y={y} width={barWidth} height={heightVal} fill="none" stroke={color} strokeWidth={5} opacity={0.12} filter="url(#glow)" />
+            <rect x={x} y={y} width={barWidth} height={heightVal} fill={color} opacity={0.08} filter="url(#glow)" />
+            <rect x={x} y={y} width={barWidth} height={heightVal} fill={color} opacity={0.9} />
             <text x={x + barWidth / 2} y={h - padding.bottom + 18} textAnchor="middle" fill="#9ca3af" fontSize={10}>{it.protocolId}</text>
           </g>
         )

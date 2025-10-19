@@ -97,7 +97,17 @@ export default function TokenMetricsChart({ series, dates, height = 220, zeroAxi
 
   return (
     <div className="w-full">
-      <svg viewBox={`0 0 ${width} ${h}`} className="w-full h-auto select-none">
+      <div className="w-full">
+        <svg viewBox={`0 0 ${width} ${h}`} className="w-full h-auto select-none overflow-x-auto">
+        <defs>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3.0" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
         <line x1={padding.left} y1={padding.top} x2={padding.left} y2={h - padding.bottom} stroke="#444" strokeWidth={1}/>
         <line x1={padding.left} y1={h - padding.bottom} x2={width - padding.right} y2={h - padding.bottom} stroke="#444" strokeWidth={1}/>
         {Array.from({ length: 5 }).map((_, i) => {
@@ -126,6 +136,7 @@ export default function TokenMetricsChart({ series, dates, height = 220, zeroAxi
           const color = getColor(s.token, i)
           return (
             <g key={s.token}>
+              <path d={path} fill="none" stroke={color} strokeWidth={6} opacity={0.3} filter="url(#glow)" />
               <path d={path} fill="none" stroke={color} strokeWidth={2} />
             </g>
           )
@@ -136,15 +147,20 @@ export default function TokenMetricsChart({ series, dates, height = 220, zeroAxi
             {volBars.filter(p => dateIndex[p.x] !== undefined).map((p, i) => {
               const idx = dateIndex[p.x]
               const cx = xPos(idx)
-              const h = (p.y / volMax) * barBand
+              const hVal = (p.y / volMax) * barBand
               const x = cx - barW / 2
-              const y = padding.top + innerH - h
-              return <rect key={`vb_${i}`} x={x} y={y} width={barW} height={h} fill="#334155" opacity={0.6} />
+              const y = padding.top + innerH - hVal
+              return (
+                <g key={`vb_${i}`}>
+                  <rect x={x} y={y} width={barW} height={hVal} fill="#94a3b8" opacity={0.25} filter="url(#glow)" />
+                  <rect x={x} y={y} width={barW} height={hVal} fill="#334155" opacity={0.7} />
+                </g>
+              )
             })}
           </g>
         )}
 
-        {overlays.map((s, i) => {
+        {overlays.map((s) => {
           const path = buildPath(s.points)
           const color = '#94a3b8' // slate-400 for overlays
           return (
@@ -195,20 +211,27 @@ export default function TokenMetricsChart({ series, dates, height = 220, zeroAxi
           }}
           onMouseLeave={()=>{ setHoverIdx(null); setHoverY(null) }}
         />
-      </svg>
+        </svg>
+      </div>
 
       <div className="flex flex-wrap gap-3 mt-2 text-xs">
-        {series.map((s, i) => (
-          <div key={s.token} className="flex items-center gap-2">
-            <span className="inline-block w-3 h-3 rounded" style={{ background: getColor(s.token, i) }} />
-            <span className="text-gray-300">{s.token}</span>
-            {hoverIdx != null && hoverIdx >= 0 && hoverIdx < dates.length && (() => {
-              const d = dates[hoverIdx]
-              const pt = s.points.find(pt => pt.x === d)
-              return pt ? <span className="text-white">{formatNumber(pt.y)}</span> : null
-            })()}
-          </div>
-        ))}
+        {series.map((s, i) => {
+          const color = getColor(s.token, i)
+          return (
+            <div key={s.token} className="flex items-center gap-2">
+              <span
+                className="inline-block w-3 h-3 rounded"
+                style={{ background: color, boxShadow: `0 0 8px ${color}, 0 0 2px ${color}` }}
+              />
+              <span className="text-gray-300">{s.token}</span>
+              {hoverIdx != null && hoverIdx >= 0 && hoverIdx < dates.length && (() => {
+                const d = dates[hoverIdx]
+                const pt = s.points.find(pt => pt.x === d)
+                return pt ? <span className="text-white">{formatNumber(pt.y)}</span> : null
+              })()}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
