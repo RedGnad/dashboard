@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { parseUnits } from 'viem'
 import { useDcaDelegation } from '../hooks/useDcaDelegation'
 import { USDC, CHOG, getTargetTokens, getToken, getAllTradableTokens, TOKENS } from '../lib/tokens'
@@ -73,7 +73,7 @@ export default function DcaControl() {
   const [withdrawDecimals, setWithdrawDecimals] = useState<number>(18)
   const [withdrawBalance, setWithdrawBalance] = useState<string>('0')
 
-  const [tokenMetricKind, setTokenMetricKind] = useState<'momentum'|'volatility'>('momentum')
+  const [tokenMetricKind, setTokenMetricKind] = useState<'momentum'|'volatility'|'price'>('price')
   const [tokenDates, setTokenDates] = useState<string[]>([])
   const [tokenSeries, setTokenSeries] = useState<Record<string, { token: string; points: { x: string; y: number }[] }>>({})
 
@@ -90,6 +90,16 @@ export default function DcaControl() {
   const [aiStopEnabled, setAiStopEnabled] = useState(false)
   const [aiStopKind, setAiStopKind] = useState<'above'|'below'>('below')
   const [aiStopPrice, setAiStopPrice] = useState<string>('')
+  const [showManualLimits, setShowManualLimits] = useState(false)
+  const [showAiLimits, setShowAiLimits] = useState(false)
+  const [trailEnabled, setTrailEnabled] = useState(false)
+  const [trailPct, setTrailPct] = useState<string>('5')
+  const [aiTrailEnabled, setAiTrailEnabled] = useState(false)
+  const [aiTrailPct, setAiTrailPct] = useState<string>('5')
+  const trailHighRef = useRef<Record<string, number>>({})
+  const aiTrailHighRef = useRef<Record<string, number>>({})
+  const [showMA5, setShowMA5] = useState(false)
+  const [showMA15, setShowMA15] = useState(false)
 
   useEffect(() => {
     if (tokenMetricsLoading) return
@@ -97,18 +107,21 @@ export default function DcaControl() {
     const label = now.toISOString().slice(11, 19)
     const allowed = getTargetTokens().map(t => t.symbol)
     const nextSeries = { ...tokenSeries }
-    for (const sym of allowed) {
-      const m = tokenMetrics.find(tm => tm.token === sym)
-      const val = m ? (tokenMetricKind === 'momentum' ? m.momentum : m.volatility) : 0
-      const prev = nextSeries[sym]?.points || []
-      const pts = [...prev, { x: label, y: Number.isFinite(val) ? val : 0 }]
-      while (pts.length > 40) pts.shift()
-      nextSeries[sym] = { token: sym, points: pts }
+    if (tokenMetricKind !== 'volatility') {
+      for (const sym of allowed) {
+        const m = tokenMetrics.find(tm => tm.token === sym)
+        const val = m ? (tokenMetricKind === 'momentum' ? m.momentum : m.price) : 0
+        const prev = nextSeries[sym]?.points || []
+        const pts = [...prev, { x: label, y: Number.isFinite(val) ? val : 0 }]
+        while (pts.length > 40) pts.shift()
+        nextSeries[sym] = { token: sym, points: pts }
+      }
+      const prevDates = tokenDates || []
+      const nextDates = [...prevDates, label]
+      while (nextDates.length > 40) nextDates.shift()
+      setTokenSeries(nextSeries)
+      setTokenDates(nextDates)
     }
-    const nextDates = [...tokenDates, label]
-    while (nextDates.length > 40) nextDates.shift()
-    setTokenSeries(nextSeries)
-    setTokenDates(nextDates)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenMetrics, tokenMetricsLoading, tokenMetricKind])
 
@@ -141,30 +154,46 @@ export default function DcaControl() {
   }, [])
 
   const conditionCallback = useCallback(async (ctx: { mode: 'manual'|'ai'; balances: Record<string,string>; outToken: `0x${string}` }) => {
+    const isAi = ctx.mode === 'ai'
+    const en = isAi ? aiLimitsEnabled : limitsEnabled
+    if (!en && !(isAi ? aiTrailEnabled : trailEnabled)) return { allow: true }
     const sym = resolveSymbolFromAddress(ctx.outToken)
     const tm = tokenMetrics.find(m => m.token === sym)
     const price = Number(tm?.price || 0)
     if (!Number.isFinite(price) || price <= 0) {
+      // When limits or trailing are enabled, require a price
       return { allow: false, reason: 'no-price' }
     }
-    const isAi = ctx.mode === 'ai'
-    const en = isAi ? aiLimitsEnabled : limitsEnabled
-    if (!en) return { allow: true }
-    const ek = isAi ? aiEntryKind : entryKind
-    const ep = Number(isAi ? aiEntryPrice : entryPrice)
-    const se = isAi ? aiStopEnabled : stopEnabled
-    const sk = isAi ? aiStopKind : stopKind
-    const sp = Number(isAi ? aiStopPrice : stopPrice)
-    if (Number.isFinite(ep)) {
-      if (ek === 'above' && !(price >= ep)) return { allow: false }
-      if (ek === 'below' && !(price <= ep)) return { allow: false }
+    // Entry conditions
+    if (en) {
+      const ek = isAi ? aiEntryKind : entryKind
+      const ep = Number(isAi ? aiEntryPrice : entryPrice)
+      const se = isAi ? aiStopEnabled : stopEnabled
+      const sk = isAi ? aiStopKind : stopKind
+      const sp = Number(isAi ? aiStopPrice : stopPrice)
+      if (Number.isFinite(ep)) {
+        if (ek === 'above' && !(price >= ep)) return { allow: false }
+        if (ek === 'below' && !(price <= ep)) return { allow: false }
+      }
+      if (se && Number.isFinite(sp)) {
+        if (sk === 'above' && price >= sp) return { allow: false, stop: true }
+        if (sk === 'below' && price <= sp) return { allow: false, stop: true }
+      }
     }
-    if (se && Number.isFinite(sp)) {
-      if (sk === 'above' && price >= sp) return { allow: false, stop: true }
-      if (sk === 'below' && price <= sp) return { allow: false, stop: true }
+    // Trailing stop
+    const trailOn = isAi ? aiTrailEnabled : trailEnabled
+    if (trailOn) {
+      const pct = Number(isAi ? aiTrailPct : trailPct)
+      const store = isAi ? aiTrailHighRef.current : trailHighRef.current
+      const prevHigh = store[sym]
+      if (!Number.isFinite(prevHigh) || price > prevHigh) store[sym] = price
+      if (Number.isFinite(pct) && pct > 0 && Number.isFinite(store[sym])) {
+        const threshold = store[sym] * (1 - pct / 100)
+        if (price <= threshold) return { allow: false, stop: true }
+      }
     }
     return { allow: true }
-  }, [tokenMetrics, limitsEnabled, entryKind, entryPrice, stopEnabled, stopKind, stopPrice, aiLimitsEnabled, aiEntryKind, aiEntryPrice, aiStopEnabled, aiStopKind, aiStopPrice, resolveSymbolFromAddress])
+  }, [tokenMetrics, limitsEnabled, entryKind, entryPrice, stopEnabled, stopKind, stopPrice, aiLimitsEnabled, aiEntryKind, aiEntryPrice, aiStopEnabled, aiStopKind, aiStopPrice, resolveSymbolFromAddress, trailEnabled, trailPct, aiTrailEnabled, aiTrailPct])
 
   function formatMonDisplay(v: string) {
     const n = Number(v || '0')
@@ -335,39 +364,63 @@ export default function DcaControl() {
               </label>
             </div>
 
-          <div className="glass rounded-xl p-4 mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm text-gray-300">AI Execution Limits</div>
-              <label className="inline-flex items-center gap-2 text-xs text-gray-300">
-                <input type="checkbox" className="accent-purple-500" checked={aiLimitsEnabled} onChange={(e)=>setAiLimitsEnabled(e.target.checked)} /> Enable
-              </label>
-            </div>
-            <div className="grid md:grid-cols-2 gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <select value={aiEntryKind} onChange={(e)=>setAiEntryKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-gray-200">
-                  <option value="above">Start if ≥</option>
-                  <option value="below">Start if ≤</option>
-                </select>
-                <input type="number" inputMode="decimal" step="any" placeholder="Entry price (base)" value={aiEntryPrice} onChange={(e)=>setAiEntryPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-white"/>
+            {aiEnabled && (
+              <div className="glass rounded-xl p-4 mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm text-gray-300">AI Execution</div>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${(!metricsLoading && !metricsError) ? 'bg-green-400' : 'bg-yellow-400'}`}></span>
+                    <span className="text-[11px] text-gray-400">Envio {(!metricsLoading && !metricsError) ? 'Available' : 'Pending'}</span>
+                    <button type="button" onClick={()=>setShowAiLimits(v=>!v)} className="text-[11px] px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white">Limits</button>
+                    <label className="inline-flex items-center gap-2 text-[11px] text-gray-300">
+                      <input type="checkbox" className="accent-purple-500" checked={aiLimitsEnabled} onChange={(e)=>setAiLimitsEnabled(e.target.checked)} /> Enable
+                    </label>
+                  </div>
+                </div>
+                {showAiLimits && (
+                  <div className="grid md:grid-cols-2 gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <select value={aiEntryKind} onChange={(e)=>setAiEntryKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-gray-200">
+                        <option value="above">Start if ≥</option>
+                        <option value="below">Start if ≤</option>
+                      </select>
+                      <input type="number" inputMode="decimal" step="any" placeholder="Entry price (base)" value={aiEntryPrice} onChange={(e)=>setAiEntryPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-white"/>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex items-center gap-2 text-xs text-gray-300">
+                        <input type="checkbox" className="accent-purple-500" checked={aiStopEnabled} onChange={(e)=>setAiStopEnabled(e.target.checked)} /> Stop
+                      </label>
+                      <select value={aiStopKind} onChange={(e)=>setAiStopKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-gray-200">
+                        <option value="above">if ≥</option>
+                        <option value="below">if ≤</option>
+                      </select>
+                      <input type="number" inputMode="decimal" step="any" placeholder="Stop price (base)" value={aiStopPrice} onChange={(e)=>setAiStopPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-white"/>
+                    </div>
+                    <div className="col-span-2 flex items-center gap-3 text-xs">
+                      <label className="inline-flex items-center gap-2 text-gray-300">
+                        <input type="checkbox" className="accent-purple-500" checked={aiTrailEnabled} onChange={(e)=>setAiTrailEnabled(e.target.checked)} /> Trailing stop
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400">Drop %</span>
+                        <input type="number" inputMode="decimal" step="any" value={aiTrailPct} onChange={(e)=>setAiTrailPct(e.target.value)} className="w-24 bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"/>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-2">
-                <label className="inline-flex items-center gap-2 text-xs text-gray-300">
-                  <input type="checkbox" className="accent-purple-500" checked={aiStopEnabled} onChange={(e)=>setAiStopEnabled(e.target.checked)} /> Stop
-                </label>
-                <select value={aiStopKind} onChange={(e)=>setAiStopKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-gray-200">
-                  <option value="above">if ≥</option>
-                  <option value="below">if ≤</option>
-                </select>
-                <input type="number" inputMode="decimal" step="any" placeholder="Stop price (base)" value={aiStopPrice} onChange={(e)=>setAiStopPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-white"/>
-              </div>
-            </div>
-          </div>
+            )}
 
           
             {aiEnabled ? (
               <div className="p-3 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-300">
                 <div>AI control enabled. Amount, slippage, target token and interval are decided by the AI.</div>
-                <div className="mt-1 text-gray-400">Powered by Envio metrics. The AI analyzes market metrics, whale activity, and portfolio balance to make optimal decisions.</div>
+                <div className="mt-1 text-gray-400 flex items-center justify-between">
+                  <span>Powered by Envio metrics. The AI analyzes market metrics, whale activity, and portfolio balance.</span>
+                  <span className="ml-2 inline-flex items-center gap-1">
+                    <span className={`w-2 h-2 rounded-full ${(!metricsLoading && !metricsError) ? 'bg-green-400' : 'bg-yellow-400'}`}></span>
+                    <span className="text-[11px] text-gray-400">Envio {(!metricsLoading && !metricsError) ? 'Available' : 'Pending'}</span>
+                  </span>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
@@ -392,31 +445,42 @@ export default function DcaControl() {
                   <input type="number" inputMode="numeric" step="1" value={interval} onChange={(e)=>setInterval(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
                 </div>
                 <div className="col-span-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-xs text-gray-300">Limits</div>
-                    <label className="inline-flex items-center gap-2 text-xs text-gray-300">
+                  <div className="flex items-center justify-between mb-1">
+                    <button type="button" onClick={()=>setShowManualLimits(v=>!v)} className="text-[11px] px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white">Limits</button>
+                    <label className="inline-flex items-center gap-2 text-[11px] text-gray-300">
                       <input type="checkbox" className="accent-purple-500" checked={limitsEnabled} onChange={(e)=>setLimitsEnabled(e.target.checked)} /> Enable
                     </label>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex items-center gap-2">
-                      <select value={entryKind} onChange={(e)=>setEntryKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-gray-200">
-                        <option value="above">Start if ≥</option>
-                        <option value="below">Start if ≤</option>
-                      </select>
-                      <input type="number" inputMode="decimal" step="any" placeholder="Entry price (base)" value={entryPrice} onChange={(e)=>setEntryPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"/>
+                  {showManualLimits && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex items-center gap-2">
+                        <select value={entryKind} onChange={(e)=>setEntryKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-gray-200">
+                          <option value="above">Start if ≥</option>
+                          <option value="below">Start if ≤</option>
+                        </select>
+                        <input type="number" inputMode="decimal" step="any" placeholder="Entry price (base)" value={entryPrice} onChange={(e)=>setEntryPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"/>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-2 text-xs text-gray-300">
+                          <input type="checkbox" className="accent-purple-500" checked={stopEnabled} onChange={(e)=>setStopEnabled(e.target.checked)} /> Stop
+                        </label>
+                        <select value={stopKind} onChange={(e)=>setStopKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-gray-200">
+                          <option value="above">if ≥</option>
+                          <option value="below">if ≤</option>
+                        </select>
+                        <input type="number" inputMode="decimal" step="any" placeholder="Stop price (base)" value={stopPrice} onChange={(e)=>setStopPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"/>
+                      </div>
+                      <div className="col-span-2 flex items-center gap-3 text-xs">
+                        <label className="inline-flex items-center gap-2 text-gray-300">
+                          <input type="checkbox" className="accent-purple-500" checked={trailEnabled} onChange={(e)=>setTrailEnabled(e.target.checked)} /> Trailing stop
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-400">Drop %</span>
+                          <input type="number" inputMode="decimal" step="any" value={trailPct} onChange={(e)=>setTrailPct(e.target.value)} className="w-24 bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"/>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <label className="inline-flex items-center gap-2 text-xs text-gray-300">
-                        <input type="checkbox" className="accent-purple-500" checked={stopEnabled} onChange={(e)=>setStopEnabled(e.target.checked)} /> Stop
-                      </label>
-                      <select value={stopKind} onChange={(e)=>setStopKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-gray-200">
-                        <option value="above">if ≥</option>
-                        <option value="below">if ≤</option>
-                      </select>
-                      <input type="number" inputMode="decimal" step="any" placeholder="Stop price (base)" value={stopPrice} onChange={(e)=>setStopPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"/>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
@@ -426,6 +490,9 @@ export default function DcaControl() {
                   onClick={()=>{
                     const selected = getToken(outToken)
                     const addr = (selected && selected.symbol !== 'WMON' ? selected.address : (getTargetTokens().find(t=>t.symbol!=='WMON')?.address || USDC)) as `0x${string}`
+                    // reset trailing highs at start
+                    trailHighRef.current = {}
+                    aiTrailHighRef.current = {}
                     return startNativeDca(monDcaAmount, parseInt(slippageBps), addr, parseInt(interval), aiEnabled, aiEnabled ? aiCallback : undefined, conditionCallback)
                   }} 
                   disabled={isLoading || delegationExpired || (aiEnabled && (metricsLoading || tokenMetricsLoading))} 
@@ -751,6 +818,7 @@ export default function DcaControl() {
             <div className="flex items-center justify-between mb-3">
               <div className="text-lg font-semibold text-white">Token Metrics (live)</div>
               <div className="flex items-center gap-2 text-sm">
+                <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('price') }} className={`px-2 py-1 rounded ${tokenMetricKind==='price'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Price</button>
                 <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('momentum') }} className={`px-2 py-1 rounded ${tokenMetricKind==='momentum'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Momentum</button>
                 <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('volatility') }} className={`px-2 py-1 rounded ${tokenMetricKind==='volatility'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Volatility</button>
               </div>
@@ -758,10 +826,59 @@ export default function DcaControl() {
             {tokenMetricsLoading ? (
               <div className="text-sm text-gray-300">Loading…</div>
             ) : (
-              <TokenMetricsChart 
-                series={Object.values(tokenSeries)}
-                dates={tokenDates}
-              />
+              tokenMetricKind === 'volatility' ? (
+                <ProtocolBarChart
+                  data={getTargetTokens().map(t => {
+                    const m = tokenMetrics.find(tm => tm.token === t.symbol)
+                    return { protocolId: t.symbol, value: Number(m?.volatility || 0) }
+                  })}
+                />
+              ) : (
+                (() => {
+                  const selected = getToken(outToken)
+                  const sym = selected?.symbol || ''
+                  const baseSeries = Object.values(tokenSeries)
+                  const s = tokenSeries[sym]?.points || []
+                  function ma(points: {x:string;y:number}[], window: number) {
+                    const out: {x:string;y:number}[] = []
+                    let sum = 0
+                    for (let i = 0; i < points.length; i++) {
+                      sum += points[i].y
+                      if (i >= window) sum -= points[i-window].y
+                      if (i >= window-1) out.push({ x: points[i].x, y: sum / window })
+                    }
+                    return out
+                  }
+                  const overlays = [] as { token: string; points: {x:string;y:number}[] }[]
+                  if (tokenMetricKind === 'price') {
+                    if (showMA5 && s.length) overlays.push({ token: 'MA5', points: ma(s, 5) })
+                    if (showMA15 && s.length) overlays.push({ token: 'MA15', points: ma(s, 15) })
+                  }
+                  return (
+                    <div>
+                      <div className="flex items-center gap-3 mb-2 text-xs text-gray-300">
+                        {tokenMetricKind==='price' && (
+                          <>
+                            <label className="inline-flex items-center gap-1">
+                              <input type="checkbox" className="accent-purple-500" checked={showMA5} onChange={(e)=>setShowMA5(e.target.checked)} /> MA5
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input type="checkbox" className="accent-purple-500" checked={showMA15} onChange={(e)=>setShowMA15(e.target.checked)} /> MA15
+                            </label>
+                            <span className="text-gray-500">for {sym || 'selected token'}</span>
+                          </>
+                        )}
+                      </div>
+                      <TokenMetricsChart 
+                        series={baseSeries}
+                        dates={tokenDates}
+                        zeroAxis={tokenMetricKind==='momentum'}
+                        overlays={overlays}
+                      />
+                    </div>
+                  )
+                })()
+              )
             )}
             <div className="text-xs text-gray-400 mt-2">Values normalized against USDC or WMON for comparability. Includes UniversalRouter and Kuru OrderBook trades. Refreshes as metrics update.</div>
           </div>

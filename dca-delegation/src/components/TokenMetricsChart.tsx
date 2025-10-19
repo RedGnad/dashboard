@@ -9,6 +9,8 @@ type Props = {
   series: TokenSeries[]
   dates: string[]
   height?: number
+  zeroAxis?: boolean
+  overlays?: TokenSeries[]
 }
 
 const COLORS: Record<string, string> = {
@@ -31,7 +33,7 @@ function getColor(name: string, i: number) {
   return fallback[i % fallback.length]
 }
 
-export default function TokenMetricsChart({ series, dates, height = 220 }: Props) {
+export default function TokenMetricsChart({ series, dates, height = 220, zeroAxis = false, overlays = [] }: Props) {
   const width = 640
   const h = height
   const padding = { top: 10, right: 12, bottom: 22, left: 48 }
@@ -106,12 +108,25 @@ export default function TokenMetricsChart({ series, dates, height = 220 }: Props
           </text>
         ) : null)}
 
+        {zeroAxis && (0 >= yMin && 0 <= yMax) && (
+          <line x1={padding.left} y1={yPos(0)} x2={width - padding.right} y2={yPos(0)} stroke="#6b7280" strokeWidth={1.5} />
+        )}
         {series.map((s, i) => {
           const path = buildPath(s.points)
           const color = getColor(s.token, i)
           return (
             <g key={s.token}>
               <path d={path} fill="none" stroke={color} strokeWidth={2} />
+            </g>
+          )
+        })}
+
+        {overlays.map((s, i) => {
+          const path = buildPath(s.points)
+          const color = '#94a3b8' // slate-400 for overlays
+          return (
+            <g key={s.token+"_overlay"}>
+              <path d={path} fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="5 4" />
             </g>
           )
         })}
