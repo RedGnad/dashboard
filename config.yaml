@@ -11,19 +11,11 @@ contracts:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
       - event: Withdraw
         field_selection:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
   - name: AmbientCore
     abi_file_path: abis/ambient-core.json
     handler: src/EventHandlers_Ambient.ts
@@ -33,19 +25,11 @@ contracts:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
       - event: CrocMicroSwap
         field_selection:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
   - name: Curvance
     abi_file_path: abis/vecve.json
     handler: src/EventHandlers_Curvance.ts
@@ -55,28 +39,16 @@ contracts:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
       - event: Unlocked
         field_selection:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
       - event: UnlockedWithPenalty
         field_selection:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
   # Wildcard indexing for all ERC20 transfers (for momentum/volatility calculation)
   - name: ERC20
     handler: src/EventHandlers_ERC20.ts
@@ -88,8 +60,6 @@ contracts:
             - from
             - to
             - value  # Include transaction value for native MON tracking
-            - gasUsed
-            - effectiveGasPrice
   # Universal Router swaps for DEX metrics
   - name: UniversalRouter
     abi_file_path: abis/universal-router.json
@@ -109,11 +79,6 @@ contracts:
         field_selection:
           transaction_fields:
             - hash
-            - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
   - name: KuruOrderBook
     abi_file_path: abis/KuruOrderBook.json
     handler: src/EventHandlers_Kuru.ts
@@ -126,7 +91,6 @@ contracts:
             - gasUsed
             - effectiveGasPrice
             - gasPrice
-            - status
   - name: MonadDeployer
     abi_file_path: abis/MonadDeployer.json
     handler: src/EventHandlers_Kuru.ts
@@ -141,19 +105,11 @@ contracts:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
       - event: OrderCancelled(uint256 indexed orderId, address indexed user, string reason)
         field_selection:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
   - name: PinguProcessor
     abi_file_path: abis/PinguProcessor.json
     handler: src/EventHandlers_Pingu.ts
@@ -163,19 +119,11 @@ contracts:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
       - event: PositionADL(address indexed user, address indexed asset, string market, bool isLong, uint256 size, uint256 margin, int256 pnl, uint256 price, uint256 fee)
         field_selection:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
   - name: PinguStaking
     abi_file_path: abis/PinguStaking.json
     handler: src/EventHandlers_Pingu.ts
@@ -185,32 +133,20 @@ contracts:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
       - event: CAPUnstaked(address indexed user, uint256 amount)
         field_selection:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
       - event: CollectedReward(address indexed user, address indexed asset, uint256 amount)
         field_selection:
           transaction_fields:
             - hash
             - from
-            - gasUsed
-            - effectiveGasPrice
-            - gasPrice
-            - status
 networks:
 - id: 10143
-  start_block: 0
-  rpc: https://testnet-rpc.monad.xyz
+  start_block: 43063217
+  rpc: https://monad-testnet.g.alchemy.com/v2/aTJRGO9wVfbt3feglwTpq
   contracts:
     - name: StakeManager
       address:
