@@ -147,8 +147,8 @@ ERC20.Transfer.handler(
       const derivedFull = (typeof process !== 'undefined' && (process as any)?.env?.ENVIO_DERIVED_FULL === 'true');
       const isRecent = derivedFull || (Number(event.block.timestamp) >= cutoffSec);
 
-      // Check if this is one of our tracked tokens
-      const isTrackedToken = Object.values(TRACKED_TOKENS).includes(contractAddress);
+      // Check if this is one of our tracked tokens (case-insensitive)
+      const isTrackedToken = Object.values(TRACKED_TOKENS).map(a => a.toLowerCase()).includes(contractAddress);
       const involvesImportantAddress =
         IMPORTANT_ADDRESSES.includes(from.toLowerCase()) ||
         IMPORTANT_ADDRESSES.includes(to.toLowerCase());
@@ -168,21 +168,23 @@ ERC20.Transfer.handler(
       const whaleThreshold = getWhaleThreshold(tokenSymbol);
       const isWhaleMovement = value >= whaleThreshold;
 
-      // Create ERC20 transfer record (raw event for verifiability)
-      const transferId = `${event.chainId}_${event.block.number}_${event.logIndex}`;
-      context.TokenTransfer.set({
-        id: transferId,
-        tokenAddress: contractAddress,
-        from: from,
-        to: to,
-        value: value,
-        blockNumber: event.block.number,
-        blockTimestamp: event.block.timestamp,
-        transactionHash: event.transaction.hash,
-        logIndex: event.logIndex,
-        gasUsed: (event.transaction as any)?.gasUsed ?? 0n,
-        gasPrice: (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
-      });
+      // Create ERC20 transfer record (raw event for verifiability) only in recent window
+      if (isRecent) {
+        const transferId = `${event.chainId}_${event.block.number}_${event.logIndex}`;
+        context.TokenTransfer.set({
+          id: transferId,
+          tokenAddress: contractAddress,
+          from: from,
+          to: to,
+          value: value,
+          blockNumber: event.block.number,
+          blockTimestamp: event.block.timestamp,
+          transactionHash: event.transaction.hash,
+          logIndex: event.logIndex,
+          gasUsed: (event.transaction as any)?.gasUsed ?? 0n,
+          gasPrice: (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
+        });
+      }
 
       // Attribute this transfer to a protocol if it involves a known router
       try {
@@ -204,7 +206,8 @@ ERC20.Transfer.handler(
       const tx: any = event.transaction as any
       const nativeValue: bigint | undefined = tx && typeof tx.value !== 'undefined' ? tx.value : undefined
       const nativeFrom: string | undefined = tx && typeof tx.from !== 'undefined' ? tx.from : undefined
-      if (isRecent && nativeValue && nativeValue > 0n && nativeFrom) {
+      const synthNativeEnabled = (typeof process !== 'undefined' && (process as any)?.env?.ENVIO_SYNTH_NATIVE === 'true')
+      if (synthNativeEnabled && isRecent && nativeValue && nativeValue > 0n && nativeFrom) {
         const nativeTransferId = `native_${event.chainId}_${event.block.number}_${event.logIndex}`;
         context.TokenTransfer.set({
           id: nativeTransferId,
@@ -228,18 +231,23 @@ ERC20.Transfer.handler(
         await updateTokenMetrics(context, contractAddress, value, event.block.timestamp);
       }
 
-      // Log for AI decision context (BigInt -> string to avoid logger serialization issues)
-      try {
-        context.log.info(`ERC20 Transfer processed`, {
-          token: contractAddress,
-          from: from.slice(0, 8) + "...",
-          to: to.slice(0, 8) + "...",
-          value: value.toString(),
-          block: String(event.block.number),
-          isTracked: isTrackedToken,
-          isWhaleMovement: isWhaleMovement,
-        });
-      } catch {}
+      // Log sampling (reduce IO): always log whales; otherwise sample every N events if ENVIO_LOG_SAMPLE_RATE is set
+      const sampleRateRaw = (typeof process !== 'undefined' ? (process as any)?.env?.ENVIO_LOG_SAMPLE_RATE : undefined) as string | undefined
+      const sampleRate = sampleRateRaw ? Number(sampleRateRaw) : 0
+      const shouldLog = isWhaleMovement || (sampleRate > 0 && (event.logIndex % Math.max(1, sampleRate) === 0))
+      if (shouldLog) {
+        try {
+          context.log.info(`ERC20 Transfer processed`, {
+            token: contractAddress,
+            from: from.slice(0, 8) + "...",
+            to: to.slice(0, 8) + "...",
+            value: value.toString(),
+            block: String(event.block.number),
+            isTracked: isTrackedToken,
+            isWhaleMovement: isWhaleMovement,
+          });
+        } catch {}
+      }
     } catch (err) {
       try {
         context.log.error?.('ERC20 handler error', {
@@ -257,56 +265,69 @@ ERC20.Transfer.handler(
  * Update rolling token metrics for AI features calculation
  */
 async function updateTokenMetrics(
-  context: any, 
-  tokenAddress: string, 
-  transferValue: bigint, 
+  context: any,
+  tokenAddress: string,
+  transferValue: bigint,
   timestamp: number
 ) {
   const tokenSymbol = getTokenSymbol(tokenAddress);
   const metricId = `${tokenAddress}_metrics`;
-  
-  // Get or create token metrics
-  let metrics = await context.TokenMetrics.get(metricId);
-  
-  if (!metrics) {
-    metrics = {
-      id: metricId,
-      tokenAddress,
-      tokenSymbol,
-      totalVolume: 0n,
-      transferCount: 0,
-      lastTransferTime: timestamp,
-      hourlyVolume: 0n,
-      dailyVolume: 0n,
-      volatilityScore: 0,
-      momentumScore: 0,
-    };
+
+  let existing = await context.TokenMetrics.get(metricId);
+
+  // Normalize persisted fields (BigInt may be returned as strings)
+  let totalVolumePrev = 0n;
+  let hourlyVolumePrev = 0n;
+  let dailyVolumePrev = 0n;
+  let transferCountPrev = 0;
+  let lastTransferTimePrev = 0;
+  let volatilityPrev = 0;
+  let momentumPrev = 0;
+
+  if (existing) {
+    try { totalVolumePrev = BigInt((existing as any).totalVolume ?? 0) } catch { totalVolumePrev = 0n }
+    try { hourlyVolumePrev = BigInt((existing as any).hourlyVolume ?? 0) } catch { hourlyVolumePrev = 0n }
+    try { dailyVolumePrev = BigInt((existing as any).dailyVolume ?? 0) } catch { dailyVolumePrev = 0n }
+    try { transferCountPrev = Number((existing as any).transferCount ?? 0) } catch { transferCountPrev = 0 }
+    try { lastTransferTimePrev = Number((existing as any).lastTransferTime ?? 0) } catch { lastTransferTimePrev = 0 }
+    try { volatilityPrev = Number((existing as any).volatilityScore ?? 0) } catch { volatilityPrev = 0 }
+    try { momentumPrev = Number((existing as any).momentumScore ?? 0) } catch { momentumPrev = 0 }
   }
 
-  // Update metrics
-  metrics.totalVolume += transferValue;
-  metrics.transferCount += 1;
-  metrics.lastTransferTime = timestamp;
-  
-  // Calculate time windows (basic implementation)
-  const hourThreshold = timestamp - 3600; // 1 hour ago
-  const dayThreshold = timestamp - 86400; // 24 hours ago
-  
-  // This is a simplified calculation - in production you'd want to maintain
-  // proper time-windowed metrics with more sophisticated algorithms
-  if (metrics.lastTransferTime > hourThreshold) {
-    metrics.hourlyVolume += transferValue;
-  }
-  
-  if (metrics.lastTransferTime > dayThreshold) {
-    metrics.dailyVolume += transferValue;
-  }
+  const totalVolumeNext = totalVolumePrev + BigInt(transferValue);
+  const transferCountNext = transferCountPrev + 1;
+  const lastTransferTimeNext = timestamp;
 
-  // Basic volatility calculation (would need more sophisticated algo in production)
-  metrics.volatilityScore = calculateSimpleVolatility(metrics);
-  metrics.momentumScore = calculateSimpleMomentum(metrics);
+  // Time windows
+  const hourThreshold = timestamp - 3600; // 1h
+  const dayThreshold = timestamp - 86400; // 24h
+  const hourlyVolumeNext = lastTransferTimeNext > hourThreshold ? (hourlyVolumePrev + BigInt(transferValue)) : hourlyVolumePrev;
+  const dailyVolumeNext = lastTransferTimeNext > dayThreshold ? (dailyVolumePrev + BigInt(transferValue)) : dailyVolumePrev;
 
-  context.TokenMetrics.set(metrics);
+  // Simple scores (use next values where appropriate)
+  const metricsTemp = {
+    totalVolume: totalVolumeNext,
+    hourlyVolume: hourlyVolumeNext,
+    dailyVolume: dailyVolumeNext,
+    transferCount: transferCountNext,
+  } as any;
+  const volatilityNext = calculateSimpleVolatility(metricsTemp);
+  const momentumNext = calculateSimpleMomentum({ ...metricsTemp, totalVolume: totalVolumeNext });
+
+  const toStore = {
+    id: metricId,
+    tokenAddress,
+    tokenSymbol,
+    totalVolume: totalVolumeNext.toString() as any,
+    transferCount: transferCountNext,
+    lastTransferTime: lastTransferTimeNext,
+    hourlyVolume: hourlyVolumeNext.toString() as any,
+    dailyVolume: dailyVolumeNext.toString() as any,
+    volatilityScore: volatilityNext,
+    momentumScore: momentumNext,
+  };
+
+  context.TokenMetrics.set(toStore as any);
 }
 
 function getTokenSymbol(address: string): string {
