@@ -174,7 +174,18 @@ KuruOrderBook.Trade.handler(async ({ event, context }) => {
       const amountIn = isBuy ? quoteAmount : filledRaw
       const amountOut = isBuy ? filledRaw : quoteAmount
       let price = 0
-      try { price = Number(amountOut) / Number(amountIn) } catch { price = 0 }
+      try {
+        const ain = amountIn as any as bigint
+        const aout = amountOut as any as bigint
+        if (typeof ain === 'bigint' && ain !== 0n) {
+          price = Number(aout) / Number(ain)
+        } else {
+          const ainNum = Number(amountIn as any)
+          const aoutNum = Number(amountOut as any)
+          price = ainNum > 0 ? (aoutNum / ainNum) : 0
+        }
+        if (!Number.isFinite(price) || Number.isNaN(price)) price = 0
+      } catch { price = 0 }
       const swapId = `${event.chainId}_${event.block.number}_${event.logIndex}_kuru`
       context.SwapEvent.set({
         id: swapId,
