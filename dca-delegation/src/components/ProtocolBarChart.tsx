@@ -38,7 +38,7 @@ export default function ProtocolBarChart({ data, height = 220 }: Props) {
     <svg viewBox={`0 0 ${width} ${h}`} className="w-full h-auto">
       <defs>
         <filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width={width} height={h}>
-          <feGaussianBlur stdDeviation="1.8" result="coloredBlur" />
+          <feGaussianBlur stdDeviation="1.6" result="coloredBlur" />
           <feMerge>
             <feMergeNode in="coloredBlur" />
             <feMergeNode in="SourceGraphic" />
@@ -69,11 +69,12 @@ export default function ProtocolBarChart({ data, height = 220 }: Props) {
         const color = COLORS[it.protocolId] || '#94a3b8'
         const heightVal = padding.top + innerH - y
         return (
-          <g key={it.protocolId} style={{ filter: `drop-shadow(0 0 3px ${color}) drop-shadow(0 0 1px ${color})`, mixBlendMode: 'screen' as any }}>
-            <rect x={x} y={y} width={barWidth} height={heightVal} fill="none" stroke={color} strokeWidth={6} opacity={0.08} />
-            <rect x={x} y={y} width={barWidth} height={heightVal} fill="none" stroke={color} strokeWidth={5} opacity={0.12} filter="url(#glow)" />
-            <rect x={x} y={y} width={barWidth} height={heightVal} fill={color} opacity={0.08} filter="url(#glow)" />
-            <rect x={x} y={y} width={barWidth} height={heightVal} fill={color} opacity={0.9} />
+          <g key={it.protocolId}>
+            <rect x={x} y={y} width={barWidth} height={heightVal} fill="none" stroke={color} strokeWidth={4} opacity={0.12} filter="url(#glow)">
+              <animate attributeName="opacity" values="0.12;0.16;0.12" dur="5s" repeatCount="indefinite" />
+            </rect>
+            <rect x={x} y={y} width={barWidth} height={heightVal} fill={color} opacity={0.92} />
+            <rect x={x + 0.25} y={y + 0.25} width={barWidth - 0.5} height={heightVal - 0.5} fill="none" stroke="#0b0f1a" strokeOpacity={0.28} strokeWidth={0.75} />
             <text x={x + barWidth / 2} y={h - padding.bottom + 18} textAnchor="middle" fill="#9ca3af" fontSize={10}>{it.protocolId}</text>
           </g>
         )

@@ -101,7 +101,7 @@ export default function TokenMetricsChart({ series, dates, height = 220, zeroAxi
         <svg viewBox={`0 0 ${width} ${h}`} className="w-full h-auto select-none overflow-x-auto">
         <defs>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="3.0" result="coloredBlur" />
+            <feGaussianBlur stdDeviation="1.4" result="coloredBlur" />
             <feMerge>
               <feMergeNode in="coloredBlur" />
               <feMergeNode in="SourceGraphic" />
@@ -136,8 +136,10 @@ export default function TokenMetricsChart({ series, dates, height = 220, zeroAxi
           const color = getColor(s.token, i)
           return (
             <g key={s.token}>
-              <path d={path} fill="none" stroke={color} strokeWidth={6} opacity={0.3} filter="url(#glow)" />
-              <path d={path} fill="none" stroke={color} strokeWidth={2} />
+              <path d={path} fill="none" stroke={color} strokeWidth={3.5} opacity={0.22} filter="url(#glow)" strokeLinecap="round" strokeLinejoin="round">
+                <animate attributeName="opacity" values="0.2;0.26;0.2" dur="6s" repeatCount="indefinite" />
+              </path>
+              <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
             </g>
           )
         })}

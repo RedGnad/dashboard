@@ -89,7 +89,7 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
         <svg width={width} height={h} viewBox={`0 0 ${width} ${h}`} className="select-none">
         <defs>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="4.5" result="coloredBlur" />
+            <feGaussianBlur stdDeviation="1.6" result="coloredBlur" />
             <feMerge>
               <feMergeNode in="coloredBlur" />
               <feMergeNode in="SourceGraphic" />
@@ -125,8 +125,10 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
           const color = getColor(s.protocolId, i)
           return (
             <g key={s.protocolId}>
-              <path d={path} fill="none" stroke={color} strokeWidth={8} opacity={0.45} filter="url(#glow)" />
-              <path d={path} fill="none" stroke={color} strokeWidth={2} />
+              <path d={path} fill="none" stroke={color} strokeWidth={4} opacity={0.25} filter="url(#glow)" strokeLinecap="round" strokeLinejoin="round">
+                <animate attributeName="opacity" values="0.22;0.28;0.22" dur="6s" repeatCount="indefinite" />
+              </path>
+              <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
             </g>
           )
         })}

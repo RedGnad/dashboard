@@ -1,0 +1,24 @@
+name: dca-worker
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run DCA Worker
+        run: node scripts/worker/runner.mjs
+        env:
+          VITE_RPC_URL: ${{ secrets.VITE_RPC_URL }}
+          VITE_ZERO_DEV_BUNDLER_RPC: ${{ secrets.VITE_ZERO_DEV_BUNDLER_RPC }}
+          VITE_ZERO_DEV_PAYMASTER_RPC: ${{ secrets.VITE_ZERO_DEV_PAYMASTER_RPC }}
+          VITE_DELEGATE_PRIVATE_KEY: ${{ secrets.VITE_DELEGATE_PRIVATE_KEY }}

@@ -30,12 +30,27 @@ function GLBModel({ url }: { url: string }) {
   )
 }
 
-function FallbackMesh() {
+function FallbackMesh({ variant = 'default' as 'conservative'|'balanced'|'aggressive'|'contrarian'|'default' }) {
+  const geo = (() => {
+    switch (variant) {
+      case 'conservative': return <icosahedronGeometry args={[1, 1]} />
+      case 'balanced': return <torusGeometry args={[0.9, 0.28, 16, 64]} />
+      case 'aggressive': return <torusKnotGeometry args={[0.7, 0.24, 128, 16]} />
+      case 'contrarian': return <octahedronGeometry args={[1, 0]} />
+      default: return <icosahedronGeometry args={[1, 1]} />
+    }
+  })()
+  const color = (
+    variant === 'conservative' ? '#7c3aed' :
+    variant === 'balanced' ? '#22c55e' :
+    variant === 'aggressive' ? '#ef4444' :
+    variant === 'contrarian' ? '#0ea5e9' : '#7c3aed'
+  )
   return (
     <FitToUnit>
       <mesh castShadow receiveShadow>
-        <icosahedronGeometry args={[1, 1]} />
-        <meshStandardMaterial color="#7c3aed" metalness={0.2} roughness={0.35} />
+        {geo}
+        <meshStandardMaterial color={color} metalness={0.25} roughness={0.35} />
       </mesh>
     </FitToUnit>
   )
@@ -65,9 +80,19 @@ function LookAtMouse({ target }: { target: React.RefObject<THREE.Group> }) {
   return null
 }
 
+function getVariantFromUrl(url: string): 'conservative'|'balanced'|'aggressive'|'contrarian'|'default' {
+  const u = url.toLowerCase()
+  if (u.includes('conservative')) return 'conservative'
+  if (u.includes('balanced')) return 'balanced'
+  if (u.includes('aggressive')) return 'aggressive'
+  if (u.includes('contrarian')) return 'contrarian'
+  return 'default'
+}
+
 export default function ModelStage({ modelUrl = '/model.glb' }: { modelUrl?: string }) {
   const root = useRef<THREE.Group>(null!)
   const [hasModel, setHasModel] = useState<boolean>(false)
+  const fallbackVariant = getVariantFromUrl(modelUrl)
 
   useEffect(() => {
     let active = true
@@ -93,11 +118,11 @@ export default function ModelStage({ modelUrl = '/model.glb' }: { modelUrl?: str
       <Canvas shadows dpr={[1, 2]} camera={{ position: [0, 0, 3.2], fov: 40 }} gl={{ antialias: true }} style={{ pointerEvents: 'none' }}>
         <group ref={root}>
           {hasModel ? (
-            <Suspense fallback={<FallbackMesh />}> 
+            <Suspense fallback={<FallbackMesh variant={fallbackVariant} />}> 
               <GLBModel url={modelUrl} />
             </Suspense>
           ) : (
-            <FallbackMesh />
+            <FallbackMesh variant={fallbackVariant} />
           )}
           <LookAtMouse target={root} />
         </group>
