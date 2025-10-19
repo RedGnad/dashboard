@@ -172,8 +172,8 @@ ERC20.Transfer.handler(
       blockTimestamp: event.block.timestamp,
       transactionHash: event.transaction.hash,
       logIndex: event.logIndex,
-      gasUsed: event.transaction.gasUsed || 0n,
-      gasPrice: event.transaction.effectiveGasPrice || 0n,
+      gasUsed: (event.transaction as any)?.gasUsed ?? 0n,
+      gasPrice: (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
     });
 
     // Attribute this transfer to a protocol if it involves a known router
@@ -211,8 +211,8 @@ ERC20.Transfer.handler(
         blockTimestamp: event.block.timestamp,
         transactionHash: tx.hash ?? event.transaction.hash,
         logIndex: event.logIndex + 1000, // Offset to avoid ID conflicts
-        gasUsed: tx.gasUsed ?? event.transaction.gasUsed ?? 0n,
-        gasPrice: tx.effectiveGasPrice ?? event.transaction.effectiveGasPrice ?? 0n,
+        gasUsed: tx.gasUsed ?? (event.transaction as any)?.gasUsed ?? 0n,
+        gasPrice: tx.effectiveGasPrice ?? (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
       });
 
       context.log.info(`Captured native MON transfer`, { value: String(nativeValue), tx: tx.hash ?? event.transaction.hash });
