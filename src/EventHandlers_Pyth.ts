@@ -1,5 +1,5 @@
-((((&&&&&&@// @ts-nocheck
-import { Pyth, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted } from "generated";
+// @ts-nocheck
+import { Pyth, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted } from "../generated";
 
 function dateISOFromTs(tsMs: number): string {
   const d = new Date(tsMs);
