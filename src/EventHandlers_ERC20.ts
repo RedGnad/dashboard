@@ -50,6 +50,7 @@ const PROTOCOL_BY_ADDRESS: Record<string, string> = {
   "0x3012e9049d05b4b5369d690114d5a5861ebb85cb": "atlantis",    // Atlantis SwapRouter
   "0x8b1fb7b1da49f111a2c0c11925d5bb86a2fab88e": "octoswap",    // OctoSwap UniversalRouter
   "0xb6091233aacacba45225a2b2121bbac807af4255": "octoswap",    // OctoSwap Router02 (lowercase)
+  "0x2555223a15a931a71951707cb32a541f14e2c730": "curvance",    // Curvance veCVE contract
   "0x4bb54bb9a42fe787d1d1a2aacf91c70b02e5553e": "atlantis",    // Atlantis/Clober UpdatePosition target
 };
 
