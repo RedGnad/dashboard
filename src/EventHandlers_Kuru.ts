@@ -1,9 +1,51 @@
 // @ts-nocheck
-import { KuruRouter, KuruOrderBook, MonadDeployer, Kuru_MarketRegistered, Kuru_Trade, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted } from "generated";
+import { KuruRouter, KuruOrderBook, MonadDeployer, Kuru_MarketRegistered, Kuru_Trade, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted, SwapEvent, PairMetrics } from "generated";
 
 function dateISOFromTs(tsMs: number): string {
   const d = new Date(tsMs);
   return d.toISOString().slice(0, 10);
+}
+
+function pairKeyFor(tokenIn: string, tokenOut: string): string {
+  const a = tokenIn.toLowerCase();
+  const b = tokenOut.toLowerCase();
+  return [a, b].sort().join("_");
+}
+
+async function updatePairMetrics(
+  context: any,
+  pairKey: string,
+  currentPrice: number,
+  volumeIn: bigint,
+  volumeOut: bigint,
+  timestamp: number
+) {
+  const hour = Math.floor(timestamp / 3600) * 3600;
+  const metricsId = `${pairKey}_${hour}`;
+  let metrics = await context.PairMetrics.get(metricsId);
+  if (!metrics) {
+    metrics = {
+      id: metricsId,
+      pairKey,
+      hour,
+      swapCount: 0,
+      totalVolumeIn: BigInt(0),
+      totalVolumeOut: BigInt(0),
+      highPrice: currentPrice,
+      lowPrice: currentPrice,
+      openPrice: currentPrice,
+      closePrice: currentPrice,
+      lastUpdate: timestamp,
+    };
+  }
+  metrics.swapCount += 1;
+  metrics.totalVolumeIn += volumeIn;
+  metrics.totalVolumeOut += volumeOut;
+  metrics.highPrice = Math.max(metrics.highPrice, currentPrice);
+  metrics.lowPrice = Math.min(metrics.lowPrice, currentPrice);
+  metrics.closePrice = currentPrice;
+  metrics.lastUpdate = timestamp;
+  context.PairMetrics.set(metrics);
 }
 
 async function upsertDaily(
@@ -72,8 +114,9 @@ async function upsertDaily(
 
 // Store MarketRegistered events without dynamic registration (stability first)
 KuruRouter.MarketRegistered.handler(({ event, context }) => {
+  const marketId = String(event.params.market || event.params?.market).toLowerCase()
   const entity: Kuru_MarketRegistered = {
-    id: `${event.chainId}_${event.block.number}_${event.logIndex}`,
+    id: marketId,
     market: event.params.market,
     baseAsset: event.params.baseAsset,
     quoteAsset: event.params.quoteAsset,
@@ -112,6 +155,47 @@ KuruOrderBook.Trade.handler(async ({ event, context }) => {
     gasPrice: (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
   } as any;
   context.Kuru_Trade.set(entity);
+  
+  // Normalize as SwapEvent + PairMetrics
+  try {
+    const marketId = String(event.srcAddress || '').toLowerCase()
+    const reg = await context.Kuru_MarketRegistered.get(marketId)
+    if (reg) {
+      const base = String((reg as any).baseAsset)
+      const quote = String((reg as any).quoteAsset)
+      const priceRaw = BigInt(event.params.price as any)
+      const filledRaw = BigInt(event.params.filledSize as any)
+      const pricePrecision = Number((reg as any).pricePrecision || 0)
+      const scale = BigInt(10) ** BigInt(isNaN(pricePrecision) ? 0 : pricePrecision)
+      const quoteAmount = scale > 0n ? (filledRaw * priceRaw) / scale : filledRaw * priceRaw
+      const isBuy = Boolean(event.params.isBuy)
+      const tokenIn = isBuy ? quote : base
+      const tokenOut = isBuy ? base : quote
+      const amountIn = isBuy ? quoteAmount : filledRaw
+      const amountOut = isBuy ? filledRaw : quoteAmount
+      let price = 0
+      try { price = Number(amountOut) / Number(amountIn) } catch { price = 0 }
+      const swapId = `${event.chainId}_${event.block.number}_${event.logIndex}_kuru`
+      context.SwapEvent.set({
+        id: swapId,
+        pairKey: pairKeyFor(tokenIn, tokenOut),
+        tokenIn,
+        tokenOut,
+        amountIn,
+        amountOut,
+        price,
+        recipient: String(event.params.takerAddress || ''),
+        blockNumber: event.block.number,
+        blockTimestamp: event.block.timestamp,
+        transactionHash: event.transaction.hash,
+        logIndex: event.logIndex,
+      } as any)
+
+      await updatePairMetrics(context, pairKeyFor(tokenIn, tokenOut), price, amountIn, amountOut, event.block.timestamp)
+    } else {
+      try { context.log?.info?.(`Kuru Trade without market registration mapping for ${marketId}`) } catch {}
+    }
+  } catch {}
 
   const tsMs = Number(event.block.timestamp) * 1000;
   const dateISO = dateISOFromTs(tsMs);
