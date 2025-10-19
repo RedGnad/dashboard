@@ -137,105 +137,119 @@ function feeFromTx(tx: any): bigint | null {
 // Note: Wildcard disabled in config; handler still filters to tracked tokens/addresses as a safeguard
 ERC20.Transfer.handler(
   async ({ event, context }) => {
-    const { from, to, value } = event.params;
-    const contractAddress = event.srcAddress.toLowerCase();
-    
-    // Check if this is one of our tracked tokens
-    const isTrackedToken = Object.values(TRACKED_TOKENS).includes(contractAddress);
-    const involvesImportantAddress = 
-      IMPORTANT_ADDRESSES.includes(from.toLowerCase()) || 
-      IMPORTANT_ADDRESSES.includes(to.toLowerCase());
-
-    // MINIMUM FILTER: Skip tiny transfers (< 1 MON equivalent) unless DEX
-    const tokenSymbol = getTokenSymbol(contractAddress);
-    const minThreshold = getMinIndexThreshold(tokenSymbol);
-    const meetsMinimum = value >= minThreshold;
-    const shouldIndex = involvesImportantAddress || meetsMinimum;
-
-    if (!shouldIndex) {
-      // Skip sub-threshold transfers to reduce DB volume
-      return;
-    }
-
-    // WHALE FLAG: Mark large movements for AI priority
-    const whaleThreshold = getWhaleThreshold(tokenSymbol);
-    const isWhaleMovement = value >= whaleThreshold;
-
-    // Create ERC20 transfer record
-    const transferId = `${event.chainId}_${event.block.number}_${event.logIndex}`;
-    
-    context.TokenTransfer.set({
-      id: transferId,
-      tokenAddress: contractAddress,
-      from: from,
-      to: to,
-      value: value,
-      blockNumber: event.block.number,
-      blockTimestamp: event.block.timestamp,
-      transactionHash: event.transaction.hash,
-      logIndex: event.logIndex,
-      gasUsed: (event.transaction as any)?.gasUsed ?? 0n,
-      gasPrice: (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
-    });
-
-    // Attribute this transfer to a protocol if it involves a known router
     try {
-      const fromLc = from.toLowerCase();
-      const toLc = to.toLowerCase();
-      const txToLc = ((event.transaction as any)?.to || '').toLowerCase?.() || '';
-      const proto = PROTOCOL_BY_ADDRESS[fromLc] || PROTOCOL_BY_ADDRESS[toLc] || PROTOCOL_BY_ADDRESS[txToLc];
-      if (proto) {
-        const tsMs = Number(event.block.timestamp) * 1000;
-        const dateISO = dateISOFromTs(tsMs);
-        const txHash = (event.transaction?.hash as string) || null;
-        const feeWei = feeFromTx(event.transaction as any);
-        const userKey = (event.transaction?.from as string) || null;
-        await upsertDaily(context, { protocolId: proto, dateISO, user: userKey, txDelta: 1, txHash, feeWei });
+      const { from, to, value } = event.params;
+      const contractAddress = event.srcAddress.toLowerCase();
+
+      // Determine recency window (30d) for heavy derived writes
+      const nowSec = Math.floor(Date.now() / 1000);
+      const cutoffSec = nowSec - 30 * 86400;
+      const derivedFull = (typeof process !== 'undefined' && (process as any)?.env?.ENVIO_DERIVED_FULL === 'true');
+      const isRecent = derivedFull || (Number(event.block.timestamp) >= cutoffSec);
+
+      // Check if this is one of our tracked tokens
+      const isTrackedToken = Object.values(TRACKED_TOKENS).includes(contractAddress);
+      const involvesImportantAddress =
+        IMPORTANT_ADDRESSES.includes(from.toLowerCase()) ||
+        IMPORTANT_ADDRESSES.includes(to.toLowerCase());
+
+      // MINIMUM FILTER: Skip tiny transfers (< 1 MON equivalent) unless DEX
+      const tokenSymbol = getTokenSymbol(contractAddress);
+      const minThreshold = getMinIndexThreshold(tokenSymbol);
+      const meetsMinimum = value >= minThreshold;
+      const shouldIndex = involvesImportantAddress || meetsMinimum;
+
+      if (!shouldIndex) {
+        // Skip sub-threshold transfers to reduce DB volume
+        return;
       }
-    } catch {}
 
-    // BONUS: Also capture native MON transfers if this transaction has native value
-    // This aggregates MON + WMON activity in the same dataset
-    // Some generated types may omit `transaction.value`; access defensively
-    const tx: any = event.transaction as any
-    const nativeValue: bigint | undefined = tx && typeof tx.value !== 'undefined' ? tx.value : undefined
-    const nativeFrom: string | undefined = tx && typeof tx.from !== 'undefined' ? tx.from : undefined
+      // WHALE FLAG: Mark large movements for AI priority
+      const whaleThreshold = getWhaleThreshold(tokenSymbol);
+      const isWhaleMovement = value >= whaleThreshold;
 
-    if (nativeValue && nativeValue > 0n && nativeFrom) {
-      const nativeTransferId = `native_${event.chainId}_${event.block.number}_${event.logIndex}`;
-      
+      // Create ERC20 transfer record (raw event for verifiability)
+      const transferId = `${event.chainId}_${event.block.number}_${event.logIndex}`;
       context.TokenTransfer.set({
-        id: nativeTransferId,
-        tokenAddress: "0x0000000000000000000000000000000000000000", // Native token address
-        from: nativeFrom,
-        to: to, // Use the recipient from the ERC20 transfer event
-        value: nativeValue, // Native MON amount
+        id: transferId,
+        tokenAddress: contractAddress,
+        from: from,
+        to: to,
+        value: value,
         blockNumber: event.block.number,
         blockTimestamp: event.block.timestamp,
-        transactionHash: tx.hash ?? event.transaction.hash,
-        logIndex: event.logIndex + 1000, // Offset to avoid ID conflicts
-        gasUsed: tx.gasUsed ?? (event.transaction as any)?.gasUsed ?? 0n,
-        gasPrice: tx.effectiveGasPrice ?? (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
+        transactionHash: event.transaction.hash,
+        logIndex: event.logIndex,
+        gasUsed: (event.transaction as any)?.gasUsed ?? 0n,
+        gasPrice: (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
       });
 
-      context.log.info(`Captured native MON transfer`, { value: String(nativeValue), tx: tx.hash ?? event.transaction.hash });
-    }
+      // Attribute this transfer to a protocol if it involves a known router
+      try {
+        const fromLc = from.toLowerCase();
+        const toLc = to.toLowerCase();
+        const txToLc = ((event.transaction as any)?.to || '').toLowerCase?.() || '';
+        const proto = PROTOCOL_BY_ADDRESS[fromLc] || PROTOCOL_BY_ADDRESS[toLc] || PROTOCOL_BY_ADDRESS[txToLc];
+        if (proto) {
+          const tsMs = Number(event.block.timestamp) * 1000;
+          const dateISO = dateISOFromTs(tsMs);
+          const txHash = (event.transaction?.hash as string) || null;
+          const feeWei = feeFromTx(event.transaction as any);
+          const userKey = (event.transaction?.from as string) || null;
+          await upsertDaily(context, { protocolId: proto, dateISO, user: userKey, txDelta: 1, txHash, feeWei });
+        }
+      } catch {}
 
-    // Update token metrics for tracked tokens
-    if (isTrackedToken) {
-      await updateTokenMetrics(context, contractAddress, value, event.block.timestamp);
-    }
+      // BONUS: Also capture native MON transfers only for recent period
+      const tx: any = event.transaction as any
+      const nativeValue: bigint | undefined = tx && typeof tx.value !== 'undefined' ? tx.value : undefined
+      const nativeFrom: string | undefined = tx && typeof tx.from !== 'undefined' ? tx.from : undefined
+      if (isRecent && nativeValue && nativeValue > 0n && nativeFrom) {
+        const nativeTransferId = `native_${event.chainId}_${event.block.number}_${event.logIndex}`;
+        context.TokenTransfer.set({
+          id: nativeTransferId,
+          tokenAddress: "0x0000000000000000000000000000000000000000", // Native token address
+          from: nativeFrom,
+          to: to, // Use the recipient from the ERC20 transfer event
+          value: nativeValue, // Native MON amount
+          blockNumber: event.block.number,
+          blockTimestamp: event.block.timestamp,
+          transactionHash: tx.hash ?? event.transaction.hash,
+          logIndex: event.logIndex + 1000, // Offset to avoid ID conflicts
+          gasUsed: tx.gasUsed ?? (event.transaction as any)?.gasUsed ?? 0n,
+          gasPrice: tx.effectiveGasPrice ?? (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
+        });
 
-    // Log for AI decision context
-    context.log.info(`ERC20 Transfer processed`, {
-      token: contractAddress,
-      from: from.slice(0, 8) + "...",
-      to: to.slice(0, 8) + "...", 
-      value: value.toString(),
-      block: event.block.number,
-      isTracked: isTrackedToken,
-      isWhaleMovement: isWhaleMovement,
-    });
+        try { context.log.info(`Captured native MON transfer`, { value: String(nativeValue), tx: String(tx.hash ?? event.transaction.hash) }) } catch {}
+      }
+
+      // Update token metrics only for recent period (heavy derived write)
+      if (isRecent && isTrackedToken) {
+        await updateTokenMetrics(context, contractAddress, value, event.block.timestamp);
+      }
+
+      // Log for AI decision context (BigInt -> string to avoid logger serialization issues)
+      try {
+        context.log.info(`ERC20 Transfer processed`, {
+          token: contractAddress,
+          from: from.slice(0, 8) + "...",
+          to: to.slice(0, 8) + "...",
+          value: value.toString(),
+          block: String(event.block.number),
+          isTracked: isTrackedToken,
+          isWhaleMovement: isWhaleMovement,
+        });
+      } catch {}
+    } catch (err) {
+      try {
+        context.log.error?.('ERC20 handler error', {
+          err: String(err?.message || err),
+          block: String(event.block?.number ?? ''),
+          tx: String((event.transaction as any)?.hash ?? ''),
+        })
+      } catch {}
+      // swallow to avoid indexer restart on single bad event
+    }
   }
 );
 

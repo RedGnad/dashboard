@@ -79,112 +79,119 @@ async function upsertDaily(
 
 // Store MarketRegistered events without dynamic registration (stability first)
 KuruRouter.MarketRegistered.handler(({ event, context }) => {
-  const marketId = String(event.params.market || event.params?.market).toLowerCase()
-  const entity: Kuru_MarketRegistered = {
-    id: marketId,
-    market: event.params.market,
-    baseAsset: event.params.baseAsset,
-    quoteAsset: event.params.quoteAsset,
-    vaultAddress: event.params.vaultAddress,
-    pricePrecision: Number(event.params.pricePrecision) as any,
-    sizePrecision: (event.params.sizePrecision as any).toString?.() ?? String(event.params.sizePrecision),
-    tickSize: Number(event.params.tickSize) as any,
-    minSize: (event.params.minSize as any).toString?.() ?? String(event.params.minSize),
-    maxSize: (event.params.maxSize as any).toString?.() ?? String(event.params.maxSize),
-    takerFeeBps: (event.params.takerFeeBps as any).toString?.() ?? String(event.params.takerFeeBps),
-    makerFeeBps: (event.params.makerFeeBps as any).toString?.() ?? String(event.params.makerFeeBps),
-    blockNumber: event.block.number,
-    blockTimestamp: event.block.timestamp,
-    transactionHash: event.transaction.hash,
-  };
-  context.Kuru_MarketRegistered.set(entity);
+  try {
+    const marketId = String(event.params.market || event.params?.market).toLowerCase()
+    const entity: Kuru_MarketRegistered = {
+      id: marketId,
+      market: event.params.market,
+      baseAsset: event.params.baseAsset,
+      quoteAsset: event.params.quoteAsset,
+      vaultAddress: event.params.vaultAddress,
+      pricePrecision: Number(event.params.pricePrecision) as any,
+      sizePrecision: (event.params.sizePrecision as any).toString?.() ?? String(event.params.sizePrecision),
+      tickSize: Number(event.params.tickSize) as any,
+      minSize: (event.params.minSize as any).toString?.() ?? String(event.params.minSize),
+      maxSize: (event.params.maxSize as any).toString?.() ?? String(event.params.maxSize),
+      takerFeeBps: (event.params.takerFeeBps as any).toString?.() ?? String(event.params.takerFeeBps),
+      makerFeeBps: (event.params.makerFeeBps as any).toString?.() ?? String(event.params.makerFeeBps),
+      blockNumber: event.block.number,
+      blockTimestamp: event.block.timestamp,
+      transactionHash: event.transaction.hash,
+    };
+    context.Kuru_MarketRegistered.set(entity);
+  } catch {}
 });
 
 // Store trades and update daily metrics
 KuruOrderBook.Trade.handler(async ({ event, context }) => {
-  const entity: Kuru_Trade = {
-    id: `${event.chainId}_${event.block.number}_${event.logIndex}`,
-    market: event.srcAddress,
-    orderId: (event.params.orderId as any).toString?.() ?? String(event.params.orderId),
-    makerAddress: event.params.makerAddress,
-    takerAddress: event.params.takerAddress,
-    txOrigin: event.params.txOrigin,
-    isBuy: Boolean(event.params.isBuy) as any,
-    price: (event.params.price as any).toString?.() ?? String(event.params.price),
-    updatedSize: (event.params.updatedSize as any).toString?.() ?? String(event.params.updatedSize),
-    filledSize: (event.params.filledSize as any).toString?.() ?? String(event.params.filledSize),
-    blockNumber: event.block.number,
-    blockTimestamp: event.block.timestamp,
-    transactionHash: event.transaction.hash,
-    gasUsed: (event.transaction as any)?.gasUsed ?? 0n,
-    gasPrice: (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
-  } as any;
-  context.Kuru_Trade.set(entity);
-  
-  // Normalize as SwapEvent (PairMetrics disabled)
   try {
-    const marketId = String(event.srcAddress || '').toLowerCase()
-    const reg = await context.Kuru_MarketRegistered.get(marketId)
-    if (reg) {
-      const base = String((reg as any).baseAsset)
-      const quote = String((reg as any).quoteAsset)
-      const priceRaw = BigInt(event.params.price as any)
-      const filledRaw = BigInt(event.params.filledSize as any)
-      const pricePrecision = Number((reg as any).pricePrecision || 0)
-      const scale = BigInt(10) ** BigInt(isNaN(pricePrecision) ? 0 : pricePrecision)
-      const quoteAmount = scale > 0n ? (filledRaw * priceRaw) / scale : filledRaw * priceRaw
-      const isBuy = Boolean(event.params.isBuy)
-      const tokenIn = isBuy ? quote : base
-      const tokenOut = isBuy ? base : quote
-      const amountIn = isBuy ? quoteAmount : filledRaw
-      const amountOut = isBuy ? filledRaw : quoteAmount
-      let price = 0
-      try {
-        const ain = amountIn as any as bigint
-        const aout = amountOut as any as bigint
-        if (typeof ain === 'bigint' && ain !== 0n) {
-          price = Number(aout) / Number(ain)
-        } else {
-          const ainNum = Number(amountIn as any)
-          const aoutNum = Number(amountOut as any)
-          price = ainNum > 0 ? (aoutNum / ainNum) : 0
+    const entity: Kuru_Trade = {
+      id: `${event.chainId}_${event.block.number}_${event.logIndex}`,
+      market: event.srcAddress,
+      orderId: (event.params.orderId as any).toString?.() ?? String(event.params.orderId),
+      makerAddress: event.params.makerAddress,
+      takerAddress: event.params.takerAddress,
+      txOrigin: event.params.txOrigin,
+      isBuy: Boolean(event.params.isBuy) as any,
+      price: (event.params.price as any).toString?.() ?? String(event.params.price),
+      updatedSize: (event.params.updatedSize as any).toString?.() ?? String(event.params.updatedSize),
+      filledSize: (event.params.filledSize as any).toString?.() ?? String(event.params.filledSize),
+      blockNumber: event.block.number,
+      blockTimestamp: event.block.timestamp,
+      transactionHash: event.transaction.hash,
+      gasUsed: (event.transaction as any)?.gasUsed ?? 0n,
+      gasPrice: (event.transaction as any)?.effectiveGasPrice ?? (event.transaction as any)?.gasPrice ?? 0n,
+    } as any;
+    context.Kuru_Trade.set(entity);
+
+    try {
+      const marketId = String(event.srcAddress || '').toLowerCase()
+      const reg = await context.Kuru_MarketRegistered.get(marketId)
+      if (reg) {
+        const base = String((reg as any).baseAsset)
+        const quote = String((reg as any).quoteAsset)
+        const priceRaw = BigInt(event.params.price as any)
+        const filledRaw = BigInt(event.params.filledSize as any)
+        const pricePrecision = Number((reg as any).pricePrecision || 0)
+        const scale = BigInt(10) ** BigInt(isNaN(pricePrecision) ? 0 : pricePrecision)
+        const quoteAmount = scale > 0n ? (filledRaw * priceRaw) / scale : filledRaw * priceRaw
+        const isBuy = Boolean(event.params.isBuy)
+        const tokenIn = isBuy ? quote : base
+        const tokenOut = isBuy ? base : quote
+        const amountIn = isBuy ? quoteAmount : filledRaw
+        const amountOut = isBuy ? filledRaw : quoteAmount
+        let price = 0
+        try {
+          const ain = amountIn as any as bigint
+          const aout = amountOut as any as bigint
+          if (typeof ain === 'bigint' && ain !== 0n) {
+            price = Number(aout) / Number(ain)
+          } else {
+            const ainNum = Number(amountIn as any)
+            const aoutNum = Number(amountOut as any)
+            price = ainNum > 0 ? (aoutNum / ainNum) : 0
+          }
+          if (!Number.isFinite(price) || Number.isNaN(price)) price = 0
+        } catch { price = 0 }
+        const swapId = `${event.chainId}_${event.block.number}_${event.logIndex}_kuru`
+        const nowSec = Math.floor(Date.now() / 1000)
+        const cutoffSec = nowSec - 30 * 86400
+        const derivedFull = (typeof process !== 'undefined' && (process as any)?.env?.ENVIO_DERIVED_FULL === 'true')
+        const isRecent = derivedFull || (Number(event.block.timestamp) >= cutoffSec)
+        if (isRecent) {
+          context.SwapEvent.set({
+            id: swapId,
+            pairKey: pairKeyFor(tokenIn, tokenOut),
+            tokenIn,
+            tokenOut,
+            amountIn,
+            amountOut,
+            price,
+            recipient: String(event.params.takerAddress || ''),
+            blockNumber: event.block.number,
+            blockTimestamp: event.block.timestamp,
+            transactionHash: event.transaction.hash,
+            logIndex: event.logIndex,
+          } as any)
         }
-        if (!Number.isFinite(price) || Number.isNaN(price)) price = 0
-      } catch { price = 0 }
-      const swapId = `${event.chainId}_${event.block.number}_${event.logIndex}_kuru`
-      context.SwapEvent.set({
-        id: swapId,
-        pairKey: pairKeyFor(tokenIn, tokenOut),
-        tokenIn,
-        tokenOut,
-        amountIn,
-        amountOut,
-        price,
-        recipient: String(event.params.takerAddress || ''),
-        blockNumber: event.block.number,
-        blockTimestamp: event.block.timestamp,
-        transactionHash: event.transaction.hash,
-        logIndex: event.logIndex,
-      } as any)
+      } else {
+        try { context.log?.info?.(`Kuru Trade without market registration mapping for ${marketId}`) } catch {}
+      }
+    } catch {}
 
-      // PairMetrics writes disabled due to schema mismatch and performance concerns
-    } else {
-      try { context.log?.info?.(`Kuru Trade without market registration mapping for ${marketId}`) } catch {}
-    }
+    const tsMs = Number(event.block.timestamp) * 1000;
+    const dateISO = dateISOFromTs(tsMs);
+    const txHash = (event.transaction?.hash as string) || null;
+    const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
+    const effPrice = (event.transaction as any)?.effectiveGasPrice
+      ? BigInt((event.transaction as any).effectiveGasPrice)
+      : (event.transaction as any)?.gasPrice
+        ? BigInt((event.transaction as any).gasPrice)
+        : null;
+    const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
+    const userKey = (event.transaction?.from as string) || null;
+    await upsertDaily(context, { protocolId: "kuru", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
   } catch {}
-
-  const tsMs = Number(event.block.timestamp) * 1000;
-  const dateISO = dateISOFromTs(tsMs);
-  const txHash = (event.transaction?.hash as string) || null;
-  const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
-  const effPrice = (event.transaction as any)?.effectiveGasPrice
-    ? BigInt((event.transaction as any).effectiveGasPrice)
-    : (event.transaction as any)?.gasPrice
-      ? BigInt((event.transaction as any).gasPrice)
-      : null;
-  const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
-  const userKey = (event.transaction?.from as string) || null;
-  await upsertDaily(context, { protocolId: "kuru", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
 });
 
 // Optional: PumpingTime event observed (no dynamic registration for stability)

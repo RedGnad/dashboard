@@ -84,68 +84,74 @@ async function upsertDaily(
  */
 UniversalRouter.SwapExecuted.handler(
   async ({ event, context }) => {
-    const { tokenIn, tokenOut, amountIn, amountOut, recipient } = event.params;
-    const pairKey = pairKeyFor(tokenIn, tokenOut);
-
-    const swapId = `${event.chainId}_${event.block.number}_${event.logIndex}`;
-    
-    // Calculate price (simple ratio) with guards
-    let price = 0;
     try {
-      const ain = (amountIn as any) as bigint;
-      const aout = (amountOut as any) as bigint;
-      if (typeof ain === 'bigint' && ain !== 0n) {
-        price = Number(aout) / Number(ain);
-      } else {
+      const { tokenIn, tokenOut, amountIn, amountOut, recipient } = event.params;
+      const pairKey = pairKeyFor(tokenIn, tokenOut);
+      const swapId = `${event.chainId}_${event.block.number}_${event.logIndex}`;
+
+      let price = 0;
+      try {
+        const ain = (amountIn as any) as bigint;
+        const aout = (amountOut as any) as bigint;
+        if (typeof ain === 'bigint' && ain !== 0n) {
+          price = Number(aout) / Number(ain);
+        } else {
+          const ainNum = Number(amountIn as any);
+          const aoutNum = Number(amountOut as any);
+          price = ainNum > 0 ? (aoutNum / ainNum) : 0;
+        }
+        if (!Number.isFinite(price) || Number.isNaN(price)) price = 0;
+      } catch {
         const ainNum = Number(amountIn as any);
         const aoutNum = Number(amountOut as any);
         price = ainNum > 0 ? (aoutNum / ainNum) : 0;
+        if (!Number.isFinite(price) || Number.isNaN(price)) price = 0;
       }
-      if (!Number.isFinite(price) || Number.isNaN(price)) price = 0;
-    } catch {
-      const ainNum = Number(amountIn as any);
-      const aoutNum = Number(amountOut as any);
-      price = ainNum > 0 ? (aoutNum / ainNum) : 0;
-      if (!Number.isFinite(price) || Number.isNaN(price)) price = 0;
+
+      context.SwapEvent.set({
+        id: swapId,
+        pairKey,
+        tokenIn,
+        tokenOut,
+        amountIn,
+        amountOut,
+        price,
+        recipient,
+        blockNumber: event.block.number,
+        blockTimestamp: event.block.timestamp,
+        transactionHash: event.transaction.hash,
+        logIndex: event.logIndex,
+      });
+
+      const tsMs = Number(event.block.timestamp) * 1000;
+      const dateISO = dateISOFromTs(tsMs);
+      const txHash = (event.transaction?.hash as string) || null;
+      const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
+      const effPrice = (event.transaction as any)?.effectiveGasPrice
+        ? BigInt((event.transaction as any).effectiveGasPrice)
+        : (event.transaction as any)?.gasPrice
+          ? BigInt((event.transaction as any).gasPrice)
+          : null;
+      const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
+      const userKey = (event.transaction?.from as string) || null;
+      await upsertDaily(context, { protocolId: "dex", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
+
+      try {
+        context.log.info(`Swap processed for AI metrics`, {
+          pair: pairKey,
+          price: Number.isFinite(price) ? price.toFixed(6) : '0.000000',
+          volume: amountIn.toString(),
+          block: String(event.block.number),
+        });
+      } catch {}
+    } catch (err) {
+      try {
+        context.log.error?.('UR swap handler error', {
+          err: String((err as any)?.message || err),
+          block: String(event.block?.number ?? ''),
+          tx: String((event.transaction as any)?.hash ?? ''),
+        })
+      } catch {}
     }
-    
-    // Store swap event
-    context.SwapEvent.set({
-      id: swapId,
-      pairKey,
-      tokenIn,
-      tokenOut,
-      amountIn,
-      amountOut,
-      price,
-      recipient,
-      blockNumber: event.block.number,
-      blockTimestamp: event.block.timestamp,
-      transactionHash: event.transaction.hash,
-      logIndex: event.logIndex,
-    });
-
-    // PairMetrics writes disabled due to schema mismatch and performance concerns
-
-    // Aggregate daily metrics for "dex" protocol
-    const tsMs = Number(event.block.timestamp) * 1000;
-    const dateISO = dateISOFromTs(tsMs);
-    const txHash = (event.transaction?.hash as string) || null;
-    const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
-    const effPrice = (event.transaction as any)?.effectiveGasPrice
-      ? BigInt((event.transaction as any).effectiveGasPrice)
-      : (event.transaction as any)?.gasPrice
-        ? BigInt((event.transaction as any).gasPrice)
-        : null;
-    const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
-    const userKey = (event.transaction?.from as string) || null;
-    await upsertDaily(context, { protocolId: "dex", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
-
-    context.log.info(`Swap processed for AI metrics`, {
-      pair: pairKey,
-      price: Number.isFinite(price) ? price.toFixed(6) : '0.000000',
-      volume: amountIn.toString(),
-      block: event.block.number,
-    });
   }
 );
