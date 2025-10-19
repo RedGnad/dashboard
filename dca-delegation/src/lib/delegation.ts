@@ -816,7 +816,7 @@ export async function createNativeSwapDelegation(
     environment: env,
     scope: {
       type: 'functionCall',
-      targets: [UNISWAP_V2_ROUTER02],
+      targets: [...ROUTER_V2_CANDIDATES],
       selectors: ['swapExactETHForTokens(uint256,address[],address,uint256)']
     },
     caveats,
@@ -844,11 +844,12 @@ export async function getOrCreateNativeSwapDelegation(
     try {
       const signed = JSON.parse(stored)
       const scopeTargets: string[] = (signed.delegation?.scope?.targets || signed.scope?.targets || [])
-      const hasTargets = Array.isArray(scopeTargets) && scopeTargets.length > 0
+      const lower = Array.isArray(scopeTargets) ? scopeTargets.map((x:string)=>x.toLowerCase()) : []
+      const hasAllTargets = Array.isArray(scopeTargets) && ROUTER_V2_CANDIDATES.every(r => lower.includes(r.toLowerCase()))
       const match = signed.from?.toLowerCase?.() === delegatorSmartAccount.address.toLowerCase()
         && signed.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase()
         && !isDelegationExpired(signed)
-        && hasTargets
+        && hasAllTargets
       if (match) return signed
     } catch {}
   }
@@ -865,7 +866,10 @@ export async function redeemNativeSwapDelegation(
 ) {
   console.log('[native-swap] Starting', { amountMon, slippageBps, outToken, recipient })
   const amountInWei = parseUnits(amountMon, 18)
-  const path = [WMON, outToken] as `0x${string}`[]
+  const pathCandidates: `0x${string}`[][] = [
+    [WMON as `0x${string}`, outToken],
+    [WMON as `0x${string}`, USDC as `0x${string}`, outToken],
+  ]
 
   // Pre-check Delegator SA MON balance
   const delegatorAddress = (signedDelegation?.from || signedDelegation?.delegation?.from) as `0x${string}`
@@ -876,29 +880,38 @@ export async function redeemNativeSwapDelegation(
     }
   }
 
-  // Compute amountOutMin using router.getAmountsOut
-  let amountOutMin = 0n
-  try {
-    const amounts = await publicClient.readContract({
-      address: UNISWAP_V2_ROUTER02,
-      abi: UNISWAP_V2_ROUTER_READ_ABI,
-      functionName: 'getAmountsOut',
-      args: [amountInWei, path]
-    }) as bigint[]
-    const out = amounts[amounts.length - 1]
-    amountOutMin = out * (BigInt(10000 - slippageBps) as bigint) / 10000n
-  } catch (e) {
-    console.warn('[native-swap] getAmountsOut failed, using amountOutMin=0', e)
+  // Compute best router + path using getAmountsOut
+  let best: { router: `0x${string}`; path: `0x${string}`[]; minOut: bigint } | null = null
+  for (const router of ROUTER_V2_CANDIDATES) {
+    for (const p of pathCandidates) {
+      try {
+        const amounts = await publicClient.readContract({
+          address: router,
+          abi: UNISWAP_V2_ROUTER_READ_ABI,
+          functionName: 'getAmountsOut',
+          args: [amountInWei, p]
+        }) as bigint[]
+        const out = amounts?.[amounts.length - 1]
+        if (typeof out === 'bigint' && out > 0n) {
+          const minOut = out * BigInt(10000 - slippageBps) / 10000n
+          if (!best || minOut > best.minOut) best = { router: router as `0x${string}`, path: p, minOut }
+        }
+      } catch {}
+    }
+  }
+  if (!best) {
+    console.warn('[native-swap] No quote found; proceeding on default router with minOut=0')
+    best = { router: UNISWAP_V2_ROUTER02 as `0x${string}`, path: [WMON as `0x${string}`, outToken], minOut: 0n }
   }
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 300)
 
   const execution = createExecution({
-    target: UNISWAP_V2_ROUTER02,
+    target: best.router,
     value: amountInWei,
     callData: encodeFunctionData({
       abi: UNISWAP_V2_ROUTER_ETH_ABI,
       functionName: 'swapExactETHForTokens',
-      args: [amountOutMin, path, recipient, deadline]
+      args: [best.minOut, best.path, recipient, deadline]
     })
   })
 
@@ -920,5 +933,88 @@ export async function redeemNativeSwapDelegation(
   })
   const { receipt } = await bundlerClient.waitForUserOperationReceipt({ hash: uoHash })
   console.log('[native-swap] tx hash:', receipt.transactionHash)
+  return uoHash
+}
+
+// Generic ERC20 -> ERC20 swap via delegation
+export async function redeemSwapErc20ToErc20Delegation(
+  delegateSmartAccount: any,
+  signedDelegation: any,
+  tokenIn: `0x${string}`,
+  tokenInDecimals: number,
+  amount: string,
+  slippageBps: number,
+  tokenOut: `0x${string}`,
+  recipient: `0x${string}`,
+) {
+  const amountIn = parseUnits(amount, tokenInDecimals)
+  type Best = { router: `0x${string}`; path: `0x${string}`[]; minOut: bigint }
+  let best: Best | null = null
+  const candidates: `0x${string}`[][] = [
+    [tokenIn, tokenOut],
+    [tokenIn, WMON as `0x${string}`, tokenOut],
+    [tokenIn, USDC as `0x${string}`, tokenOut],
+  ]
+  for (const router of ROUTER_V2_CANDIDATES) {
+    for (const p of candidates) {
+      try {
+        const amounts = await publicClient.readContract({
+          address: router,
+          abi: UNISWAP_V2_ROUTER_READ_ABI,
+          functionName: 'getAmountsOut',
+          args: [amountIn, p]
+        }) as bigint[]
+        const out = amounts?.[amounts.length - 1]
+        if (typeof out === 'bigint' && out > 0n) {
+          const minOut = out * BigInt(10000 - slippageBps) / 10000n
+          if (!best || minOut > best.minOut) best = { router: router as `0x${string}`, path: p, minOut }
+        }
+      } catch {}
+    }
+  }
+  if (!best) throw new Error('No valid swap path found on supported V2 routers')
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 300)
+  let needApprove = true
+  try {
+    const current = await publicClient.readContract({
+      address: tokenIn,
+      abi: ERC20_ABI,
+      functionName: 'allowance',
+      args: [recipient, best.router]
+    }) as bigint
+    needApprove = current < amountIn
+  } catch {}
+  const execApprove = createExecution({
+    target: tokenIn,
+    value: 0n,
+    callData: encodeFunctionData({ abi: ERC20_ABI, functionName: 'approve', args: [best.router, amountIn] })
+  })
+  const execSwap = createExecution({
+    target: best.router,
+    value: 0n,
+    callData: encodeFunctionData({ abi: UNISWAP_V2_ROUTER_ABI, functionName: 'swapExactTokensForTokens', args: [amountIn, best.minOut, best.path, recipient, deadline] })
+  })
+  const normalizedSignedDelegation = signedDelegation?.delegation
+    ? { ...signedDelegation.delegation, signature: signedDelegation.signature, permissionContexts: signedDelegation.permissionContexts ?? [] }
+    : { ...signedDelegation, permissionContexts: signedDelegation?.permissionContexts ?? [] }
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+  const data = needApprove
+    ? contracts.DelegationManager.encode.redeemDelegations({
+        delegations: [[normalizedSignedDelegation], [normalizedSignedDelegation]],
+        modes: [ExecutionMode.SingleDefault, ExecutionMode.SingleDefault],
+        executions: [[execApprove], [execSwap]],
+      })
+    : contracts.DelegationManager.encode.redeemDelegations({
+        delegations: [[normalizedSignedDelegation]],
+        modes: [ExecutionMode.SingleDefault],
+        executions: [[execSwap]],
+      })
+  const uoHash = await sendUserOpWithRetry({
+    account: delegateSmartAccount,
+    calls: [{ to: env.DelegationManager, data }],
+    paymaster: paymasterClient,
+  })
+  const { receipt } = await bundlerClient.waitForUserOperationReceipt({ hash: uoHash })
+  console.log('[swap] ERC20->ERC20 tx hash:', receipt.transactionHash)
   return uoHash
 }

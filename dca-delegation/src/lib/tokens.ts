@@ -5,19 +5,23 @@ export type TokenMeta = {
   decimals: number
   isStable?: boolean
   isNative?: boolean
+  logoUrl?: string
 }
 
 // Central registry of supported tokens on Monad testnet
 export const TOKENS: Record<string, TokenMeta> = {
-  MON: { symbol: 'MON', address: '0x0000000000000000000000000000000000000000', decimals: 18, isNative: true },
-  USDC: { symbol: 'USDC', address: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea', decimals: 6, isStable: true },
-  WMON: { symbol: 'WMON', address: '0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701', decimals: 18 },
-  BEAN: { symbol: 'BEAN', address: '0x268e4e24e0051ec27b3d27a95977e71ce6875a05', decimals: 18 },
-  CHOG: { symbol: 'CHOG', address: '0xe0590015a873bf326bd645c3e1266d4db41c4e6b', decimals: 18 },
-  DAK: { symbol: 'DAK', address: '0x0f0bdebf0f83cd1ee3974779bcb7315f9808c714', decimals: 18 },
-  YAKI: { symbol: 'YAKI', address: '0xfe140e1dCe99Be9F4F15d657CD9b7BF622270C50', decimals: 18 },
-  WBTC: { symbol: 'WBTC', address: '0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d', decimals: 8 },
-  DAKIMAKURA: { symbol: 'DAKIMAKURA', address: '0x0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8', decimals: 18 },
+  MON: { symbol: 'MON', address: '0x0000000000000000000000000000000000000000', decimals: 18, isNative: true, logoUrl: '/tokens/mon.png' },
+  USDC: { symbol: 'USDC', address: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea', decimals: 6, isStable: true, logoUrl: '/tokens/usdc.png' },
+  WMON: { symbol: 'WMON', address: '0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701', decimals: 18, logoUrl: '/tokens/wmon.png' },
+  BEAN: { symbol: 'BEAN', address: '0x268e4e24e0051ec27b3d27a95977e71ce6875a05', decimals: 18, logoUrl: '/tokens/bean.png' },
+  CHOG: { symbol: 'CHOG', address: '0xe0590015a873bf326bd645c3e1266d4db41c4e6b', decimals: 18, logoUrl: '/tokens/chog.png' },
+  DAK: { symbol: 'DAK', address: '0x0f0bdebf0f83cd1ee3974779bcb7315f9808c714', decimals: 18, logoUrl: '/tokens/dak.png' },
+  YAKI: { symbol: 'YAKI', address: '0xfe140e1dCe99Be9F4F15d657CD9b7BF622270C50', decimals: 18, logoUrl: '/tokens/yaki.png' },
+  WBTC: { symbol: 'WBTC', address: '0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d', decimals: 8, logoUrl: '/tokens/wbtc.png' },
+  PINGU: { symbol: 'PINGU', address: '0xA2426cD97583939E79Cfc12aC6E9121e37D0904d', decimals: 18, logoUrl: '/tokens/pingu.png' },
+  OCTO: { symbol: 'OCTO', address: '0xCa9A4F46Faf5628466583486FD5ACE8AC33ce126', decimals: 18, logoUrl: '/tokens/octo.png' },
+  KB: { symbol: 'KB', address: '0x34d1ae6076aee4072f54e1156d2e507dd564a355', decimals: 18, logoUrl: '/tokens/kb.png' },
+  WSOL: { symbol: 'WSOL', address: '0x5387C85A4965769f6B0Df430638a1388493486F1', decimals: 9, logoUrl: '/tokens/wsol.png' },
 }
 
 // Legacy exports for backward compatibility

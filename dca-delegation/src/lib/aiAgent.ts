@@ -296,6 +296,44 @@ export class AutonomousAiAgent {
           }
         }
       }
+
+      // Conservative post-processing: enforce thresholds and clamp amount
+      if (this.personality === 'conservative' && tokenMetrics && (decision.action.type === 'BUY' || decision.action.type === 'SWAP')) {
+        const M_MIN = 1.0
+        const V_MAX = 15.0
+        const L_MIN = 0.3
+        const allowedSet = new Set([...getTargetTokens().map(t => t.symbol), 'USDC', 'WMON'])
+        const tgt = (decision.action as any).targetToken as string
+        const tm = tokenMetrics.find(tm => tm.token === tgt)
+        const ok = tm && tm.momentum >= M_MIN && tm.volatility <= V_MAX && tm.liquidityScore >= L_MIN
+        if (!ok) {
+          const lastSameAny = this.decisions
+            .filter(d => d.action.type === 'BUY' || d.action.type === 'SWAP')
+            .map(d => ((d.action as any).targetToken as string))
+          const lastTargetAny = lastSameAny[0]
+          const candidates = tokenMetrics
+            .filter(x => allowedSet.has(x.token))
+            .filter(x => x.momentum >= M_MIN && x.volatility <= V_MAX && x.liquidityScore >= L_MIN)
+            .sort((a, b) => (b.momentum - a.momentum) || (a.volatility - b.volatility))
+          const alt = candidates.find(c => c.token !== lastTargetAny)?.token || 'USDC'
+          decision = {
+            ...decision,
+            action: {
+              ...decision.action as any,
+              targetToken: alt,
+              reasoning: `${(decision.action as any).reasoning || ''} | Conservative guard: target adjusted to ${alt}`
+            } as any
+          }
+        }
+        // Clamp amount to 1-5% portfolio
+        const minAmt = (portfolioValue * 0.01)
+        const maxAmt = (portfolioValue * 0.05)
+        const amtNum = Number((decision.action as any).amount || 0)
+        if (Number.isFinite(amtNum)) {
+          const clamped = Math.max(minAmt, Math.min(maxAmt, amtNum))
+          ;(decision.action as any).amount = clamped.toFixed(4)
+        }
+      }
       this.decisions.unshift(decision)
       this.saveState()
       
@@ -330,6 +368,10 @@ export class AutonomousAiAgent {
     // Diversification constraint by personality
     const maxRepeat = this.personality === 'aggressive' ? 2 : 1
     
+    const allowedTargets = Array.from(new Set([...getTargetTokens().map(t => t.symbol), 'USDC', 'WMON']))
+      .filter(t => t !== 'DAKIMAKURA')
+      .join(', ')
+
     return `
 CURRENT PORTFOLIO:
 - MON: ${balances.MON}
@@ -359,7 +401,7 @@ CONSTRAINTS:
 - Amount: 0.5-15% of portfolio value (${(portfolioValue * 0.005).toFixed(4)}-${(portfolioValue * 0.15).toFixed(4)} MON)
 - Next interval: 60-1800 seconds (be reasonable)
 - Source tokens (to spend): MON (native), USDC (stable), or ANY volatile token for swaps
-- Target tokens (to buy): WMON, BEAN, CHOG, DAK, YAKI, WBTC, DAKIMAKURA, USDC
+- Target tokens (to buy): ${allowedTargets}
 - Available actions: BUY (spend source to get target), SWAP (volatile→volatile), HOLD (wait), SELL_TO_MON (convert to native), SELL_TO_USDC (safe haven)
 - Diversification: avoid buying the same target token more than ${maxRepeat} time(s) in a row; prefer underrepresented tokens from RECENT BUYS
 
@@ -372,8 +414,8 @@ Respond with JSON only:
 {
   "action": {
     "type": "BUY|SWAP|HOLD|SELL_TO_MON|SELL_TO_USDC",
-    "sourceToken": "MON|USDC",
-    "targetToken": "WMON|BEAN|CHOG|DAK|YAKI|WBTC|DAKIMAKURA",
+    "sourceToken": "MON|USDC|<any volatile token symbol>",
+    "targetToken": "<symbol from allowed targets>",
     "amount": "0.05",
     "reasoning": "Market analysis and decision rationale"
   },

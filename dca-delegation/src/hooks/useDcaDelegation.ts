@@ -17,7 +17,8 @@ import {
   redeemSwapDelegation,
   redeemSwapChogDelegation,
   redeemSwapErc20ToWmonDelegation,
-  redeemErc20TransferDelegation
+  redeemErc20TransferDelegation,
+  redeemSwapErc20ToErc20Delegation
 } from '../lib/delegation'
 import { TOKENS, WMON } from '../lib/tokens'
 import { getAllBalances } from '../lib/balances'
@@ -61,6 +62,7 @@ export function useDcaDelegation() {
     slippageBps: number
     outToken: `0x${string}`
     intervalSeconds: number
+    conditionCallback?: (ctx: { mode: 'manual' | 'ai', balances: Record<string, string>, outToken: `0x${string}` }) => Promise<{ allow: boolean, stop?: boolean, reason?: string }>
   }>(null)
   const lastAiCallbackRef = useRef<null | ((balances: Record<string, string>) => Promise<{ amount: string, token: `0x${string}`, interval: number } | null>)>(null)
 
@@ -258,18 +260,76 @@ export function useDcaDelegation() {
     }
   }, [delegateSmartAccount, delegatorSmartAccount, signedDelegation, isExecuting, refreshBalances])
 
+  const runErc20SwapToToken = useCallback(async (
+    tokenIn: `0x${string}`,
+    tokenInDecimals: number,
+    amountIn: string,
+    slippageBps: number,
+    tokenOut: `0x${string}`
+  ) => {
+    if (!delegateSmartAccount || !delegatorSmartAccount || !signedDelegation) throw new Error('Smart accounts not initialized')
+    setIsExecuting(true)
+    setIsLoading(true)
+    try {
+      const delegatorAddr = delegatorSmartAccount.address as `0x${string}`
+      const uoHash = await redeemSwapErc20ToErc20Delegation(
+        delegateSmartAccount,
+        signedDelegation,
+        tokenIn,
+        tokenInDecimals,
+        amountIn,
+        slippageBps,
+        tokenOut,
+        delegatorAddr
+      )
+      setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash, lastError: undefined }))
+      await refreshBalances()
+      return uoHash
+    } finally {
+      setIsExecuting(false)
+      setIsLoading(false)
+    }
+  }, [delegateSmartAccount, delegatorSmartAccount, signedDelegation, refreshBalances])
+
   // Start Native DCA with immediate execution and scheduler
-  const startNativeDca = useCallback(async (amountMon: string, slippageBps: number, outToken: `0x${string}`, intervalSeconds: number, aiEnabled: boolean = false, aiCallback?: (balances: Record<string, string>) => Promise<{ amount: string, token: `0x${string}`, interval: number } | null>) => {
+  const startNativeDca = useCallback(async (amountMon: string, slippageBps: number, outToken: `0x${string}`, intervalSeconds: number, aiEnabled: boolean = false, aiCallback?: (balances: Record<string, string>) => Promise<{ amount: string, token: `0x${string}`, interval: number } | null>, conditionCallback?: (ctx: { mode: 'manual' | 'ai', balances: Record<string, string>, outToken: `0x${string}` }) => Promise<{ allow: boolean, stop?: boolean, reason?: string }>) => {
     setIsLoading(true)
     try {
       if (!aiEnabled) {
         // Manual DCA mode
-        lastDcaConfigRef.current = { mode: 'manual', amountMon, slippageBps, outToken, intervalSeconds }
+        lastDcaConfigRef.current = { mode: 'manual', amountMon, slippageBps, outToken, intervalSeconds, conditionCallback }
         lastAiCallbackRef.current = null
-        await enqueueOp(() => runNativeSwapMonToToken(amountMon, slippageBps, outToken, true))
+        let allowNow = true
+        let stopNow = false
+        if (conditionCallback) {
+          try {
+            const res = await conditionCallback({ mode: 'manual', balances: balances as Record<string, string>, outToken })
+            allowNow = res?.allow !== false
+            stopNow = !!res?.stop
+          } catch {}
+        }
+        if (stopNow) {
+          dcaScheduler.stop()
+          setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+        }
+        if (allowNow) {
+          await enqueueOp(() => runNativeSwapMonToToken(amountMon, slippageBps, outToken, true))
+        }
         dcaScheduler.start({
           intervalSeconds,
           onExecute: async () => {
+            const cfg = lastDcaConfigRef.current
+            if (cfg?.conditionCallback) {
+              try {
+                const res = await cfg.conditionCallback({ mode: 'manual', balances: balances as Record<string, string>, outToken })
+                if (res?.stop) {
+                  dcaScheduler.stop()
+                  setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+                  return
+                }
+                if (res && res.allow === false) return
+              } catch {}
+            }
             await enqueueOp(() => runNativeSwapMonToToken(amountMon, slippageBps, outToken, true))
           },
           onError: (error) => {
@@ -282,9 +342,71 @@ export function useDcaDelegation() {
       } else {
         // AI-controlled DCA mode
         let currentInterval = intervalSeconds
-        lastDcaConfigRef.current = { mode: 'ai', amountMon, slippageBps, outToken, intervalSeconds }
+        lastDcaConfigRef.current = { mode: 'ai', amountMon, slippageBps, outToken, intervalSeconds, conditionCallback }
         lastAiCallbackRef.current = aiCallback || null
-        
+
+        // Immediate AI decision and execution before starting scheduler
+        if (aiCallback) {
+          try {
+            const firstDecision = await aiCallback(balances as Record<string, string>)
+            if (firstDecision) {
+              const src = (firstDecision as any).sourceToken as string | undefined
+              if (src && src.toUpperCase() !== 'MON') {
+                const meta = TOKENS[src.toUpperCase() as keyof typeof TOKENS]
+                if (meta && !meta.isNative) {
+                  let allowed = true
+                  let stop = false
+                  if (conditionCallback) {
+                    try {
+                      const res = await conditionCallback({ mode: 'ai', balances: balances as Record<string, string>, outToken: firstDecision.token })
+                      allowed = res?.allow !== false
+                      stop = !!res?.stop
+                    } catch {}
+                  }
+                  if (stop) {
+                    dcaScheduler.stop()
+                    setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+                  }
+                  if (allowed) await enqueueOp(() => runErc20SwapToToken(meta.address as `0x${string}`, meta.decimals, (firstDecision as any).amount, slippageBps, firstDecision.token))
+                } else {
+                  let allowed = true
+                  let stop = false
+                  if (conditionCallback) {
+                    try {
+                      const res = await conditionCallback({ mode: 'ai', balances: balances as Record<string, string>, outToken: firstDecision.token })
+                      allowed = res?.allow !== false
+                      stop = !!res?.stop
+                    } catch {}
+                  }
+                  if (stop) {
+                    dcaScheduler.stop()
+                    setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+                  }
+                  if (allowed) await enqueueOp(() => runNativeSwapMonToToken(firstDecision.amount, slippageBps, firstDecision.token, true))
+                }
+              } else {
+                let allowed = true
+                let stop = false
+                if (conditionCallback) {
+                  try {
+                    const res = await conditionCallback({ mode: 'ai', balances: balances as Record<string, string>, outToken: firstDecision.token })
+                    allowed = res?.allow !== false
+                    stop = !!res?.stop
+                  } catch {}
+                }
+                if (stop) {
+                  dcaScheduler.stop()
+                  setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+                }
+                if (allowed) await enqueueOp(() => runNativeSwapMonToToken(firstDecision.amount, slippageBps, firstDecision.token, true))
+              }
+              currentInterval = firstDecision.interval
+            }
+          } catch (e) {
+            await enqueueOp(() => runNativeSwapMonToToken(amountMon, slippageBps, outToken, true))
+          }
+        }
+
         dcaScheduler.start({
           intervalSeconds: currentInterval,
           onExecute: async () => {
@@ -292,7 +414,53 @@ export function useDcaDelegation() {
               try {
                 const aiDecision = await aiCallback(balances as Record<string, string>)
                 if (aiDecision) {
-                  await enqueueOp(() => runNativeSwapMonToToken(aiDecision.amount, slippageBps, aiDecision.token, true))
+                  const src = (aiDecision as any).sourceToken as string | undefined
+                  if (src && src.toUpperCase() !== 'MON') {
+                    const meta = TOKENS[src.toUpperCase() as keyof typeof TOKENS]
+                    if (meta && !meta.isNative) {
+                      const cfg = lastDcaConfigRef.current
+                      if (cfg?.conditionCallback) {
+                        try {
+                          const res = await cfg.conditionCallback({ mode: 'ai', balances: balances as Record<string, string>, outToken: aiDecision.token })
+                          if (res?.stop) {
+                            dcaScheduler.stop()
+                            setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+                            return
+                          }
+                          if (res && res.allow === false) return
+                        } catch {}
+                      }
+                      await enqueueOp(() => runErc20SwapToToken(meta.address as `0x${string}`, meta.decimals, (aiDecision as any).amount, slippageBps, aiDecision.token))
+                    } else {
+                      const cfg = lastDcaConfigRef.current
+                      if (cfg?.conditionCallback) {
+                        try {
+                          const res = await cfg.conditionCallback({ mode: 'ai', balances: balances as Record<string, string>, outToken: aiDecision.token })
+                          if (res?.stop) {
+                            dcaScheduler.stop()
+                            setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+                            return
+                          }
+                          if (res && res.allow === false) return
+                        } catch {}
+                      }
+                      await enqueueOp(() => runNativeSwapMonToToken(aiDecision.amount, slippageBps, aiDecision.token, true))
+                    }
+                  } else {
+                    const cfg = lastDcaConfigRef.current
+                    if (cfg?.conditionCallback) {
+                      try {
+                        const res = await cfg.conditionCallback({ mode: 'ai', balances: balances as Record<string, string>, outToken: aiDecision.token })
+                        if (res?.stop) {
+                          dcaScheduler.stop()
+                          setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+                          return
+                        }
+                        if (res && res.allow === false) return
+                      } catch {}
+                    }
+                    await enqueueOp(() => runNativeSwapMonToToken(aiDecision.amount, slippageBps, aiDecision.token, true))
+                  }
                   // Update interval for next execution
                   currentInterval = aiDecision.interval
                   dcaScheduler.updateInterval(currentInterval)

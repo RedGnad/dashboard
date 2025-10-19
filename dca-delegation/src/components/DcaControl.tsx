@@ -1,10 +1,11 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { parseUnits } from 'viem'
 import { useDcaDelegation } from '../hooks/useDcaDelegation'
 import { USDC, CHOG, getTargetTokens, getToken, getAllTradableTokens, TOKENS } from '../lib/tokens'
 import { Play, Square, ArrowUpDown, RefreshCw, Copy, Settings, BarChart2, Cpu, SlidersHorizontal, Brain } from 'lucide-react'
 import { useEnvioMetrics } from '../hooks/useEnvioMetrics'
 import ProtocolMetricsChart from '../components/ProtocolMetricsChart'
+import TokenMetricsChart from '../components/TokenMetricsChart'
 import ProtocolBarChart from '../components/ProtocolBarChart'
 import { useTodayProtocolMetrics } from '../hooks/useTodayProtocolMetrics'
 import { useProtocolDailyMetrics, type ProtocolMetricKey } from '../hooks/useProtocolDailyMetrics'
@@ -72,6 +73,45 @@ export default function DcaControl() {
   const [withdrawDecimals, setWithdrawDecimals] = useState<number>(18)
   const [withdrawBalance, setWithdrawBalance] = useState<string>('0')
 
+  const [tokenMetricKind, setTokenMetricKind] = useState<'momentum'|'volatility'>('momentum')
+  const [tokenDates, setTokenDates] = useState<string[]>([])
+  const [tokenSeries, setTokenSeries] = useState<Record<string, { token: string; points: { x: string; y: number }[] }>>({})
+
+  const [limitsEnabled, setLimitsEnabled] = useState(false)
+  const [entryKind, setEntryKind] = useState<'above'|'below'>('above')
+  const [entryPrice, setEntryPrice] = useState<string>('')
+  const [stopEnabled, setStopEnabled] = useState(false)
+  const [stopKind, setStopKind] = useState<'above'|'below'>('below')
+  const [stopPrice, setStopPrice] = useState<string>('')
+
+  const [aiLimitsEnabled, setAiLimitsEnabled] = useState(false)
+  const [aiEntryKind, setAiEntryKind] = useState<'above'|'below'>('above')
+  const [aiEntryPrice, setAiEntryPrice] = useState<string>('')
+  const [aiStopEnabled, setAiStopEnabled] = useState(false)
+  const [aiStopKind, setAiStopKind] = useState<'above'|'below'>('below')
+  const [aiStopPrice, setAiStopPrice] = useState<string>('')
+
+  useEffect(() => {
+    if (tokenMetricsLoading) return
+    const now = new Date()
+    const label = now.toISOString().slice(11, 19)
+    const allowed = getTargetTokens().map(t => t.symbol)
+    const nextSeries = { ...tokenSeries }
+    for (const sym of allowed) {
+      const m = tokenMetrics.find(tm => tm.token === sym)
+      const val = m ? (tokenMetricKind === 'momentum' ? m.momentum : m.volatility) : 0
+      const prev = nextSeries[sym]?.points || []
+      const pts = [...prev, { x: label, y: Number.isFinite(val) ? val : 0 }]
+      while (pts.length > 40) pts.shift()
+      nextSeries[sym] = { token: sym, points: pts }
+    }
+    const nextDates = [...tokenDates, label]
+    while (nextDates.length > 40) nextDates.shift()
+    setTokenSeries(nextSeries)
+    setTokenDates(nextDates)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokenMetrics, tokenMetricsLoading, tokenMetricKind])
+
   // Ensure selected outToken is always a valid target at startup
   useEffect(() => {
     const allowed = getTargetTokens().filter(t => t.symbol !== 'WMON').map(t => t.symbol)
@@ -91,6 +131,40 @@ export default function DcaControl() {
     }
     return { users, tx }
   }, [todayData])
+
+  const resolveSymbolFromAddress = useCallback((addr: `0x${string}`) => {
+    const lower = addr?.toLowerCase?.()
+    for (const t of Object.values(TOKENS)) {
+      if ((t.address as string).toLowerCase() === lower) return t.symbol
+    }
+    return ''
+  }, [])
+
+  const conditionCallback = useCallback(async (ctx: { mode: 'manual'|'ai'; balances: Record<string,string>; outToken: `0x${string}` }) => {
+    const sym = resolveSymbolFromAddress(ctx.outToken)
+    const tm = tokenMetrics.find(m => m.token === sym)
+    const price = Number(tm?.price || 0)
+    if (!Number.isFinite(price) || price <= 0) {
+      return { allow: false, reason: 'no-price' }
+    }
+    const isAi = ctx.mode === 'ai'
+    const en = isAi ? aiLimitsEnabled : limitsEnabled
+    if (!en) return { allow: true }
+    const ek = isAi ? aiEntryKind : entryKind
+    const ep = Number(isAi ? aiEntryPrice : entryPrice)
+    const se = isAi ? aiStopEnabled : stopEnabled
+    const sk = isAi ? aiStopKind : stopKind
+    const sp = Number(isAi ? aiStopPrice : stopPrice)
+    if (Number.isFinite(ep)) {
+      if (ek === 'above' && !(price >= ep)) return { allow: false }
+      if (ek === 'below' && !(price <= ep)) return { allow: false }
+    }
+    if (se && Number.isFinite(sp)) {
+      if (sk === 'above' && price >= sp) return { allow: false, stop: true }
+      if (sk === 'below' && price <= sp) return { allow: false, stop: true }
+    }
+    return { allow: true }
+  }, [tokenMetrics, limitsEnabled, entryKind, entryPrice, stopEnabled, stopKind, stopPrice, aiLimitsEnabled, aiEntryKind, aiEntryPrice, aiStopEnabled, aiStopKind, aiStopPrice, resolveSymbolFromAddress])
 
   function formatMonDisplay(v: string) {
     const n = Number(v || '0')
@@ -170,16 +244,10 @@ export default function DcaControl() {
         // Handle different action types
         if (decision.action.type === 'BUY') {
           // Map token symbols to addresses
-          const tokenMap: Record<string, string> = {
-            'USDC': USDC,
-            'CHOG': CHOG,
-            'WMON': '0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701',
-            'BEAN': '0x268e4e24e0051ec27b3d27a95977e71ce6875a05',
-            'DAK': '0x0f0bdebf0f83cd1ee3974779bcb7315f9808c714',
-            'YAKI': '0xfe140e1dCe99Be9F4F15d657CD9b7BF622270C50',
-            'WBTC': '0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d',
-            'DAKIMAKURA': '0x0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8'
-          }
+          const tokenMap: Record<string, string> = Object.values(TOKENS).reduce((acc, t) => {
+            acc[t.symbol] = t.address
+            return acc
+          }, {} as Record<string, string>)
           // Forbid WMON as a final target for AI-controlled DCA
           const requested = (decision.action.targetToken || '').toUpperCase()
           const finalSymbol = requested === 'WMON' ? 'USDC' : requested
@@ -190,6 +258,20 @@ export default function DcaControl() {
             token: targetAddress as `0x${string}`,
             interval: decision.nextInterval,
             sourceToken: decision.action.sourceToken // Pass source info for future use
+          }
+        } else if (decision.action.type === 'SWAP') {
+          const tokenMap: Record<string, string> = Object.values(TOKENS).reduce((acc, t) => {
+            acc[t.symbol] = t.address
+            return acc
+          }, {} as Record<string, string>)
+          const tgtReq = (decision.action.targetToken || '').toUpperCase()
+          const targetAddress = (tokenMap[tgtReq] || USDC) as `0x${string}`
+          const srcReq = (decision.action.sourceToken || '').toUpperCase()
+          return {
+            amount: decision.action.amount || '0.05',
+            token: targetAddress,
+            interval: decision.nextInterval,
+            sourceToken: srcReq || 'USDC'
           }
         }
         // For SELL actions, we'll need to implement sell logic later
@@ -247,40 +329,104 @@ export default function DcaControl() {
                   onChange={(e)=>setEnabled(e.target.checked)} 
                   className="accent-purple-500"
                   disabled={provider !== 'openai'}
-                  title={provider !== 'openai' ? (provider === 'opengradient' ? 'need faucet token' : 'coming soon') : 'active'}
+                  title={provider !== 'openai' ? (provider === 'opengradient' ? 'Ready. Needs Devnet Token.' : 'Coming Soon') : 'active'}
                 />
                 AI Control
               </label>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-300 mb-1">MON Amount</label>
-                <input type="number" inputMode="decimal" step="any" value={monDcaAmount} onChange={(e)=>setMonDcaAmount(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-300 mb-1">Slippage (bps)</label>
-                <input type="number" inputMode="numeric" step="1" value={slippageBps} onChange={(e)=>setSlippageBps(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-300 mb-1">Target Token</label>
-                <select value={outToken} onChange={(e)=>setOutToken(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white">
-                  {getTargetTokens().filter(t => t.symbol !== 'WMON').map(token => (
-                    <option key={token.symbol} value={token.symbol}>{token.symbol}</option>
-                  ))}
+
+          <div className="glass rounded-xl p-4 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm text-gray-300">AI Execution Limits</div>
+              <label className="inline-flex items-center gap-2 text-xs text-gray-300">
+                <input type="checkbox" className="accent-purple-500" checked={aiLimitsEnabled} onChange={(e)=>setAiLimitsEnabled(e.target.checked)} /> Enable
+              </label>
+            </div>
+            <div className="grid md:grid-cols-2 gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <select value={aiEntryKind} onChange={(e)=>setAiEntryKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-gray-200">
+                  <option value="above">Start if ≥</option>
+                  <option value="below">Start if ≤</option>
                 </select>
+                <input type="number" inputMode="decimal" step="any" placeholder="Entry price (base)" value={aiEntryPrice} onChange={(e)=>setAiEntryPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-white"/>
               </div>
-              <div>
-                <label className="block text-xs text-gray-300 mb-1">Interval (s)</label>
-                <input type="number" inputMode="numeric" step="1" value={interval} onChange={(e)=>setInterval(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-2 text-xs text-gray-300">
+                  <input type="checkbox" className="accent-purple-500" checked={aiStopEnabled} onChange={(e)=>setAiStopEnabled(e.target.checked)} /> Stop
+                </label>
+                <select value={aiStopKind} onChange={(e)=>setAiStopKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-gray-200">
+                  <option value="above">if ≥</option>
+                  <option value="below">if ≤</option>
+                </select>
+                <input type="number" inputMode="decimal" step="any" placeholder="Stop price (base)" value={aiStopPrice} onChange={(e)=>setAiStopPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-white"/>
               </div>
             </div>
+          </div>
+
+          
+            {aiEnabled ? (
+              <div className="p-3 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-300">
+                <div>AI control enabled. Amount, slippage, target token and interval are decided by the AI.</div>
+                <div className="mt-1 text-gray-400">Powered by Envio metrics. The AI analyzes market metrics, whale activity, and portfolio balance to make optimal decisions.</div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">MON Amount</label>
+                  <input type="number" inputMode="decimal" step="any" value={monDcaAmount} onChange={(e)=>setMonDcaAmount(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">Slippage (bps)</label>
+                  <input type="number" inputMode="numeric" step="1" value={slippageBps} onChange={(e)=>setSlippageBps(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">Target Token</label>
+                  <select value={outToken} onChange={(e)=>setOutToken(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white">
+                    {getTargetTokens().filter(t => t.symbol !== 'WMON').map(token => (
+                      <option key={token.symbol} value={token.symbol}>{token.symbol}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">Interval (s)</label>
+                  <input type="number" inputMode="numeric" step="1" value={interval} onChange={(e)=>setInterval(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
+                </div>
+                <div className="col-span-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs text-gray-300">Limits</div>
+                    <label className="inline-flex items-center gap-2 text-xs text-gray-300">
+                      <input type="checkbox" className="accent-purple-500" checked={limitsEnabled} onChange={(e)=>setLimitsEnabled(e.target.checked)} /> Enable
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex items-center gap-2">
+                      <select value={entryKind} onChange={(e)=>setEntryKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-gray-200">
+                        <option value="above">Start if ≥</option>
+                        <option value="below">Start if ≤</option>
+                      </select>
+                      <input type="number" inputMode="decimal" step="any" placeholder="Entry price (base)" value={entryPrice} onChange={(e)=>setEntryPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"/>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex items-center gap-2 text-xs text-gray-300">
+                        <input type="checkbox" className="accent-purple-500" checked={stopEnabled} onChange={(e)=>setStopEnabled(e.target.checked)} /> Stop
+                      </label>
+                      <select value={stopKind} onChange={(e)=>setStopKind(e.target.value as any)} className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-gray-200">
+                        <option value="above">if ≥</option>
+                        <option value="below">if ≤</option>
+                      </select>
+                      <input type="number" inputMode="decimal" step="any" placeholder="Stop price (base)" value={stopPrice} onChange={(e)=>setStopPrice(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"/>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-3 mt-4">
               {!dcaStatus.isActive ? (
                 <button 
                   onClick={()=>{
                     const selected = getToken(outToken)
                     const addr = (selected && selected.symbol !== 'WMON' ? selected.address : (getTargetTokens().find(t=>t.symbol!=='WMON')?.address || USDC)) as `0x${string}`
-                    return startNativeDca(monDcaAmount, parseInt(slippageBps), addr, parseInt(interval), aiEnabled, aiEnabled ? aiCallback : undefined)
+                    return startNativeDca(monDcaAmount, parseInt(slippageBps), addr, parseInt(interval), aiEnabled, aiEnabled ? aiCallback : undefined, conditionCallback)
                   }} 
                   disabled={isLoading || delegationExpired || (aiEnabled && (metricsLoading || tokenMetricsLoading))} 
                   className="flex items-center justify-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl"
@@ -315,7 +461,10 @@ export default function DcaControl() {
               <div className="grid grid-cols-1 gap-2 text-sm">
                 {parseFloat(balances.MON || '0') > 0 && (
                   <div className="flex justify-between items-center gap-3 flex-wrap">
-                    <span className="text-gray-300">MON</span>
+                    <span className="text-gray-300 flex items-center gap-2">
+                      {TOKENS.MON.logoUrl && <img src={TOKENS.MON.logoUrl} alt="MON" className="w-4 h-4 rounded-full" />}
+                      MON
+                    </span>
                     <div className="flex items-center gap-2">
                       <span className="text-white font-mono truncate max-w-[140px]">{formatMonDisplay(balances.MON)}</span>
                       <button 
@@ -333,7 +482,10 @@ export default function DcaControl() {
                   .filter(t => parseFloat((balances as any)[t.symbol] || '0') > 0)
                   .map(t => (
                     <div key={t.symbol} className="flex justify-between items-center gap-3 flex-wrap">
-                      <span className="text-gray-300">{t.symbol}</span>
+                      <span className="text-gray-300 flex items-center gap-2">
+                        {t.logoUrl && <img src={t.logoUrl} alt={t.symbol} className="w-4 h-4 rounded-full" />}
+                        {t.symbol}
+                      </span>
                       <div className="flex items-center gap-2">
                         <span className="text-white font-mono truncate max-w-[140px]">{(balances as any)[t.symbol] ?? '0.0'}</span>
                         <button 
@@ -412,7 +564,7 @@ export default function DcaControl() {
                   onChange={(e)=>setEnabled(e.target.checked)} 
                   className="accent-purple-500"
                   disabled={provider !== 'openai'}
-                  title={provider !== 'openai' ? (provider === 'opengradient' ? 'need faucet token' : 'coming soon') : 'active'}
+                  title={provider !== 'openai' ? (provider === 'opengradient' ? 'Ready. Needs Devnet Token.' : 'Coming Soon') : 'active'}
                 />
                 Enable AI Control
               </label>
@@ -476,7 +628,7 @@ export default function DcaControl() {
                 <button
                   onClick={() => setProvider('fortytwo')}
                   className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='fortytwo'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
-                  title="coming soon"
+                  title="Coming Soon"
                 >
                   <span className={`w-2 h-2 rounded-full ${provider==='fortytwo' ? 'bg-yellow-400' : 'bg-gray-400'}`}></span>
                   FortyTwo network (swarm inference)
@@ -484,7 +636,7 @@ export default function DcaControl() {
                 <button
                   onClick={() => setProvider('opengradient')}
                   className={`px-3 py-1 rounded-lg flex items-center gap-2 ${provider==='opengradient'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}
-                  title="need faucet token"
+                  title="Ready. Needs Devnet Token."
                 >
                   <span className={`w-2 h-2 rounded-full ${provider==='opengradient' ? 'bg-yellow-400' : 'bg-gray-400'}`}></span>
                   OpenGradient (swarm inference)
@@ -492,10 +644,10 @@ export default function DcaControl() {
               </div>
               
               {provider==='opengradient' && (
-                <div className="text-xs text-yellow-400">need faucet token</div>
+                <div className="text-xs text-yellow-400">Ready. Needs Devnet Token.</div>
               )}
               {provider==='fortytwo' && (
-                <div className="text-xs text-yellow-400">coming soon</div>
+                <div className="text-xs text-yellow-400">Coming Soon</div>
               )}
             </div>
 
@@ -593,6 +745,25 @@ export default function DcaControl() {
                 dates={dates} 
               />
             )}
+          </div>
+
+          <div className="glass rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-lg font-semibold text-white">Token Metrics (live)</div>
+              <div className="flex items-center gap-2 text-sm">
+                <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('momentum') }} className={`px-2 py-1 rounded ${tokenMetricKind==='momentum'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Momentum</button>
+                <button onClick={()=>{ setTokenSeries({}); setTokenDates([]); setTokenMetricKind('volatility') }} className={`px-2 py-1 rounded ${tokenMetricKind==='volatility'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Volatility</button>
+              </div>
+            </div>
+            {tokenMetricsLoading ? (
+              <div className="text-sm text-gray-300">Loading…</div>
+            ) : (
+              <TokenMetricsChart 
+                series={Object.values(tokenSeries)}
+                dates={tokenDates}
+              />
+            )}
+            <div className="text-xs text-gray-400 mt-2">Values normalized against USDC or WMON for comparability. Includes UniversalRouter and Kuru OrderBook trades. Refreshes as metrics update.</div>
           </div>
 
           <div className="glass rounded-2xl p-5">
