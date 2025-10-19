@@ -18,7 +18,10 @@ import {
   redeemSwapChogDelegation,
   redeemSwapErc20ToWmonDelegation,
   redeemErc20TransferDelegation,
-  redeemSwapErc20ToErc20Delegation
+  redeemSwapErc20ToErc20Delegation,
+  getOrCreateMagmaDelegation,
+  redeemDepositMonDelegation,
+  redeemWithdrawMonDelegation
 } from '../lib/delegation'
 import { TOKENS, WMON } from '../lib/tokens'
 import { getAllBalances } from '../lib/balances'
@@ -1011,6 +1014,82 @@ export function useDcaDelegation() {
     }
   }, [delegatorSmartAccount, delegateSmartAccount, address, withdrawAllTokens, enqueueOp, refreshBalances, dcaStatus.isActive, runNativeSwapMonToToken, balances])
 
+  // Magma: Stake MON -> gMON via StakeManager.depositMon()
+  const stakeMagma = useCallback(async (amountMon: string) => {
+    if (!delegateSmartAccount || !delegatorSmartAccount) throw new Error('Smart accounts not initialized')
+    if (isExecuting) throw new Error('An operation is already in progress. Please wait for it to complete.')
+    setIsExecuting(true)
+    setIsLoading(true)
+    try {
+      const maxWei = parseUnits(amountMon, 18)
+      let md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, maxWei)
+      let uoHash: `0x${string}` | null = null
+      try {
+        uoHash = await redeemDepositMonDelegation(
+          delegateSmartAccount,
+          md,
+          amountMon,
+        )
+      } catch (e: any) {
+        const msg = String(e?.message || '')
+        if (msg.includes('ValueLte') || msg.includes('value') || msg.includes('method-not-allowed') || msg.includes('expired')) {
+          md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, maxWei)
+          uoHash = await redeemDepositMonDelegation(
+            delegateSmartAccount,
+            md,
+            amountMon,
+          )
+        } else {
+          throw e
+        }
+      }
+      setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+      await refreshBalances()
+      return uoHash
+    } finally {
+      setIsExecuting(false)
+      setIsLoading(false)
+    }
+  }, [delegateSmartAccount, delegatorSmartAccount, isExecuting, refreshBalances])
+
+  // Magma: Unstake gMON -> MON via StakeManager.withdrawMon(amount)
+  const unstakeMagma = useCallback(async (amountMon: string) => {
+    if (!delegateSmartAccount || !delegatorSmartAccount) throw new Error('Smart accounts not initialized')
+    if (isExecuting) throw new Error('An operation is already in progress. Please wait for it to complete.')
+    setIsExecuting(true)
+    setIsLoading(true)
+    try {
+      // Reuse existing Magma delegation or create minimal one (no value enforcer needed for withdraw)
+      let md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, 0n)
+      let uoHash: `0x${string}` | null = null
+      try {
+        uoHash = await redeemWithdrawMonDelegation(
+          delegateSmartAccount,
+          md,
+          amountMon,
+        )
+      } catch (e: any) {
+        const msg = String(e?.message || '')
+        if (msg.includes('method-not-allowed') || msg.includes('expired')) {
+          md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, 0n)
+          uoHash = await redeemWithdrawMonDelegation(
+            delegateSmartAccount,
+            md,
+            amountMon,
+          )
+        } else {
+          throw e
+        }
+      }
+      setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+      await refreshBalances()
+      return uoHash
+    } finally {
+      setIsExecuting(false)
+      setIsLoading(false)
+    }
+  }, [delegateSmartAccount, delegatorSmartAccount, isExecuting, refreshBalances])
+
   // Panic: convert everything to MON, withdraw all MON to EOA, clear cache
   const panic = useCallback(async () => {
     try {
@@ -1105,6 +1184,8 @@ export function useDcaDelegation() {
     withdrawToken,
     withdrawAllTokens,
     withdrawAll,
+    stakeMagma,
+    unstakeMagma,
     
     runNativeSwapMonToToken,
     refreshBalances: () => refreshBalances(),

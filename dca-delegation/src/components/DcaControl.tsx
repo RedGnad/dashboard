@@ -22,6 +22,8 @@ export default function DcaControl() {
   const [slippageBps, setSlippageBps] = useState('300')
   const [interval, setInterval] = useState('60')
   const [monAmount, setMonAmount] = useState('0.1')
+  const [magmaStakeAmount, setMagmaStakeAmount] = useState('0.1')
+  const [magmaUnstakeAmount, setMagmaUnstakeAmount] = useState('0.1')
   const [outToken, setOutToken] = useState<string>(() => {
     const allowed = getTargetTokens().filter(t => t.symbol !== 'WMON')
     return allowed[0]?.symbol || 'CHOG'
@@ -48,6 +50,8 @@ export default function DcaControl() {
     withdrawToken,
     withdrawAllTokens,
     withdrawAll,
+    stakeMagma,
+    unstakeMagma,
     panic,
   } = useDcaDelegation()
 
@@ -100,6 +104,9 @@ export default function DcaControl() {
   const aiTrailHighRef = useRef<Record<string, number>>({})
   const [showMA5, setShowMA5] = useState(false)
   const [showMA15, setShowMA15] = useState(false)
+  const [showEMA9, setShowEMA9] = useState(false)
+  const [showEMA21, setShowEMA21] = useState(false)
+  const [emaGate, setEmaGate] = useState(false)
 
   useEffect(() => {
     if (tokenMetricsLoading) return
@@ -179,6 +186,26 @@ export default function DcaControl() {
         if (sk === 'above' && price >= sp) return { allow: false, stop: true }
         if (sk === 'below' && price <= sp) return { allow: false, stop: true }
       }
+      if (emaGate && tokenMetricKind === 'price') {
+        const s = tokenSeries[sym]?.points || []
+        const ema = (pts: {x:string;y:number}[], window: number) => {
+          const k = 2 / (window + 1)
+          let e: number | null = null
+          const out: {x:string;y:number}[] = []
+          for (let i = 0; i < pts.length; i++) {
+            const y = pts[i].y
+            e = e == null ? y : (y * k + (e as number) * (1 - k))
+            out.push({ x: pts[i].x, y: e })
+          }
+          return out
+        }
+        const e9 = ema(s, 9)
+        const e21 = ema(s, 21)
+        const last9 = e9.length ? e9[e9.length - 1].y : NaN
+        const last21 = e21.length ? e21[e21.length - 1].y : NaN
+        if (!Number.isFinite(last9) || !Number.isFinite(last21)) return { allow: false }
+        if (!(last9 >= last21)) return { allow: false }
+      }
     }
     // Trailing stop
     const trailOn = isAi ? aiTrailEnabled : trailEnabled
@@ -193,7 +220,7 @@ export default function DcaControl() {
       }
     }
     return { allow: true }
-  }, [tokenMetrics, limitsEnabled, entryKind, entryPrice, stopEnabled, stopKind, stopPrice, aiLimitsEnabled, aiEntryKind, aiEntryPrice, aiStopEnabled, aiStopKind, aiStopPrice, resolveSymbolFromAddress, trailEnabled, trailPct, aiTrailEnabled, aiTrailPct])
+  }, [tokenMetrics, limitsEnabled, entryKind, entryPrice, stopEnabled, stopKind, stopPrice, aiLimitsEnabled, aiEntryKind, aiEntryPrice, aiStopEnabled, aiStopKind, aiStopPrice, resolveSymbolFromAddress, trailEnabled, trailPct, aiTrailEnabled, aiTrailPct, emaGate, tokenMetricKind, tokenSeries])
 
   function formatMonDisplay(v: string) {
     const n = Number(v || '0')
@@ -524,6 +551,29 @@ export default function DcaControl() {
               </div>
             </div>
             <div className="glass rounded-2xl p-5">
+              <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2"><Cpu size={18}/>Magma Restaking</div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-300">gMON Balance</span>
+                  <span className="text-white font-mono">{(balances as any).gMON ?? '0.0'}</span>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">Stake MON → gMON</label>
+                  <div className="flex gap-2">
+                    <input type="number" inputMode="decimal" step="any" value={magmaStakeAmount} onChange={(e)=>setMagmaStakeAmount(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
+                    <button onClick={()=>stakeMagma(magmaStakeAmount)} disabled={isLoading || delegationExpired} className="px-4 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold disabled:opacity-50">Stake</button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">Unstake gMON → MON (amount in MON)</label>
+                  <div className="flex gap-2">
+                    <input type="number" inputMode="decimal" step="any" value={magmaUnstakeAmount} onChange={(e)=>setMagmaUnstakeAmount(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
+                    <button onClick={()=>unstakeMagma(magmaUnstakeAmount)} disabled={isLoading || delegationExpired} className="px-4 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold disabled:opacity-50">Unstake</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="glass rounded-2xl p-5">
               <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2"><BarChart2 size={18}/>Balances</div>
               <div className="grid grid-cols-1 gap-2 text-sm">
                 {parseFloat(balances.MON || '0') > 0 && (
@@ -544,27 +594,37 @@ export default function DcaControl() {
                     </div>
                   </div>
                 )}
+                {parseFloat((balances as any).gMON || '0') > 0 && (
+                  <div className="flex justify-between items-center gap-3 flex-wrap">
+                    <span className="text-gray-300 flex items-center gap-2">
+                      gMON
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-mono truncate max-w-[140px]">{(balances as any).gMON}</span>
+                    </div>
+                  </div>
+                )}
                 {getAllTradableTokens()
                   .filter(t => t.symbol !== 'WMON')
                   .filter(t => parseFloat((balances as any)[t.symbol] || '0') > 0)
                   .map(t => (
-                    <div key={t.symbol} className="flex justify-between items-center gap-3 flex-wrap">
-                      <span className="text-gray-300 flex items-center gap-2">
-                        {t.logoUrl && <img src={t.logoUrl} alt={t.symbol} className="w-4 h-4 rounded-full" />}
-                        {t.symbol}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-white font-mono truncate max-w-[140px]">{(balances as any)[t.symbol] ?? '0.0'}</span>
-                        <button 
-                          onClick={() => openWithdraw(t.symbol)} 
-                          disabled={isLoading}
-                          className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-rose-600 to-pink-600 text-white disabled:opacity-50"
-                        >
-                          Withdraw
-                        </button>
-                      </div>
+                  <div key={t.symbol} className="flex justify-between items-center gap-3 flex-wrap">
+                    <span className="text-gray-300 flex items-center gap-2">
+                      {t.logoUrl && <img src={t.logoUrl} alt={t.symbol} className="w-4 h-4 rounded-full" />}
+                      {t.symbol}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-mono truncate max-w-[140px]">{(balances as any)[t.symbol] ?? '0.0'}</span>
+                      <button 
+                        onClick={() => openWithdraw(t.symbol)} 
+                        disabled={isLoading}
+                        className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-rose-600 to-pink-600 text-white disabled:opacity-50"
+                      >
+                        Withdraw
+                      </button>
                     </div>
-                  ))}
+                  </div>
+                ))}
               </div>
               <div className="mt-3">
                 <button 
@@ -849,10 +909,23 @@ export default function DcaControl() {
                     }
                     return out
                   }
+                  function ema(points: {x:string;y:number}[], window: number) {
+                    const k = 2 / (window + 1)
+                    let e: number | null = null
+                    const out: {x:string;y:number}[] = []
+                    for (let i = 0; i < points.length; i++) {
+                      const y = points[i].y
+                      e = e == null ? y : (y * k + (e as number) * (1 - k))
+                      out.push({ x: points[i].x, y: e })
+                    }
+                    return out
+                  }
                   const overlays = [] as { token: string; points: {x:string;y:number}[] }[]
                   if (tokenMetricKind === 'price') {
                     if (showMA5 && s.length) overlays.push({ token: 'MA5', points: ma(s, 5) })
                     if (showMA15 && s.length) overlays.push({ token: 'MA15', points: ma(s, 15) })
+                    if (showEMA9 && s.length) overlays.push({ token: 'EMA9', points: ema(s, 9) })
+                    if (showEMA21 && s.length) overlays.push({ token: 'EMA21', points: ema(s, 21) })
                   }
                   return (
                     <div>
@@ -864,6 +937,15 @@ export default function DcaControl() {
                             </label>
                             <label className="inline-flex items-center gap-1">
                               <input type="checkbox" className="accent-purple-500" checked={showMA15} onChange={(e)=>setShowMA15(e.target.checked)} /> MA15
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input type="checkbox" className="accent-purple-500" checked={showEMA9} onChange={(e)=>setShowEMA9(e.target.checked)} /> EMA9
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              <input type="checkbox" className="accent-purple-500" checked={showEMA21} onChange={(e)=>setShowEMA21(e.target.checked)} /> EMA21
+                            </label>
+                            <label className="inline-flex items-center gap-1 ml-2" title="Gate DCA by EMA cross (EMA9 ≥ EMA21)">
+                              <input type="checkbox" className="accent-emerald-500" checked={emaGate} onChange={(e)=>setEmaGate(e.target.checked)} /> Use EMA cross gate
                             </label>
                             <span className="text-gray-500">for {sym || 'selected token'}</span>
                           </>

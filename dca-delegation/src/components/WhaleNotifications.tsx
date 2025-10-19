@@ -28,7 +28,7 @@ function formatAmount(addr: string, raw: string) {
 }
 
 export default function WhaleNotifications() {
-  const { alerts, unseen, loading, error, markSeen } = useWhaleAlerts()
+  const { unseen, dismiss } = useWhaleAlerts()
   const visible = unseen.length > 0
 
   const items = useMemo(() => unseen.slice(0, 4), [unseen])
@@ -41,7 +41,7 @@ export default function WhaleNotifications() {
         <div key={a.tx} className="glass rounded-xl p-3 border border-amber-500/30 bg-amber-500/10 shadow">
           <div className="flex items-center justify-between mb-1">
             <div className="text-sm text-white font-semibold">Whale movement</div>
-            <button onClick={() => markSeen(a.tx)} className="text-xs text-gray-300 hover:text-white">Dismiss</button>
+            <button onClick={() => dismiss(a.tx)} className="text-xs text-gray-300 hover:text-white">Dismiss</button>
           </div>
           <div className="text-sm text-gray-200">
             <div className="flex justify-between"><span>Token</span><span className="font-mono text-white">{addrToSymbol(a.token)}</span></div>
@@ -49,7 +49,7 @@ export default function WhaleNotifications() {
             <div className="flex justify-between"><span>From</span><span className="font-mono">{a.from.slice(0,6)}...{a.from.slice(-4)}</span></div>
             <div className="flex justify-between"><span>To</span><span className="font-mono">{a.to.slice(0,6)}...{a.to.slice(-4)}</span></div>
           </div>
-          <a href={`https://monadscan.io/tx/${a.tx}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:text-blue-300">View tx</a>
+          <a href={`https://testnet.monadexplorer.com/tx/${a.tx}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:text-blue-300">View tx</a>
         </div>
       ))}
       {unseen.length > items.length && (

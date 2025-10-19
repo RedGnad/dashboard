@@ -8,7 +8,7 @@ import {
 } from '@metamask/delegation-toolkit'
 import { encodeFunctionData, parseUnits, toHex } from 'viem'
 import { bundlerClient, paymasterClient, publicClient } from './clients'
-import { USDC, WMON, UNISWAP_V2_ROUTER02, SWAP_PATH, CHOG, TOKENS, ROUTER_V2_CANDIDATES, KURU_ROUTER, FLOW_ROUTER } from './tokens'
+import { USDC, WMON, UNISWAP_V2_ROUTER02, SWAP_PATH, CHOG, TOKENS, ROUTER_V2_CANDIDATES, KURU_ROUTER, FLOW_ROUTER, STAKE_MANAGER } from './tokens'
 import { CHAIN_ID } from './chain'
 
 async function sleep(ms: number) {
@@ -745,6 +745,158 @@ export async function redeemUnwrapDelegation(
 
   console.log('Unwrap transaction hash:', receipt.transactionHash)
   return userOperationHash
+}
+
+// Minimal StakeManager ABI
+const STAKE_MANAGER_ABI = [
+  {
+    name: 'depositMon',
+    type: 'function',
+    inputs: [],
+    outputs: [],
+    stateMutability: 'payable'
+  },
+  {
+    name: 'withdrawMon',
+    type: 'function',
+    inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: [],
+    stateMutability: 'nonpayable'
+  }
+] as const
+
+// Create delegation for Magma StakeManager (depositMon payable + withdrawMon)
+export async function createMagmaDelegation(
+  delegatorSmartAccount: any,
+  delegateSmartAccount: any,
+  maxDepositWei: bigint,
+  ttlSeconds = 24 * 60 * 60,
+) {
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+  const nowSec = Math.floor(Date.now() / 1000)
+  const afterTs = BigInt(nowSec - 1)
+  const beforeTs = BigInt(nowSec + ttlSeconds)
+  const timestampTerms = toHex((afterTs << 128n) | beforeTs, { size: 32 }) as `0x${string}`
+  const valueTerms = toHex(maxDepositWei, { size: 32 }) as `0x${string}`
+
+  const caveats = [
+    createCaveat(env.caveatEnforcers.TimestampEnforcer, timestampTerms),
+    createCaveat(env.caveatEnforcers.ValueLteEnforcer, valueTerms),
+  ]
+
+  const delegation = createDelegation({
+    from: delegatorSmartAccount.address,
+    to: delegateSmartAccount.address,
+    environment: env,
+    scope: {
+      type: 'functionCall',
+      targets: [STAKE_MANAGER as `0x${string}`],
+      selectors: ['depositMon()', 'withdrawMon(uint256)']
+    },
+    caveats,
+  })
+
+  const signature = await delegatorSmartAccount.signDelegation({ delegation })
+  const signedDelegation = {
+    ...delegation,
+    signature,
+    permissionContexts: (delegation as any).permissionContexts ?? [],
+    maxDepositWei: maxDepositWei.toString(),
+    expiresAt: Number(beforeTs),
+  }
+  try {
+    const key = `dca-magma-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+    localStorage.setItem(key, JSON.stringify(signedDelegation))
+  } catch {}
+  return signedDelegation
+}
+
+export async function getOrCreateMagmaDelegation(
+  delegatorSmartAccount: any,
+  delegateSmartAccount: any,
+  maxDepositWei: bigint,
+) {
+  const key = `dca-magma-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+  const stored = localStorage.getItem(key)
+  if (stored) {
+    try {
+      const signed = JSON.parse(stored)
+      const scopeTargets: string[] = (signed.delegation?.scope?.targets || signed.scope?.targets || [])
+      const lower = Array.isArray(scopeTargets) ? scopeTargets.map((x:string)=>x.toLowerCase()) : []
+      const hasTarget = Array.isArray(scopeTargets) && lower.includes((STAKE_MANAGER as string).toLowerCase())
+      const selectors: string[] = (signed.delegation?.scope?.selectors || signed.scope?.selectors || [])
+      const selSet = new Set(Array.isArray(selectors) ? selectors : [])
+      const hasSelectors = selSet.has('depositMon()') && selSet.has('withdrawMon(uint256)')
+      const match = signed.from?.toLowerCase?.() === delegatorSmartAccount.address.toLowerCase()
+        && signed.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase()
+        && !isDelegationExpired(signed)
+        && hasTarget && hasSelectors
+      if (match) return signed
+    } catch {}
+  }
+  return await createMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, maxDepositWei)
+}
+
+export async function redeemDepositMonDelegation(
+  delegateSmartAccount: any,
+  signedDelegation: any,
+  amountMon: string,
+) {
+  const valueWei = parseUnits(amountMon, 18)
+  if (valueWei <= 0n) throw new Error('Amount is zero')
+  const exec = createExecution({
+    target: STAKE_MANAGER as `0x${string}`,
+    value: valueWei,
+    callData: encodeFunctionData({ abi: STAKE_MANAGER_ABI, functionName: 'depositMon', args: [] })
+  })
+  const normalized = signedDelegation?.delegation
+    ? { ...signedDelegation.delegation, signature: signedDelegation.signature, permissionContexts: signedDelegation.permissionContexts ?? [] }
+    : { ...signedDelegation, permissionContexts: signedDelegation?.permissionContexts ?? [] }
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+  const redeemCalldata = contracts.DelegationManager.encode.redeemDelegations({
+    delegations: [[normalized]],
+    modes: [ExecutionMode.SingleDefault],
+    executions: [[exec]],
+  })
+  const uoHash = await sendUserOpWithRetry({
+    account: delegateSmartAccount,
+    calls: [{ to: env.DelegationManager, data: redeemCalldata }],
+    paymaster: paymasterClient,
+  })
+  const { receipt } = await bundlerClient.waitForUserOperationReceipt({ hash: uoHash })
+  console.log('[magma] depositMon tx hash:', receipt.transactionHash)
+  return uoHash
+}
+
+export async function redeemWithdrawMonDelegation(
+  delegateSmartAccount: any,
+  signedDelegation: any,
+  amountMon: string,
+) {
+  const amtWei = parseUnits(amountMon, 18)
+  if (amtWei <= 0n) throw new Error('Amount is zero')
+  const exec = createExecution({
+    target: STAKE_MANAGER as `0x${string}`,
+    value: 0n,
+    callData: encodeFunctionData({ abi: STAKE_MANAGER_ABI, functionName: 'withdrawMon', args: [amtWei] })
+  })
+  const normalized = signedDelegation?.delegation
+    ? { ...signedDelegation.delegation, signature: signedDelegation.signature, permissionContexts: signedDelegation.permissionContexts ?? [] }
+    : { ...signedDelegation, permissionContexts: signedDelegation?.permissionContexts ?? [] }
+  const env = getDeleGatorEnvironment(CHAIN_ID) as any
+  const redeemCalldata = contracts.DelegationManager.encode.redeemDelegations({
+    delegations: [[normalized]],
+    modes: [ExecutionMode.SingleDefault],
+    executions: [[exec]],
+  })
+  const uoHash = await sendUserOpWithRetry({
+    account: delegateSmartAccount,
+    calls: [{ to: env.DelegationManager, data: redeemCalldata }],
+    paymaster: paymasterClient,
+  })
+  const { receipt } = await bundlerClient.waitForUserOperationReceipt({ hash: uoHash })
+  console.log('[magma] withdrawMon tx hash:', receipt.transactionHash)
+  return uoHash
 }
 
 // Create a value-only delegation to allow native MON transfers to a specific recipient (EOA)

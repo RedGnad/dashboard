@@ -1,6 +1,6 @@
 import { readContract, getBalance } from 'viem/actions'
 import { publicClient } from './clients'
-import { USDC, WMON, CHOG, TOKENS } from './tokens'
+import { USDC, WMON, CHOG, TOKENS, STAKE_MANAGER } from './tokens'
 import { formatUnits } from 'viem'
 
 // ERC20 ABI for balance reading
@@ -13,6 +13,30 @@ const ERC20_ABI = [
     stateMutability: 'view'
   }
 ] as const
+
+const STAKE_MANAGER_GMON_ABI = [
+  {
+    name: 'gMON',
+    type: 'function',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view'
+  }
+] as const
+
+export async function getGMonAddress() {
+  try {
+    const addr = await readContract(publicClient, {
+      address: STAKE_MANAGER as `0x${string}`,
+      abi: STAKE_MANAGER_GMON_ABI,
+      functionName: 'gMON',
+      args: []
+    }) as `0x${string}`
+    return addr
+  } catch {
+    return null
+  }
+}
 
 // Get CHOG balance
 export async function getChogBalance(address: `0x${string}`) {
@@ -99,5 +123,17 @@ export async function getAllBalances(address: `0x${string}`) {
 
   const map: Record<string, string> = {}
   for (const [sym, val] of entries) map[sym] = val
+  try {
+    const gmon = await getGMonAddress()
+    if (gmon) {
+      const bal = await readContract(publicClient, {
+        address: gmon,
+        abi: ERC20_ABI,
+        functionName: 'balanceOf',
+        args: [address],
+      })
+      map['gMON'] = formatUnits(bal, 18)
+    }
+  } catch {}
   return map
 }

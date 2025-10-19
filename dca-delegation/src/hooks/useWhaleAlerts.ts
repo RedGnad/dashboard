@@ -46,6 +46,16 @@ export function useWhaleAlerts() {
     setSeen(prev => new Set(prev).add(tx))
   }
 
+  // Optimistic dismiss: mark as seen and prune from current alerts for instant UI close
+  function dismiss(tx: string) {
+    setSeen(prev => {
+      const next = new Set(prev)
+      next.add(tx)
+      return next
+    })
+    setAlerts(prev => prev.filter(a => a.tx !== tx))
+  }
+
   useEffect(() => {
     if (!envioEnabled) {
       setAlerts([])
@@ -91,5 +101,5 @@ export function useWhaleAlerts() {
     return () => { abort.abort(); clearInterval(id) }
   }, [since, envioEnabled])
 
-  return { alerts, unseen, loading, error, markSeen }
+  return { alerts, unseen, loading, error, markSeen, dismiss }
 }
