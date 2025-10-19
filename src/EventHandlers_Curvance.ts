@@ -86,6 +86,38 @@ Curvance.Locked.handler(async ({ event, context }) => {
     await upsertDaily(context, { protocolId: "curvance", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
 });
 
+Curvance.Approval.handler(async ({ event, context }) => {
+    const tsMs = Number(event.block.timestamp) * 1000;
+    const dateISO = dateISOFromTs(tsMs);
+    const txHash = (event.transaction?.hash as string) || null;
+    const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
+    const effPrice = (event.transaction as any)?.effectiveGasPrice
+        ? BigInt((event.transaction as any).effectiveGasPrice)
+        : (event.transaction as any)?.gasPrice
+            ? BigInt((event.transaction as any).gasPrice)
+            : null;
+    const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
+    const owner = (event.params as any)?.owner ?? null;
+    const userKey = owner ?? (event.transaction?.from as string) ?? null;
+    await upsertDaily(context, { protocolId: "curvance", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
+});
+
+Curvance.Transfer.handler(async ({ event, context }) => {
+    const tsMs = Number(event.block.timestamp) * 1000;
+    const dateISO = dateISOFromTs(tsMs);
+    const txHash = (event.transaction?.hash as string) || null;
+    const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
+    const effPrice = (event.transaction as any)?.effectiveGasPrice
+        ? BigInt((event.transaction as any).effectiveGasPrice)
+        : (event.transaction as any)?.gasPrice
+            ? BigInt((event.transaction as any).gasPrice)
+            : null;
+    const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
+    const from = (event.params as any)?.from ?? null;
+    const userKey = from ?? (event.transaction?.from as string) ?? null;
+    await upsertDaily(context, { protocolId: "curvance", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
+});
+
 Curvance.Unlocked.handler(async ({ event, context }) => {
     const tsMs = Number(event.block.timestamp) * 1000;
     const dateISO = dateISOFromTs(tsMs);
