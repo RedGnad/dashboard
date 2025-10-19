@@ -171,8 +171,25 @@ UniversalRouter.SwapExecuted.handler(
 
     const swapId = `${event.chainId}_${event.block.number}_${event.logIndex}`;
     
-    // Calculate price (simple ratio)
-    const price = Number(amountOut) / Number(amountIn);
+    // Calculate price (simple ratio) with guards
+    let price = 0;
+    try {
+      const ain = (amountIn as any) as bigint;
+      const aout = (amountOut as any) as bigint;
+      if (typeof ain === 'bigint' && ain !== 0n) {
+        price = Number(aout) / Number(ain);
+      } else {
+        const ainNum = Number(amountIn as any);
+        const aoutNum = Number(amountOut as any);
+        price = ainNum > 0 ? (aoutNum / ainNum) : 0;
+      }
+      if (!Number.isFinite(price) || Number.isNaN(price)) price = 0;
+    } catch {
+      const ainNum = Number(amountIn as any);
+      const aoutNum = Number(amountOut as any);
+      price = ainNum > 0 ? (aoutNum / ainNum) : 0;
+      if (!Number.isFinite(price) || Number.isNaN(price)) price = 0;
+    }
     
     // Store swap event
     context.SwapEvent.set({
@@ -209,7 +226,7 @@ UniversalRouter.SwapExecuted.handler(
 
     context.log.info(`Swap processed for AI metrics`, {
       pair: pairKey,
-      price: price.toFixed(6),
+      price: Number.isFinite(price) ? price.toFixed(6) : '0.000000',
       volume: amountIn.toString(),
       block: event.block.number,
     });
