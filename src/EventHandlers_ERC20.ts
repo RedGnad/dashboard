@@ -243,7 +243,7 @@ ERC20.Transfer.handler(
     } catch (err) {
       try {
         context.log.error?.('ERC20 handler error', {
-          err: String(err?.message || err),
+          err: String((err as any)?.message || err),
           block: String(event.block?.number ?? ''),
           tx: String((event.transaction as any)?.hash ?? ''),
         })
