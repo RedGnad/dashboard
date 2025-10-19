@@ -27,7 +27,7 @@ const MIN_INDEX_THRESHOLDS = {
 // Whale thresholds (mark as whale movement for AI signals)
 const WHALE_THRESHOLDS = {
   WMON: 10000n * 10n ** 18n,       // 10,000 WMON = whale
-  USDC: 10000n * 10n ** 6n,        // 10,000 USDC = whale
+  USDC: 30000n * 10n ** 6n,        // 30,000 USDC = whale
   CHOG: 100000n * 10n ** 18n,      // 100,000 CHOG = whale
   YAKI: 100000n * 10n ** 18n,      // 100,000 YAKI = whale
   DAK: 100000n * 10n ** 18n,       // 100,000 DAK = whale
@@ -50,6 +50,7 @@ const PROTOCOL_BY_ADDRESS: Record<string, string> = {
   "0x3012e9049d05b4b5369d690114d5a5861ebb85cb": "atlantis",    // Atlantis SwapRouter
   "0x8b1fb7b1da49f111a2c0c11925d5bb86a2fab88e": "octoswap",    // OctoSwap UniversalRouter
   "0xb6091233aacacba45225a2b2121bbac807af4255": "octoswap",    // OctoSwap Router02 (lowercase)
+  "0x4bb54bb9a42fe787d1d1a2aacf91c70b02e5553e": "atlantis",    // Atlantis/Clober UpdatePosition target
 };
 
 function dateISOFromTs(tsMs: number): string {
@@ -180,7 +181,8 @@ ERC20.Transfer.handler(
     try {
       const fromLc = from.toLowerCase();
       const toLc = to.toLowerCase();
-      const proto = PROTOCOL_BY_ADDRESS[fromLc] || PROTOCOL_BY_ADDRESS[toLc];
+      const txToLc = ((event.transaction as any)?.to || '').toLowerCase?.() || '';
+      const proto = PROTOCOL_BY_ADDRESS[fromLc] || PROTOCOL_BY_ADDRESS[toLc] || PROTOCOL_BY_ADDRESS[txToLc];
       if (proto) {
         const tsMs = Number(event.block.timestamp) * 1000;
         const dateISO = dateISOFromTs(tsMs);
