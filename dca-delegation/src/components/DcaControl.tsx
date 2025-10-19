@@ -111,6 +111,22 @@ export default function DcaControl() {
   const [showEMA21, setShowEMA21] = useState(false)
   const [emaGate, setEmaGate] = useState(false)
 
+  const [envioMode, setEnvioMode] = useState<'FAST'|'PRECISE'|'DEFAULT'>(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const qs = sp.get('envio')?.toUpperCase()
+      if (qs === 'FAST' || qs === 'PRECISE') return qs
+      const ls = localStorage.getItem('envio-endpoint')?.toUpperCase()
+      if (ls === 'FAST' || ls === 'PRECISE') return ls
+    } catch {}
+    return 'DEFAULT'
+  })
+  const applyEnvioMode = useCallback((mode: 'FAST'|'PRECISE') => {
+    try { localStorage.setItem('envio-endpoint', mode) } catch {}
+    setEnvioMode(mode)
+    try { window.location.reload() } catch {}
+  }, [])
+
   useEffect(() => {
     if (tokenMetricsLoading) return
     const now = new Date()
@@ -1102,6 +1118,14 @@ export default function DcaControl() {
                 <button className="p-1 hover:text-white" onClick={()=>navigator.clipboard.writeText(delegateSmartAccount.address)} title="Copy"><Copy size={14}/></button>
               </div>
             )}
+          </div>
+          <div className="glass rounded-xl p-4">
+            <div className="text-lg font-semibold text-white mb-2">Envio Endpoint</div>
+            <div className="text-sm text-gray-300 mb-2">Current: <span className="font-mono text-white">{envioMode}</span> (use URL ?envio=FAST|PRECISE or buttons below)</div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => applyEnvioMode('FAST')} className="px-3 py-2 rounded bg-white/5 text-gray-200 hover:text-white">Use FAST</button>
+              <button onClick={() => applyEnvioMode('PRECISE')} className="px-3 py-2 rounded bg-white/5 text-gray-200 hover:text-white">Use PRECISE</button>
+            </div>
           </div>
         </div>
       )}
