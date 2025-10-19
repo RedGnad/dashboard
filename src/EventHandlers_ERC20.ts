@@ -40,6 +40,7 @@ const WHALE_THRESHOLDS = {
 const IMPORTANT_ADDRESSES = [
   "0x3ae6d8a282d67893e17aa70ebffb33ee5aa65893", // Universal Router
   "0x3012e9049d05b4b5369d690114d5a5861ebb85cb", // Atlantis SwapRouter
+  "0x4bb54bb9a42fe787d1d1a2aacf91c70b02e5553e", // Atlantis/Clober UpdatePosition target
   "0x8b1fb7b1da49f111a2c0c11925d5bb86a2fab88e", // OctoSwap UniversalRouter
   "0xb6091233aacacba45225a2b2121bbac807af4255", // OctoSwap Router02
 ];
@@ -140,6 +141,7 @@ ERC20.Transfer.handler(
     try {
       const { from, to, value } = event.params;
       const contractAddress = event.srcAddress.toLowerCase();
+      const txToLc = ((event.transaction as any)?.to || '').toLowerCase?.() || '';
 
       // Determine recency window (30d) for heavy derived writes
       const nowSec = Math.floor(Date.now() / 1000);
@@ -151,7 +153,8 @@ ERC20.Transfer.handler(
       const isTrackedToken = Object.values(TRACKED_TOKENS).map(a => a.toLowerCase()).includes(contractAddress);
       const involvesImportantAddress =
         IMPORTANT_ADDRESSES.includes(from.toLowerCase()) ||
-        IMPORTANT_ADDRESSES.includes(to.toLowerCase());
+        IMPORTANT_ADDRESSES.includes(to.toLowerCase()) ||
+        IMPORTANT_ADDRESSES.includes(txToLc);
 
       // MINIMUM FILTER: Skip tiny transfers (< 1 MON equivalent) unless DEX
       const tokenSymbol = getTokenSymbol(contractAddress);
