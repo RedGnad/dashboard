@@ -1,26 +1,9 @@
 import { UniversalRouter, SwapEvent, PairMetrics, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted } from "../generated";
 
-// Key trading pairs we want to monitor for momentum/volatility
-const TRACKED_PAIRS = {
-  "WMON_USDC": {
-    tokenA: "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701", // WMON
-    tokenB: "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea", // USDC
-  },
-};
-
-/**
- * Determine if a swap involves tracked token pairs
- */
-function getPairKey(tokenIn: string, tokenOut: string): string | null {
-  for (const [pairKey, { tokenA, tokenB }] of Object.entries(TRACKED_PAIRS)) {
-    if (
-      (tokenIn.toLowerCase() === tokenA.toLowerCase() && tokenOut.toLowerCase() === tokenB.toLowerCase()) ||
-      (tokenIn.toLowerCase() === tokenB.toLowerCase() && tokenOut.toLowerCase() === tokenA.toLowerCase())
-    ) {
-      return pairKey;
-    }
-  }
-  return null;
+function pairKeyFor(tokenIn: string, tokenOut: string): string {
+  const a = tokenIn.toLowerCase();
+  const b = tokenOut.toLowerCase();
+  return [a, b].sort().join("_");
 }
 
 /**
@@ -184,12 +167,7 @@ async function updatePairMetrics(
 UniversalRouter.SwapExecuted.handler(
   async ({ event, context }) => {
     const { tokenIn, tokenOut, amountIn, amountOut, recipient } = event.params;
-    
-    // Check if this swap involves our tracked tokens
-    const pairKey = getPairKey(tokenIn, tokenOut);
-    if (!pairKey) {
-      return; // Skip if not a tracked pair
-    }
+    const pairKey = pairKeyFor(tokenIn, tokenOut);
 
     const swapId = `${event.chainId}_${event.block.number}_${event.logIndex}`;
     

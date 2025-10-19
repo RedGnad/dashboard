@@ -1,4 +1,4 @@
-// @ts-nocheck
+((((&&&&&&@// @ts-nocheck
 import { Pyth, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted } from "generated";
 
 function dateISOFromTs(tsMs: number): string {
@@ -71,6 +71,21 @@ async function upsertDaily(
 }
 
 Pyth.PriceFeedUpdate.handler(async ({ event, context }) => {
+  const tsMs = Number(event.block.timestamp) * 1000;
+  const dateISO = dateISOFromTs(tsMs);
+  const txHash = (event.transaction?.hash as string) || null;
+  const gasUsed = (event.transaction as any)?.gasUsed ? BigInt((event.transaction as any).gasUsed) : null;
+  const effPrice = (event.transaction as any)?.effectiveGasPrice
+    ? BigInt((event.transaction as any).effectiveGasPrice)
+    : (event.transaction as any)?.gasPrice
+      ? BigInt((event.transaction as any).gasPrice)
+      : null;
+  const feeWei = gasUsed != null && effPrice != null ? gasUsed * effPrice : null;
+  const userKey = (event.transaction?.from as string) || null;
+  await upsertDaily(context, { protocolId: "pyth", dateISO, user: userKey, txDelta: 1, txHash, feeWei });
+});
+
+Pyth.BatchPriceFeedUpdate.handler(async ({ event, context }) => {
   const tsMs = Number(event.block.timestamp) * 1000;
   const dateISO = dateISOFromTs(tsMs);
   const txHash = (event.transaction?.hash as string) || null;
