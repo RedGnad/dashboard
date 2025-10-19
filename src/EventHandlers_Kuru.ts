@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { KuruRouter, KuruOrderBook, MonadDeployer, Kuru_MarketRegistered, Kuru_Trade, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted, SwapEvent, PairMetrics } from "generated";
+import { KuruRouter, KuruOrderBook, MonadDeployer, Kuru_MarketRegistered, Kuru_Trade, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted, SwapEvent } from "generated";
 
 function dateISOFromTs(tsMs: number): string {
   const d = new Date(tsMs);
@@ -12,41 +12,6 @@ function pairKeyFor(tokenIn: string, tokenOut: string): string {
   return [a, b].sort().join("_");
 }
 
-async function updatePairMetrics(
-  context: any,
-  pairKey: string,
-  currentPrice: number,
-  volumeIn: bigint,
-  volumeOut: bigint,
-  timestamp: number
-) {
-  const hour = Math.floor(timestamp / 3600) * 3600;
-  const metricsId = `${pairKey}_${hour}`;
-  let metrics = await context.PairMetrics.get(metricsId);
-  if (!metrics) {
-    metrics = {
-      id: metricsId,
-      pairKey,
-      hour,
-      swapCount: 0,
-      totalVolumeIn: BigInt(0),
-      totalVolumeOut: BigInt(0),
-      highPrice: currentPrice,
-      lowPrice: currentPrice,
-      openPrice: currentPrice,
-      closePrice: currentPrice,
-      lastUpdate: timestamp,
-    };
-  }
-  metrics.swapCount += 1;
-  metrics.totalVolumeIn += volumeIn;
-  metrics.totalVolumeOut += volumeOut;
-  metrics.highPrice = Math.max(metrics.highPrice, currentPrice);
-  metrics.lowPrice = Math.min(metrics.lowPrice, currentPrice);
-  metrics.closePrice = currentPrice;
-  metrics.lastUpdate = timestamp;
-  context.PairMetrics.set(metrics);
-}
 
 async function upsertDaily(
   context: any,
@@ -156,7 +121,7 @@ KuruOrderBook.Trade.handler(async ({ event, context }) => {
   } as any;
   context.Kuru_Trade.set(entity);
   
-  // Normalize as SwapEvent + PairMetrics
+  // Normalize as SwapEvent (PairMetrics disabled)
   try {
     const marketId = String(event.srcAddress || '').toLowerCase()
     const reg = await context.Kuru_MarketRegistered.get(marketId)
@@ -202,7 +167,7 @@ KuruOrderBook.Trade.handler(async ({ event, context }) => {
         logIndex: event.logIndex,
       } as any)
 
-      await updatePairMetrics(context, pairKeyFor(tokenIn, tokenOut), price, amountIn, amountOut, event.block.timestamp)
+      // PairMetrics writes disabled due to schema mismatch and performance concerns
     } else {
       try { context.log?.info?.(`Kuru Trade without market registration mapping for ${marketId}`) } catch {}
     }

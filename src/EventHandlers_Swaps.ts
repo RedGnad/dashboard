@@ -1,4 +1,4 @@
-import { UniversalRouter, SwapEvent, PairMetrics, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted } from "../generated";
+import { UniversalRouter, SwapEvent, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted } from "../generated";
 
 function pairKeyFor(tokenIn: string, tokenOut: string): string {
   const a = tokenIn.toLowerCase();
@@ -6,45 +6,6 @@ function pairKeyFor(tokenIn: string, tokenOut: string): string {
   return [a, b].sort().join("_");
 }
 
-/**
- * Calculate volatility as standard deviation of price changes
- */
-function calculateVolatility(priceHistory: number[]): number {
-  if (priceHistory.length < 2) return 0;
-  
-  const changes = [];
-  for (let i = 1; i < priceHistory.length; i++) {
-    changes.push((priceHistory[i] - priceHistory[i-1]) / priceHistory[i-1]);
-  }
-  
-  const mean = changes.reduce((sum, change) => sum + change, 0) / changes.length;
-  const variance = changes.reduce((sum, change) => sum + Math.pow(change - mean, 2), 0) / changes.length;
-  
-  return Math.sqrt(variance) * 100; // As percentage
-}
-
-/**
- * Calculate momentum indicators for AI features
- */
-function calculateMomentum(priceHistory: number[]): { shortMomentum: number, longMomentum: number } {
-  if (priceHistory.length < 10) {
-    return { shortMomentum: 0, longMomentum: 0 };
-  }
-  
-  const current = priceHistory[priceHistory.length - 1];
-  
-  // Short-term momentum (last 5 prices vs current)
-  const shortStart = Math.max(0, priceHistory.length - 5);
-  const shortAvg = priceHistory.slice(shortStart, -1).reduce((sum, p) => sum + p, 0) / 4;
-  const shortMomentum = ((current - shortAvg) / shortAvg) * 100;
-  
-  // Long-term momentum (last 20 prices vs current)
-  const longStart = Math.max(0, priceHistory.length - 20);
-  const longAvg = priceHistory.slice(longStart, -1).reduce((sum, p) => sum + p, 0) / Math.min(19, priceHistory.length - 1);
-  const longMomentum = ((current - longAvg) / longAvg) * 100;
-  
-  return { shortMomentum, longMomentum };
-}
 
 // Helper functions for DailyMetrics aggregation (same as other handlers)
 function dateISOFromTs(tsMs: number): string {
@@ -116,49 +77,6 @@ async function upsertDaily(
   context.DailyMetrics.set(dmNext);
 }
 
-/**
- * Update aggregated pair metrics for AI feature calculation
- */
-async function updatePairMetrics(
-  context: any,
-  pairKey: string,
-  currentPrice: number,
-  volumeIn: bigint,
-  volumeOut: bigint,
-  timestamp: number
-) {
-  const hour = Math.floor(timestamp / 3600) * 3600; // Round to hour
-  const metricsId = `${pairKey}_${hour}`;
-
-  let metrics = await context.PairMetrics.get(metricsId);
-  
-  if (!metrics) {
-    metrics = {
-      id: metricsId,
-      pairKey,
-      hour,
-      swapCount: 0,
-      totalVolumeIn: BigInt(0),
-      totalVolumeOut: BigInt(0),
-      highPrice: currentPrice,
-      lowPrice: currentPrice,
-      openPrice: currentPrice,
-      closePrice: currentPrice,
-      lastUpdate: timestamp,
-    };
-  }
-
-  // Update metrics
-  metrics.swapCount += 1;
-  metrics.totalVolumeIn += volumeIn;
-  metrics.totalVolumeOut += volumeOut;
-  metrics.highPrice = Math.max(metrics.highPrice, currentPrice);
-  metrics.lowPrice = Math.min(metrics.lowPrice, currentPrice);
-  metrics.closePrice = currentPrice;
-  metrics.lastUpdate = timestamp;
-
-  context.PairMetrics.set(metrics);
-}
 
 /**
  * Universal Router swap handler
@@ -207,8 +125,7 @@ UniversalRouter.SwapExecuted.handler(
       logIndex: event.logIndex,
     });
 
-    // Update pair metrics for AI features
-    await updatePairMetrics(context, pairKey, price, amountIn, amountOut, event.block.timestamp);
+    // PairMetrics writes disabled due to schema mismatch and performance concerns
 
     // Aggregate daily metrics for "dex" protocol
     const tsMs = Number(event.block.timestamp) * 1000;
