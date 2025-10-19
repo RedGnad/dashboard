@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { queryEnvio } from '../lib/envioClient'
-import { USDC, WMON, CHOG } from '../lib/tokens'
+import { TOKENS, USDC } from '../lib/tokens'
+import { useTokenMetrics } from './useTokenMetrics'
 
 function startOfDayEpoch(): number {
   const d = new Date()
@@ -24,9 +25,17 @@ export function useEnvioMetrics(saAddress?: string) {
   const [error, setError] = useState<string | null>(null)
   const envioEnabled = ((import.meta.env.VITE_ENVIO_ENABLED ?? 'true') === 'true')
 
-  const tracked = useMemo(() => [USDC.toLowerCase(), WMON.toLowerCase(), CHOG.toLowerCase()], [])
+  const tracked = useMemo(() => Object.values(TOKENS).map(t => (t.address as string).toLowerCase()), [])
   const since = useMemo(() => startOfDayEpoch(), [])
-  const sinceWhale = useMemo(() => Math.floor(Date.now() / 1000) - 30 * 86400, [])
+  const sinceWhale = useMemo(() => Math.floor(Date.now() / 1000) - 7 * 86400, [])
+  const { tokenMetrics } = useTokenMetrics()
+  const priceBySymbol = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const tm of tokenMetrics) {
+      if (Number.isFinite(tm.price) && tm.price > 0) m[tm.token] = tm.price
+    }
+    return m
+  }, [tokenMetrics])
 
   useEffect(() => {
     if (!saAddress) return
@@ -71,24 +80,36 @@ export function useEnvioMetrics(saAddress?: string) {
         uniqTx.forEach(({ gasUsed, gasPrice }) => { feeWei += gasUsed * gasPrice })
 
         const whales: Array<{ token: string; from: string; to: string; value: string; ts: number; tx: string }> = []
-        const whaleQueries = [
-          { token: USDC.toLowerCase(), min: (10000n * 10n ** 6n).toString() },
-          { token: WMON.toLowerCase(), min: (10000n * 10n ** 18n).toString() },
-        ]
-        for (const w of whaleQueries) {
-          const data = await queryEnvio<{ TokenTransfer: Array<any> }>({
-            query: `query W($token:String!,$min:numeric!,$since:Int!){
-              TokenTransfer(
-                where: { tokenAddress: { _eq: $token }, value: { _gt: $min }, blockTimestamp: { _gt: $since } }
-                order_by: { blockTimestamp: desc }
-                limit: 20
-              ){
-                tokenAddress from to value blockTimestamp transactionHash
-              }
-            }`,
-            variables: { token: w.token, min: w.min, since: sinceWhale }
-          }, abort.signal)
-          for (const t of data.TokenTransfer) {
+        const tokenList = Object.values(TOKENS)
+          .map(t => (t.address as string).toLowerCase())
+        const wdata = await queryEnvio<{ TokenTransfer: Array<any> }>({
+          query: `query W($tokens:[String!],$since:Int!){
+            TokenTransfer(
+              where: { tokenAddress: { _in: $tokens }, blockTimestamp: { _gt: $since } }
+              order_by: { blockTimestamp: desc }
+              limit: 200
+            ){
+              tokenAddress from to value blockTimestamp transactionHash
+            }
+          }`,
+          variables: { tokens: tokenList, since: sinceWhale }
+        }, abort.signal)
+        for (const t of wdata.TokenTransfer) {
+          const addr = String(t.tokenAddress).toLowerCase()
+          const tok = Object.values(TOKENS).find(x => (x.address as string).toLowerCase() === addr)
+          if (!tok) continue
+          const decimals = tok.decimals || 18
+          const amount = Number(String(t.value)) / Math.pow(10, decimals)
+          if (!Number.isFinite(amount)) continue
+          let eqUSDC = 0
+          if ((tok.address as string).toLowerCase() === USDC.toLowerCase()) eqUSDC = amount
+          else {
+            const price = priceBySymbol[tok.symbol]
+            if (!Number.isFinite(price) || price <= 0) continue
+            eqUSDC = amount * price
+          }
+          if (eqUSDC < 100) continue
+          if (eqUSDC >= 30000) {
             whales.push({ token: t.tokenAddress, from: t.from, to: t.to, value: String(t.value), ts: Number(t.blockTimestamp), tx: t.transactionHash })
           }
         }

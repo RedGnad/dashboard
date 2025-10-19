@@ -11,6 +11,7 @@ import { useTodayProtocolMetrics } from '../hooks/useTodayProtocolMetrics'
 import { useProtocolDailyMetrics, type ProtocolMetricKey } from '../hooks/useProtocolDailyMetrics'
 import { useAutonomousAi } from '../hooks/useAutonomousAi'
 import { useTokenMetrics } from '../hooks/useTokenMetrics'
+import { useWhaleTransfers } from '../hooks/useWhaleTransfers'
 import AiVerificationPanel from './AiVerificationPanel'
 import WithdrawModal from './WithdrawModal'
 
@@ -29,6 +30,7 @@ export default function DcaControl() {
     return allowed[0]?.symbol || 'CHOG'
   })
   const [metricKey, setMetricKey] = useState<ProtocolMetricKey>('txDaily')
+  const [historyDays, setHistoryDays] = useState<number>(30)
   const [todayMetric, setTodayMetric] = useState<'usersDaily' | 'txDaily'>('txDaily')
 
   const {
@@ -60,9 +62,9 @@ export default function DcaControl() {
     return token ? (token.address as `0x${string}`) : (USDC as `0x${string}`)
   }, [outToken])
   const { metrics, loading: metricsLoading, error: metricsError } = useEnvioMetrics(delegatorSmartAccount?.address)
-  const { series, dates, loading: dailyLoading, error: dailyError } = useProtocolDailyMetrics(metricKey, 30)
+  const { series, dates, loading: dailyLoading, error: dailyError, loadOlder, hasMore } = useProtocolDailyMetrics(metricKey, historyDays)
   const { todayData, latestData, loading: todayLoading, error: todayError } = useTodayProtocolMetrics()
-  const PROTOCOLS = ['magma','ambient','curvance','kuru','atlantis','octoswap','pingu'] as const
+  const PROTOCOLS = ['magma','ambient','curvance','kuru','atlantis','octoswap','pingu','dex'] as const
   const todayBarData = PROTOCOLS.map(p => ({ protocolId: p, value: Number((todayData.find(d=>d.protocolId===p) as any)?.[todayMetric] || 0) }))
   const [totalMetric, setTotalMetric] = useState<'txCumulative' | 'avgTxPerUser' | 'avgFeeNative'>('txCumulative')
   const totalsProtocols = totalMetric==='avgFeeNative' 
@@ -80,6 +82,7 @@ export default function DcaControl() {
   const [tokenMetricKind, setTokenMetricKind] = useState<'momentum'|'volatility'|'price'>('price')
   const [tokenDates, setTokenDates] = useState<string[]>([])
   const [tokenSeries, setTokenSeries] = useState<Record<string, { token: string; points: { x: string; y: number }[] }>>({})
+  const [tokenVolSeries, setTokenVolSeries] = useState<Record<string, { token: string; points: { x: string; y: number }[] }>>({})
 
   const [limitsEnabled, setLimitsEnabled] = useState(false)
   const [entryKind, setEntryKind] = useState<'above'|'below'>('above')
@@ -114,6 +117,7 @@ export default function DcaControl() {
     const label = now.toISOString().slice(11, 19)
     const allowed = getTargetTokens().map(t => t.symbol)
     const nextSeries = { ...tokenSeries }
+    const nextVolSeries = { ...tokenVolSeries }
     if (tokenMetricKind !== 'volatility') {
       for (const sym of allowed) {
         const m = tokenMetrics.find(tm => tm.token === sym)
@@ -122,15 +126,24 @@ export default function DcaControl() {
         const pts = [...prev, { x: label, y: Number.isFinite(val) ? val : 0 }]
         while (pts.length > 40) pts.shift()
         nextSeries[sym] = { token: sym, points: pts }
+
+        const vol = m ? m.volume24h : 0
+        const prevVol = nextVolSeries[sym]?.points || []
+        const ptsVol = [...prevVol, { x: label, y: Number.isFinite(vol) ? vol : 0 }]
+        while (ptsVol.length > 40) ptsVol.shift()
+        nextVolSeries[sym] = { token: sym, points: ptsVol }
       }
       const prevDates = tokenDates || []
       const nextDates = [...prevDates, label]
       while (nextDates.length > 40) nextDates.shift()
       setTokenSeries(nextSeries)
+      setTokenVolSeries(nextVolSeries)
       setTokenDates(nextDates)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenMetrics, tokenMetricsLoading, tokenMetricKind])
+
+  const { moves: whaleMoves, loading: whalesLoading, error: whalesError } = useWhaleTransfers(7)
 
   // Ensure selected outToken is always a valid target at startup
   useEffect(() => {
@@ -856,6 +869,12 @@ export default function DcaControl() {
                 <button onClick={()=>setMetricKey('txCumulative')} className={`px-2 py-1 rounded ${metricKey==='txCumulative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Tx cumulative</button>
                 <button onClick={()=>setMetricKey('avgTxPerUser')} className={`px-2 py-1 rounded ${metricKey==='avgTxPerUser'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg tx/user</button>
                 <button onClick={()=>setMetricKey('avgFeeNative')} className={`px-2 py-1 rounded ${metricKey==='avgFeeNative'?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>Avg fee (MON)</button>
+                <span className="mx-2 h-5 w-px bg-white/10"/>
+                <button onClick={()=>setHistoryDays(30)} className={`px-2 py-1 rounded ${historyDays===30?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>30d</button>
+                <button onClick={()=>setHistoryDays(90)} className={`px-2 py-1 rounded ${historyDays===90?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>90d</button>
+                <button onClick={()=>setHistoryDays(180)} className={`px-2 py-1 rounded ${historyDays===180?'bg-white/10 text-white':'bg-white/5 text-gray-300'}`}>180d</button>
+                <button onClick={()=>setHistoryDays(d=>Math.min(365, d + 30))} className="px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white" title="Increase range">+30d</button>
+                <button onClick={()=>loadOlder?.()} disabled={!hasMore} className={`px-2 py-1 rounded ${hasMore? 'bg-white/5 text-gray-300 hover:text-white':'bg-white/5 text-gray-500 cursor-not-allowed'}`} title="Charger plus ancien">Load older</button>
               </div>
             </div>
 
@@ -956,6 +975,7 @@ export default function DcaControl() {
                         dates={tokenDates}
                         zeroAxis={tokenMetricKind==='momentum'}
                         overlays={overlays}
+                        volBars={(tokenVolSeries[sym]?.points || []).map(p => ({ x: p.x, y: p.y }))}
                       />
                     </div>
                   )
@@ -963,6 +983,41 @@ export default function DcaControl() {
               )
             )}
             <div className="text-xs text-gray-400 mt-2">Values normalized against USDC or WMON for comparability. Includes UniversalRouter and Kuru OrderBook trades. Refreshes as metrics update.</div>
+          </div>
+
+          <div className="glass rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-lg font-semibold text-white">Whale Movements (7d)</div>
+            </div>
+            {whalesError && <div className="text-sm text-red-400 mb-2">{whalesError}</div>}
+            {whalesLoading ? (
+              <div className="text-sm text-gray-300">Loading…</div>
+            ) : (
+              <div className="max-h-56 overflow-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-gray-400">
+                      <th className="text-left">Token</th>
+                      <th className="text-left">Amount</th>
+                      <th className="text-left">From → To</th>
+                      <th className="text-left">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(whaleMoves || []).slice(0, 50).map((m, i) => (
+                      <tr key={m.id || i} className="text-gray-200">
+                        <td className="py-1">{m.token}</td>
+                        <td className="py-1">{Number(m.value).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                        <td className="py-1">
+                          {m.from.slice(0,6)}…{m.from.slice(-4)} → {m.to.slice(0,6)}…{m.to.slice(-4)}
+                        </td>
+                        <td className="py-1">{new Date(m.blockTimestamp * 1000).toISOString().slice(5,16)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="glass rounded-2xl p-5">

@@ -20,8 +20,10 @@ function formatAmount(addr: string, raw: string) {
     }
     const n = Number(raw) / Math.pow(10, decimals)
     if (!isFinite(n)) return raw
-    if (n >= 1) return n.toFixed(2)
-    return n.toPrecision(2)
+    if (n >= 1) {
+      return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+    }
+    return new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(n)
   } catch {
     return raw
   }

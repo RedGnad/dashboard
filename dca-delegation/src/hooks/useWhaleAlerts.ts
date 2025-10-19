@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { queryEnvio } from '../lib/envioClient'
-import { USDC, WMON, TOKENS } from '../lib/tokens'
+import { USDC, TOKENS } from '../lib/tokens'
+import { useTokenMetrics } from './useTokenMetrics'
 
 export type WhaleAlert = {
   token: string
@@ -35,7 +36,15 @@ export function useWhaleAlerts() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const envioEnabled = (import.meta.env.VITE_ENVIO_ENABLED === 'true')
-  const since = useMemo(() => Math.floor(Date.now() / 1000) - 30 * 86400, [])
+  const since = useMemo(() => Math.floor(Date.now() / 1000) - 7 * 86400, [])
+  const { tokenMetrics } = useTokenMetrics()
+  const priceBySymbol = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const tm of tokenMetrics) {
+      if (Number.isFinite(tm.price) && tm.price > 0) m[tm.token] = tm.price
+    }
+    return m
+  }, [tokenMetrics])
 
   const [seen, setSeen] = useState<Set<string>>(() => loadSeen())
   const unseen = useMemo(() => alerts.filter(a => !seen.has(a.tx)), [alerts, seen])
@@ -69,22 +78,55 @@ export function useWhaleAlerts() {
       setLoading(true)
       setError(null)
       try {
-        const data = await queryEnvio<{ usdc: any[]; wmon: any[] }>({
-          query: `query W($since:Int!, $usdc:String!, $usdcMin:numeric!, $wmon:String!, $wmonMin:numeric!) {
-            usdc: TokenTransfer(where:{ tokenAddress:{ _eq:$usdc }, value:{ _gt:$usdcMin }, blockTimestamp:{ _gt:$since } }, order_by:{ blockTimestamp: desc }, limit: 20){ tokenAddress from to value blockTimestamp transactionHash }
-            wmon: TokenTransfer(where:{ tokenAddress:{ _eq:$wmon }, value:{ _gt:$wmonMin }, blockTimestamp:{ _gt:$since } }, order_by:{ blockTimestamp: desc }, limit: 20){ tokenAddress from to value blockTimestamp transactionHash }
+        // Build tracked token list from TOKENS
+        const tracked = Object.values(TOKENS)
+          .map(t => (t.address as string).toLowerCase())
+
+        // Fetch recent transfers across our tokens
+        const data = await queryEnvio<{ TokenTransfer: any[] }>({
+          query: `query W($since:Int!, $tokens:[String!]) {
+            TokenTransfer(
+              where:{ tokenAddress:{ _in:$tokens }, blockTimestamp:{ _gt:$since } }
+              order_by:{ blockTimestamp: desc }
+              limit: 200
+            ){
+              tokenAddress from to value blockTimestamp transactionHash
+            }
           }`,
-          variables: {
-            since,
-            usdc: USDC.toLowerCase(),
-            usdcMin: (10000n * 10n ** BigInt(TOKENS.USDC.decimals)).toString(),
-            wmon: WMON.toLowerCase(),
-            wmonMin: (10000n * 10n ** BigInt(TOKENS.WMON.decimals)).toString(),
-          }
+          variables: { since, tokens: tracked }
         }, abort.signal)
+
+        // Convert to USD-equivalent using tokenMetrics price when available
         const combined: WhaleAlert[] = []
-        for (const t of [...data.usdc, ...data.wmon]) {
-          combined.push({ token: t.tokenAddress, from: t.from, to: t.to, value: String(t.value), ts: Number(t.blockTimestamp), tx: t.transactionHash })
+        const seenKeys = new Set<string>()
+        for (const t of data.TokenTransfer) {
+          const key = `${String(t.transactionHash).toLowerCase()}:${String(t.tokenAddress).toLowerCase()}`
+          if (seenKeys.has(key)) continue
+          seenKeys.add(key)
+
+          const addr = String(t.tokenAddress).toLowerCase()
+          const tok = Object.values(TOKENS).find(x => (x.address as string).toLowerCase() === addr)
+          if (!tok) continue
+          const decimals = tok.decimals || 18
+          const amount = Number(String(t.value)) / Math.pow(10, decimals)
+          if (!Number.isFinite(amount)) continue
+
+          let eqUSDC = 0
+          if ((tok.address as string).toLowerCase() === USDC.toLowerCase()) {
+            eqUSDC = amount
+          } else {
+            const price = priceBySymbol[tok.symbol]
+            if (!Number.isFinite(price) || price <= 0) continue // skip if no price
+            eqUSDC = amount * price
+          }
+
+          // Ignore small moves (< 100 USDC eq)
+          if (eqUSDC < 100) continue
+
+          // Keep only whales >= 30000 USDC eq
+          if (eqUSDC >= 30000) {
+            combined.push({ token: t.tokenAddress, from: t.from, to: t.to, value: String(t.value), ts: Number(t.blockTimestamp), tx: t.transactionHash })
+          }
         }
         // Sort by ts desc
         combined.sort((a, b) => b.ts - a.ts)

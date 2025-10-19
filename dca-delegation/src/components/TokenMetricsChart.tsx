@@ -11,6 +11,7 @@ type Props = {
   height?: number
   zeroAxis?: boolean
   overlays?: TokenSeries[]
+  volBars?: { x: string; y: number }[]
 }
 
 const COLORS: Record<string, string> = {
@@ -33,7 +34,7 @@ function getColor(name: string, i: number) {
   return fallback[i % fallback.length]
 }
 
-export default function TokenMetricsChart({ series, dates, height = 220, zeroAxis = false, overlays = [] }: Props) {
+export default function TokenMetricsChart({ series, dates, height = 220, zeroAxis = false, overlays = [], volBars = [] }: Props) {
   const width = 640
   const h = height
   const padding = { top: 10, right: 12, bottom: 22, left: 48 }
@@ -85,6 +86,15 @@ export default function TokenMetricsChart({ series, dates, height = 220, zeroAxi
     return d
   }
 
+  // Volume bars (normalized to 30% of chart height)
+  const volValues = volBars
+    .filter(p => dateIndex[p.x] !== undefined)
+    .sort((a, b) => dateIndex[a.x] - dateIndex[b.x])
+    .map(p => p.y)
+  const volMax = volValues.length ? Math.max(...volValues) : 0
+  const barBand = innerH * 0.3
+  const barW = n > 1 ? Math.max(2, innerW / (n * 1.5)) : Math.max(2, innerW * 0.8)
+
   return (
     <div className="w-full">
       <svg viewBox={`0 0 ${width} ${h}`} className="w-full h-auto select-none">
@@ -120,6 +130,19 @@ export default function TokenMetricsChart({ series, dates, height = 220, zeroAxi
             </g>
           )
         })}
+
+        {volBars.length > 0 && volMax > 0 && (
+          <g>
+            {volBars.filter(p => dateIndex[p.x] !== undefined).map((p, i) => {
+              const idx = dateIndex[p.x]
+              const cx = xPos(idx)
+              const h = (p.y / volMax) * barBand
+              const x = cx - barW / 2
+              const y = padding.top + innerH - h
+              return <rect key={`vb_${i}`} x={x} y={y} width={barW} height={h} fill="#334155" opacity={0.6} />
+            })}
+          </g>
+        )}
 
         {overlays.map((s, i) => {
           const path = buildPath(s.points)

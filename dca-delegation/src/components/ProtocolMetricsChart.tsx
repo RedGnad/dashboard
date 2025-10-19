@@ -16,6 +16,7 @@ const COLORS: Record<string, string> = {
   atlantis: '#14b8a6',
   octoswap: '#f59e0b',
   pingu: '#0ea5e9',
+  dex: '#22c55e',
 }
 
 function getColor(name: string, i: number) {
@@ -25,9 +26,11 @@ function getColor(name: string, i: number) {
 }
 
 export default function ProtocolMetricsChart({ series, dates, height = 220 }: Props) {
-  const width = 640
   const h = height
   const padding = { top: 10, right: 12, bottom: 22, left: 48 }
+  const pxPerDay = 28
+  const minWidth = 640
+  const width = Math.max(minWidth, padding.left + padding.right + Math.max(0, dates.length - 1) * pxPerDay)
   const innerW = width - padding.left - padding.right
   const innerH = h - padding.top - padding.bottom
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
@@ -81,8 +84,8 @@ export default function ProtocolMetricsChart({ series, dates, height = 220 }: Pr
   }
 
   return (
-    <div className="w-full">
-      <svg viewBox={`0 0 ${width} ${h}`} className="w-full h-auto select-none">
+    <div className="w-full overflow-x-auto">
+      <svg width={width} height={h} viewBox={`0 0 ${width} ${h}`} className="select-none">
         {/* Axes */}
         <line x1={padding.left} y1={padding.top} x2={padding.left} y2={h - padding.bottom} stroke="#444" strokeWidth={1}/>
         <line x1={padding.left} y1={h - padding.bottom} x2={width - padding.right} y2={h - padding.bottom} stroke="#444" strokeWidth={1}/>

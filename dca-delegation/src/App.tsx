@@ -45,7 +45,7 @@ function App() {
   return (
     <div className="min-h-screen relative">
       <Background />
-      <WhaleNotifications />
+      {isConnected && isAuthenticated && <WhaleNotifications />}
       {isAuthenticated && <ModelStage />}
       
       <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
