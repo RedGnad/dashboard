@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "deploy:delegate": "node scripts/deploy-delegate-sa.mjs",
     "deploy:delegate:paymaster": "node scripts/deploy-delegate-sa-paymaster.mjs",
-    "create:delegation": "node scripts/create-test-delegation.mjs"
+    "create:delegation": "node scripts/create-test-delegation.mjs",
+    "worker:run": "node scripts/worker/runner.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

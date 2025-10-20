@@ -1,0 +1,9 @@
+{
+  "mode": "ai",
+  "intervalSeconds": 300,
+  "amountMon": "0.05",
+  "slippageBps": 300,
+  "outToken": "USDC",
+  "nextExecution": 0,
+  "lastRunAt": 0
+}

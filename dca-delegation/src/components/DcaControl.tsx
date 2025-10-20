@@ -164,9 +164,9 @@ export default function DcaControl() {
 
   const { moves: whaleMoves, loading: whalesLoading, error: whalesError } = useWhaleTransfers(7)
   const { alerts: whaleAlerts } = useWhaleAlerts()
+  const whaleMonOnly = ((import.meta as any).env?.VITE_WHALE_MON_ONLY) !== 'false'
   const whaleRows = useMemo(() => {
-    if (whaleMoves && whaleMoves.length) return whaleMoves
-    return (whaleAlerts || []).map((a, i) => {
+    let rows = (whaleMoves && whaleMoves.length) ? whaleMoves : (whaleAlerts || []).map((a, i) => {
       const addr = String(a.token).toLowerCase() as `0x${string}`
       const tok = Object.values(TOKENS).find(t => (t.address as string).toLowerCase() === addr)
       const dec = tok?.decimals || 18
@@ -184,7 +184,9 @@ export default function DcaControl() {
         transactionHash: a.tx,
       }
     })
-  }, [whaleMoves, whaleAlerts])
+    if (whaleMonOnly) rows = rows.filter(r => r.token === 'WMON')
+    return rows
+  }, [whaleMoves, whaleAlerts, whaleMonOnly])
 
   // Ensure selected outToken is always a valid target at startup
   useEffect(() => {
@@ -414,16 +416,21 @@ export default function DcaControl() {
 
   return (
     <div className="w-full max-w-[1280px] mx-auto px-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex gap-2">
-          <button onClick={() => setActive('trade')} className={`px-3 py-2 rounded-lg text-sm ${active==='trade'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>Trade</button>
-          <button onClick={() => setActive('ai')} className={`px-3 py-2 rounded-lg text-sm ${active==='ai'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>AI</button>
-          <button onClick={() => setActive('metrics')} className={`px-3 py-2 rounded-lg text-sm ${active==='metrics'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>Metrics</button>
-          <button onClick={() => setActive('verification')} className={`px-3 py-2 rounded-lg text-sm ${active==='verification'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>Verification</button>
-          <button onClick={() => setActive('settings')} className={`px-3 py-2 rounded-lg text-sm ${active==='settings'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>Settings</button>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={refreshBalances} disabled={isLoading} className="p-2 text-gray-300 hover:text-white disabled:opacity-50"><RefreshCw size={16} className={isLoading? 'animate-spin':''} /></button>
+      <div className="flex justify-center mb-3">
+        <div className="flex items-center gap-4 w-[1280px]">
+          <div className="w-[360px]">
+            <div className="flex gap-2">
+              <button onClick={() => setActive('trade')} className={`px-3 py-2 rounded-lg text-sm ${active==='trade'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>Trade</button>
+              <button onClick={() => setActive('ai')} className={`px-3 py-2 rounded-lg text-sm ${active==='ai'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>AI</button>
+              <button onClick={() => setActive('metrics')} className={`px-3 py-2 rounded-lg text-sm ${active==='metrics'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>Metrics</button>
+              <button onClick={() => setActive('verification')} className={`px-3 py-2 rounded-lg text-sm ${active==='verification'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>Verification</button>
+              <button onClick={() => setActive('settings')} className={`px-3 py-2 rounded-lg text-sm ${active==='settings'?'bg-white/10 text-white':'bg-white/5 text-gray-300 hover:text-white'}`}>Settings</button>
+            </div>
+          </div>
+          <div className="w-[560px]" />
+          <div className="w-[360px] flex items-center justify-end">
+            <button onClick={refreshBalances} disabled={isLoading} className="p-2 text-gray-300 hover:text-white disabled:opacity-50"><RefreshCw size={16} className={isLoading? 'animate-spin':''} /></button>
+          </div>
         </div>
       </div>
 
@@ -517,7 +524,7 @@ export default function DcaControl() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-300 mb-1">Interval (s)</label>
-                  <input type="number" inputMode="numeric" step="1" value={interval} onChange={(e)=>setInterval(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
+                  <input type="number" inputMode="numeric" step="1" min={Number((import.meta as any).env?.VITE_MIN_DCA_INTERVAL_SECONDS ?? 60)} value={interval} onChange={(e)=>setInterval(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"/>
                 </div>
                 <div className="col-span-2">
                   <div className="flex items-center justify-between mb-1">
@@ -1061,18 +1068,20 @@ export default function DcaControl() {
                           </td>
                           <td className="py-1">
                             {m.transactionHash ? (
-                              <button
+                              <a
                                 className="text-indigo-300 hover:text-white underline underline-offset-2"
-                                onClick={() => navigator.clipboard?.writeText?.(m.transactionHash)}
-                                title="Copy tx hash"
+                                href={`https://testnet.monadexplorer.com/tx/${m.transactionHash}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="Open in explorer"
                               >
                                 {m.transactionHash.slice(0,8)}…{m.transactionHash.slice(-6)}
-                              </button>
+                              </a>
                             ) : (
                               '-'
                             )}
                           </td>
-                          <td className="py-1">{new Date(m.blockTimestamp * 1000).toISOString().slice(5,16)}</td>
+                          <td className="py-1">{new Date(m.blockTimestamp * 1000).toLocaleString()}</td>
                         </tr>
                       ))}
                     </tbody>

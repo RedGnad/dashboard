@@ -59,6 +59,7 @@ export function useDcaDelegation() {
 
   const opQueueRef = useRef<Array<() => Promise<void>>>([])
   const processingRef = useRef(false)
+  const initInFlightRef = useRef(false)
   const lastDcaConfigRef = useRef<null | {
     mode: 'manual' | 'ai'
     amountMon: string
@@ -131,6 +132,8 @@ export function useDcaDelegation() {
   // Initialize smart accounts and delegation
   const initialize = useCallback(async () => {
     if (!isConnected || !address || isInitialized || !walletClient) return
+    if (initInFlightRef.current) return
+    initInFlightRef.current = true
 
     setIsLoading(true)
     try {
@@ -185,10 +188,15 @@ export function useDcaDelegation() {
       console.log('Delegator SA:', delegatorSA.address)
       console.log('Delegate SA:', delegateSA.address)
 
-      // Deploy smart accounts if needed (this checks if already deployed)
-      console.log('[init] ensuring smart accounts are deployed...')
-      await deploySmartAccount(delegatorSA)
-      await deploySmartAccount(delegateSA)
+      // Deploy smart accounts if needed (optional on init)
+      const deployOnInit = (import.meta as any).env?.VITE_DEPLOY_ON_INIT === 'true'
+      if (deployOnInit) {
+        console.log('[init] ensuring smart accounts are deployed...')
+        await deploySmartAccount(delegatorSA)
+        await deploySmartAccount(delegateSA)
+      } else {
+        console.log('[init] skipping smart account deploy on init; will deploy on first on-chain use')
+      }
 
       // Create or get delegation using helper that validates scope/targets/selectors
       console.log('[init] setting up delegation...')
@@ -210,6 +218,7 @@ export function useDcaDelegation() {
       setDcaStatus(prev => ({ ...prev, lastError: (error as Error).message }))
     } finally {
       setIsLoading(false)
+      initInFlightRef.current = false
     }
   }, [isConnected, address, isInitialized, walletClient])
 
@@ -298,6 +307,8 @@ export function useDcaDelegation() {
   const startNativeDca = useCallback(async (amountMon: string, slippageBps: number, outToken: `0x${string}`, intervalSeconds: number, aiEnabled: boolean = false, aiCallback?: (balances: Record<string, string>) => Promise<{ amount: string, token: `0x${string}`, interval: number } | null>, conditionCallback?: (ctx: { mode: 'manual' | 'ai', balances: Record<string, string>, outToken: `0x${string}` }) => Promise<{ allow: boolean, stop?: boolean, reason?: string }>) => {
     setIsLoading(true)
     try {
+      const minInterval = Number((import.meta as any).env?.VITE_MIN_DCA_INTERVAL_SECONDS ?? 60)
+      const clampedInterval = Math.max(minInterval, Number(intervalSeconds || 0))
       if (!aiEnabled) {
         // Manual DCA mode
         lastDcaConfigRef.current = { mode: 'manual', amountMon, slippageBps, outToken, intervalSeconds, conditionCallback }
@@ -319,7 +330,7 @@ export function useDcaDelegation() {
           await enqueueOp(() => runNativeSwapMonToToken(amountMon, slippageBps, outToken, true))
         }
         dcaScheduler.start({
-          intervalSeconds,
+          intervalSeconds: clampedInterval,
           onExecute: async () => {
             const cfg = lastDcaConfigRef.current
             if (cfg?.conditionCallback) {
@@ -344,7 +355,7 @@ export function useDcaDelegation() {
         })
       } else {
         // AI-controlled DCA mode
-        let currentInterval = intervalSeconds
+        let currentInterval = clampedInterval
         lastDcaConfigRef.current = { mode: 'ai', amountMon, slippageBps, outToken, intervalSeconds, conditionCallback }
         lastAiCallbackRef.current = aiCallback || null
 
@@ -403,7 +414,7 @@ export function useDcaDelegation() {
                 }
                 if (allowed) await enqueueOp(() => runNativeSwapMonToToken(firstDecision.amount, slippageBps, firstDecision.token, true))
               }
-              currentInterval = firstDecision.interval
+              currentInterval = Math.max(minInterval, Number(firstDecision.interval || clampedInterval))
             }
           } catch (e) {
             await enqueueOp(() => runNativeSwapMonToToken(amountMon, slippageBps, outToken, true))
@@ -465,7 +476,7 @@ export function useDcaDelegation() {
                     await enqueueOp(() => runNativeSwapMonToToken(aiDecision.amount, slippageBps, aiDecision.token, true))
                   }
                   // Update interval for next execution
-                  currentInterval = aiDecision.interval
+                  currentInterval = Math.max(minInterval, Number(aiDecision.interval || currentInterval))
                   dcaScheduler.updateInterval(currentInterval)
                 } else {
                   // AI decided to HOLD - just wait for next interval
@@ -1226,6 +1237,7 @@ export function useDcaDelegation() {
     balances,
     delegatorSmartAccount,
     delegateSmartAccount,
+    signedDelegation,
     
     // Actions
     stopDca,

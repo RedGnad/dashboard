@@ -61,7 +61,7 @@ function App() {
       <Background />
       <ParticlesLayer />
       {isConnected && isAuthenticated && <WhaleNotifications />}
-      {isAuthenticated && <ModelStage modelUrl={modelUrl} />}
+      {isAuthenticated && <ModelStage key={personality} modelUrl={modelUrl} />}
       {isAuthenticated && <AiBubbleOverlay />}
       
       <div className="relative z-10 min-h-screen flex items-center justify-center p-4">

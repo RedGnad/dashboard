@@ -2,6 +2,14 @@ import { useMemo } from 'react'
 import { useWhaleAlerts } from '../hooks/useWhaleAlerts'
 import { TOKENS } from '../lib/tokens'
 
+function formatLocal(ts: number) {
+  try {
+    return new Date(ts * 1000).toLocaleString()
+  } catch {
+    return String(ts)
+  }
+}
+
 function addrToSymbol(addr: string) {
   const a = addr.toLowerCase()
   for (const t of Object.values(TOKENS)) {
@@ -50,6 +58,7 @@ export default function WhaleNotifications() {
             <div className="flex justify-between"><span>Amount</span><span className="font-mono text-white">{formatAmount(a.token, a.value)}</span></div>
             <div className="flex justify-between"><span>From</span><span className="font-mono">{a.from.slice(0,6)}...{a.from.slice(-4)}</span></div>
             <div className="flex justify-between"><span>To</span><span className="font-mono">{a.to.slice(0,6)}...{a.to.slice(-4)}</span></div>
+            <div className="flex justify-between"><span>Time</span><span className="font-mono">{formatLocal(a.ts)}</span></div>
           </div>
           <a href={`https://testnet.monadexplorer.com/tx/${a.tx}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:text-blue-300">View tx</a>
         </div>

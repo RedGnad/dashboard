@@ -1,0 +1,13 @@
+{
+  "name": "dca-worker",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node runner.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "viem": "^2.21.53",
+    "@metamask/delegation-toolkit": "^0.13.0"
+  }
+}

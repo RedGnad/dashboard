@@ -29,13 +29,33 @@ export function useAutonomousAi() {
         }
       }
       setDecisions(autonomousAiAgent.getDecisions())
+      // Keep personality in sync across components
+      const p = autonomousAiAgent.getPersonality()
+      setPersonalityState(p)
     }, 1000)
     return () => clearInterval(interval)
+  }, [])
+
+  // React to personality changes dispatched elsewhere
+  useEffect(() => {
+    function onPersonality(ev: any) {
+      const p = ev?.detail
+      if (p) setPersonalityState(p)
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('ai:personality', onPersonality as any)
+      return () => window.removeEventListener('ai:personality', onPersonality as any)
+    }
   }, [])
 
   const setPersonality = useCallback((newPersonality: AiPersonality) => {
     autonomousAiAgent.setPersonality(newPersonality)
     setPersonalityState(newPersonality)
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('ai:personality', { detail: newPersonality }))
+      }
+    } catch {}
   }, [])
 
   const setEnabled = useCallback((newEnabled: boolean) => {

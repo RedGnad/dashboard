@@ -13,15 +13,22 @@ function requireEnv(name) {
 function readPlan() {
   const __filename = fileURLToPath(import.meta.url)
   const __dirname = path.dirname(__filename)
-  const planPath = path.join(__dirname, '..', '..', 'data', 'worker', 'plan.json')
+  const planPath = path.join(__dirname, 'plan.json')
   try {
     const raw = fs.readFileSync(planPath, 'utf-8')
     const plan = JSON.parse(raw)
     return { plan, planPath }
   } catch (e) {
     console.warn('[worker] Plan not found, creating default')
-    const plan = { mode: 'ai', intervalSeconds: 600, amountMon: '0.05', slippageBps: 300, outToken: 'USDC', nextExecution: 0, lastRunAt: 0 }
-    fs.mkdirSync(path.dirname(planPath), { recursive: true })
+    const plan = { 
+      mode: 'ai', 
+      intervalSeconds: 300, 
+      amountMon: '0.05', 
+      slippageBps: 300, 
+      outToken: 'USDC', 
+      nextExecution: 0, 
+      lastRunAt: 0 
+    }
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2))
     return { plan, planPath }
   }
@@ -40,10 +47,17 @@ async function maybeExecute(plan) {
     console.log(`[worker] Not due yet. Next at ${new Date(plan.nextExecution * 1000).toISOString()}`)
     return false
   }
-  // TODO: fetch metrics, decide (manual or AI), and redeem delegations via DTK.
-  // Placeholder: simulate execution cost/time
+  
   console.log('[worker] Executing DCA cycle…')
+  
+  // TODO: Implement actual DCA logic here:
+  // 1. Read delegations from data/delegations/*.json
+  // 2. Check balances and metrics
+  // 3. Make AI decisions or follow manual config
+  // 4. Execute swaps via Delegation Toolkit
+  
   await new Promise((r) => setTimeout(r, 250))
+  
   plan.lastRunAt = nowSec
   plan.nextExecution = nowSec + Math.max(10, Number(plan.intervalSeconds || 60))
   console.log(`[worker] Done. Next at ${new Date(plan.nextExecution * 1000).toISOString()}`)

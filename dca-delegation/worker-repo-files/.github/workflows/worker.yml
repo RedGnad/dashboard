@@ -19,7 +19,7 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Run DCA Worker
-        run: node scripts/worker/runner.mjs
+        run: npm start
         env:
           VITE_RPC_URL: ${{ secrets.VITE_RPC_URL }}
           VITE_ZERO_DEV_BUNDLER_RPC: ${{ secrets.VITE_ZERO_DEV_BUNDLER_RPC }}
@@ -30,7 +30,7 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           if ! git diff --quiet; then
-            git add data/worker/plan.json
+            git add plan.json
             git commit -m "chore(worker): update plan schedule"
             git push
           else

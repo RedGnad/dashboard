@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAutonomousAi } from '../hooks/useAutonomousAi'
 import { useDcaDelegation } from '../hooks/useDcaDelegation'
+import { isDelegationExpired } from '../lib/delegation'
 
 export default function AiBubbleOverlay() {
   const { decisions } = useAutonomousAi()
-  const { isInitialized } = useDcaDelegation()
+  const { isInitialized, signedDelegation } = useDcaDelegation()
   const [mounted, setMounted] = useState(false)
   const [phase, setPhase] = useState<'hidden'|'enter'|'visible'|'exit'>('hidden')
   const latest = useMemo(() => {
@@ -14,16 +15,16 @@ export default function AiBubbleOverlay() {
   }, [decisions])
 
   useEffect(() => {
-    if (!latest || !isInitialized) return
+    if (!latest || !isInitialized || !signedDelegation || isDelegationExpired(signedDelegation)) return
     setMounted(true)
     setPhase('enter')
     const t1 = setTimeout(() => setPhase('visible'), 20)
     const t2 = setTimeout(() => setPhase('exit'), 5600)
     const t3 = setTimeout(() => { setMounted(false); setPhase('hidden') }, 6000)
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
-  }, [latest?.id, isInitialized])
+  }, [latest?.id, isInitialized, signedDelegation])
 
-  if (!latest || !mounted || !isInitialized) return null
+  if (!latest || !mounted || !isInitialized || !signedDelegation || isDelegationExpired(signedDelegation)) return null
 
   const reasoning = (latest as any)?.action?.reasoning || ''
   const summary = (() => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { queryEnvio } from '../lib/envioClient'
-import { TOKENS, USDC } from '../lib/tokens'
+import { TOKENS } from '../lib/tokens'
 import { useTokenMetrics } from './useTokenMetrics'
 
 export type WhaleMove = {
@@ -17,13 +17,6 @@ export type WhaleMove = {
 
 const WHALE_THRESHOLDS: Record<string, bigint> = {
   WMON: 10000n * 10n ** 18n,
-  USDC: 30000n * 10n ** 6n,
-  CHOG: 100000n * 10n ** 18n,
-  YAKI: 100000n * 10n ** 18n,
-  DAK: 100000n * 10n ** 18n,
-  BEAN: 100000n * 10n ** 18n,
-  WBTC: 1n * 10n ** 8n,
-  DAKIMAKURA: 100000n * 10n ** 18n,
 }
 
 function symbolFromAddress(addr: string): string | null {
@@ -39,24 +32,18 @@ function decimalsForSymbol(sym: string): number {
   return t?.decimals ?? 18
 }
 
-function thresholdForSymbol(sym: string): bigint {
-  return WHALE_THRESHOLDS[sym] ?? (10n ** 30n)
-}
+// NOTE: thresholds reduced to WMON only in MON-only mode
 
 export function useWhaleTransfers(days: number = 7) {
   const [moves, setMoves] = useState<WhaleMove[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const envioEnabled = (import.meta.env.VITE_ENVIO_ENABLED === 'true')
+  const whaleEnabled = (import.meta.env.VITE_WHALE_NOTIFICATIONS !== 'false')
+  const whaleMonOnly = (import.meta.env.VITE_WHALE_MON_ONLY !== 'false')
+  const monThreshold = Number(import.meta.env.VITE_WHALE_MON_THRESHOLD ?? 10000)
 
   const { tokenMetrics } = useTokenMetrics()
-  const priceBySymbol = useMemo(() => {
-    const m: Record<string, number> = {}
-    for (const tm of tokenMetrics) {
-      if (Number.isFinite(tm.price) && tm.price > 0) m[tm.token] = tm.price
-    }
-    return m
-  }, [tokenMetrics])
 
   const since = useMemo(() => {
     const nowSec = Math.floor(Date.now() / 1000)
@@ -64,15 +51,19 @@ export function useWhaleTransfers(days: number = 7) {
   }, [days])
 
   useEffect(() => {
-    if (!envioEnabled) { setMoves([]); setLoading(false); setError(null); return }
+    if (!envioEnabled || !whaleEnabled) { setMoves([]); setLoading(false); setError(null); return }
     let abort = new AbortController()
     async function run() {
       setLoading(true)
       setError(null)
       try {
-        const tokenAddrs = Object.values(TOKENS)
+        let tokenAddrs = Object.values(TOKENS)
           .filter(t => !t.isNative)
           .map(t => (t.address as string).toLowerCase())
+        if (whaleMonOnly) {
+          const w = Object.values(TOKENS).find(t => t.symbol === 'WMON')
+          tokenAddrs = w ? [String(w.address).toLowerCase()] : []
+        }
         const res = await queryEnvio<{ TokenTransfer: Array<any> }>({
           query: `query Whale($since:Int!, $tokens:[String!]) { 
             TokenTransfer(where:{ blockTimestamp: { _gte: $since }, tokenAddress: { _in: $tokens } }, order_by:{ blockTimestamp: desc }, limit: 2000) {
@@ -91,27 +82,21 @@ export function useWhaleTransfers(days: number = 7) {
             const val = BigInt(r.value)
             const amount = Number(val) / Math.pow(10, dec)
             if (!Number.isFinite(amount)) continue
-            let eqUSDC = 0
-            if ((TOKENS[sym as keyof typeof TOKENS]?.address as string)?.toLowerCase() === USDC.toLowerCase()) {
-              eqUSDC = amount
-            } else {
-              const price = priceBySymbol[sym]
-              if (!Number.isFinite(price) || price <= 0) continue
-              eqUSDC = amount * price
-            }
-            // Abaisser le seuil pour "remplir" le registre (>= 1000 USDC eq)
-            if (eqUSDC >= 1000) {
-              out.push({
-                id: r.id,
-                token: sym,
-                tokenAddress: r.tokenAddress,
-                from: r.from,
-                to: r.to,
-                valueRaw: r.value,
-                value: amount,
-                blockTimestamp: Number(r.blockTimestamp),
-                transactionHash: r.transactionHash,
-              })
+            if (whaleMonOnly && sym !== 'WMON') continue
+            if (sym === 'WMON') {
+              if (amount >= monThreshold) {
+                out.push({
+                  id: r.id,
+                  token: sym,
+                  tokenAddress: r.tokenAddress,
+                  from: r.from,
+                  to: r.to,
+                  valueRaw: r.value,
+                  value: amount,
+                  blockTimestamp: Number(r.blockTimestamp),
+                  transactionHash: r.transactionHash,
+                })
+              }
             }
           } catch {}
         }
@@ -125,7 +110,7 @@ export function useWhaleTransfers(days: number = 7) {
     run()
     const id = setInterval(run, 60000)
     return () => { abort.abort(); clearInterval(id) }
-  }, [envioEnabled, since])
+  }, [envioEnabled, whaleEnabled, whaleMonOnly, monThreshold, since])
 
   return { moves, loading, error }
 }

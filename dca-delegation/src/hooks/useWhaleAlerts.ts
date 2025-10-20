@@ -36,6 +36,11 @@ export function useWhaleAlerts() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const envioEnabled = (import.meta.env.VITE_ENVIO_ENABLED === 'true')
+  const whaleEnabled = (import.meta.env.VITE_WHALE_NOTIFICATIONS !== 'false')
+  const whaleMonOnly = (import.meta.env.VITE_WHALE_MON_ONLY !== 'false')
+  const monThreshold = Number(import.meta.env.VITE_WHALE_MON_THRESHOLD ?? 10000)
+  const usdThreshold = Number(import.meta.env.VITE_WHALE_USD_THRESHOLD ?? 30000)
+  const minUsd = Number(import.meta.env.VITE_WHALE_MIN_USD ?? 100)
   const since = useMemo(() => Math.floor(Date.now() / 1000) - 7 * 86400, [])
   const { tokenMetrics } = useTokenMetrics()
   const priceBySymbol = useMemo(() => {
@@ -66,7 +71,7 @@ export function useWhaleAlerts() {
   }
 
   useEffect(() => {
-    if (!envioEnabled) {
+    if (!envioEnabled || !whaleEnabled) {
       setAlerts([])
       setLoading(false)
       setError(null)
@@ -79,8 +84,12 @@ export function useWhaleAlerts() {
       setError(null)
       try {
         // Build tracked token list from TOKENS
-        const tracked = Object.values(TOKENS)
+        let tracked = Object.values(TOKENS)
           .map(t => (t.address as string).toLowerCase())
+        if (whaleMonOnly) {
+          const wmon = Object.values(TOKENS).find(t => t.symbol === 'WMON')
+          tracked = wmon ? [String(wmon.address).toLowerCase()] : []
+        }
 
         // Fetch recent transfers across our tokens
         const data = await queryEnvio<{ TokenTransfer: any[] }>({
@@ -111,19 +120,22 @@ export function useWhaleAlerts() {
           const amount = Number(String(t.value)) / Math.pow(10, decimals)
           if (!Number.isFinite(amount)) continue
 
+          const isWMon = tok.symbol === 'WMON'
+          if (whaleMonOnly && !isWMon) continue
+
           let eqUSDC = 0
-          if ((tok.address as string).toLowerCase() === USDC.toLowerCase()) {
-            eqUSDC = amount
-          } else {
-            const price = priceBySymbol[tok.symbol]
-            if (!Number.isFinite(price) || price <= 0) continue
-            eqUSDC = amount * price
+          if (!isWMon) {
+            if ((tok.address as string).toLowerCase() === USDC.toLowerCase()) {
+              eqUSDC = amount
+            } else {
+              const price = priceBySymbol[tok.symbol]
+              if (!Number.isFinite(price) || price <= 0) continue
+              eqUSDC = amount * price
+            }
+            if (eqUSDC < minUsd) continue
           }
 
-          if (eqUSDC < 100) continue
-
-          const isWMon = tok.symbol === 'WMON'
-          const isWhale = isWMon ? (amount >= 10000) : (eqUSDC >= 30000)
+          const isWhale = isWMon ? (amount >= monThreshold) : (eqUSDC >= usdThreshold)
           if (isWhale) {
             combined.push({ token: t.tokenAddress, from: t.from, to: t.to, value: String(t.value), ts: Number(t.blockTimestamp), tx: t.transactionHash })
           }
