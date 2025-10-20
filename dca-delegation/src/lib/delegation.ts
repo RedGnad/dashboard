@@ -8,7 +8,7 @@ import {
 } from '@metamask/delegation-toolkit'
 import { encodeFunctionData, parseUnits, toHex } from 'viem'
 import { bundlerClient, paymasterClient, publicClient } from './clients'
-import { USDC, WMON, UNISWAP_V2_ROUTER02, SWAP_PATH, CHOG, TOKENS, ROUTER_V2_CANDIDATES, KURU_ROUTER, FLOW_ROUTER, STAKE_MANAGER } from './tokens'
+import { USDC, WMON, UNISWAP_V2_ROUTER02, CHOG, TOKENS, ROUTER_V2_CANDIDATES, KURU_ROUTER, FLOW_ROUTER, STAKE_MANAGER } from './tokens'
 import { CHAIN_ID } from './chain'
 
 async function sleep(ms: number) {
@@ -616,11 +616,17 @@ export async function redeemSwapErc20ToWmonDelegation(
     ? { ...signedDelegation.delegation, signature: signedDelegation.signature, permissionContexts: signedDelegation.permissionContexts ?? [] }
     : { ...signedDelegation, permissionContexts: signedDelegation?.permissionContexts ?? [] }
   const env = getDeleGatorEnvironment(CHAIN_ID) as any
-  const redeemBoth = contracts.DelegationManager.encode.redeemDelegations({
-    delegations: [[normalizedSignedDelegation], [normalizedSignedDelegation]],
-    modes: [ExecutionMode.SingleDefault, ExecutionMode.SingleDefault],
-    executions: [[execApprove], [execSwap]],
-  })
+  const redeemBoth = needApprove
+    ? contracts.DelegationManager.encode.redeemDelegations({
+        delegations: [[normalizedSignedDelegation], [normalizedSignedDelegation]],
+        modes: [ExecutionMode.SingleDefault, ExecutionMode.SingleDefault],
+        executions: [[execApprove], [execSwap]],
+      })
+    : contracts.DelegationManager.encode.redeemDelegations({
+        delegations: [[normalizedSignedDelegation]],
+        modes: [ExecutionMode.SingleDefault],
+        executions: [[execSwap]],
+      })
   const uoHash = await sendUserOpWithRetry({
     account: delegateSmartAccount,
     calls: [{ to: env.DelegationManager, data: redeemBoth }],

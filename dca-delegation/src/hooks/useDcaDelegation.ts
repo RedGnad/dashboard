@@ -12,7 +12,6 @@ import {
   createCoreDelegation,
   getOrCreateValueDelegation,
   redeemValueTransferDelegation,
-  getOrCreateNativeSwapDelegation,
   redeemNativeSwapDelegation,
   redeemSwapDelegation,
   redeemSwapChogDelegation,
@@ -229,7 +228,7 @@ export function useDcaDelegation() {
 
     try {
       const newBalances = await getAllBalances(targetAddress)
-      setBalances(newBalances)
+      setBalances(newBalances as unknown as Balances)
     } catch (error) {
       console.error('Failed to refresh balances:', error)
     }
@@ -248,7 +247,7 @@ export function useDcaDelegation() {
     try {
       // Pre-check sufficient MON to avoid opaque simulation errors
       const latest = await getAllBalances(delegatorSmartAccount.address as `0x${string}`)
-      setBalances(latest)
+      setBalances(latest as unknown as Balances)
       const need = parseUnits(amountMon, 18)
       const have = parseUnits(latest.MON || '0', 18)
       if (have < need) {
@@ -265,7 +264,6 @@ export function useDcaDelegation() {
       )
       setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash, lastError: undefined }))
       await refreshBalances()
-      return uoHash
     } finally {
       setIsExecuting(false)
       setIsLoading(false)
@@ -296,7 +294,7 @@ export function useDcaDelegation() {
       )
       setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash, lastError: undefined }))
       await refreshBalances()
-      return uoHash
+      // Intentionally no return (void) to match enqueueOp signature
     } finally {
       setIsExecuting(false)
       setIsLoading(false)
@@ -756,7 +754,7 @@ export function useDcaDelegation() {
         // Refresh balances and unwrap WMON
         console.log('[convertAllToMon] Refreshing balances...')
         const latest = await getAllBalances(addr)
-        setBalances(latest)
+        setBalances(latest as unknown as Balances)
         console.log('[convertAllToMon] Updated balances:', latest)
         
         const wmonAmount = parseUnits(latest.WMON, 18)
@@ -774,7 +772,7 @@ export function useDcaDelegation() {
         // Try to unstake gMON to MON if an existing Magma delegation is already cached (silent/no new popup)
         try {
           const afterUnwrap = await getAllBalances(addr)
-          setBalances(afterUnwrap)
+          setBalances(afterUnwrap as unknown as Balances)
           const gmonStr = (afterUnwrap as any).gMON || '0'
           const gmonWei = parseUnits(gmonStr || '0', 18)
           if (gmonWei > 0n) {
@@ -951,7 +949,7 @@ export function useDcaDelegation() {
 
     // After swap, unwrap any WMON to MON
     const latest = await getAllBalances(delegatorAddr)
-    setBalances(latest)
+    setBalances(latest as unknown as Balances)
     const wmonBal = parseUnits(latest.WMON || '0', 18)
     if (wmonBal > 0n) {
       const unwrapHash = await redeemUnwrapDelegation(

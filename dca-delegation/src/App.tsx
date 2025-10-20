@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { sdk } from '@farcaster/miniapp-sdk'
 import { useAccount, useSignMessage, useChainId, useSwitchChain } from 'wagmi'
 import { ConnectKitButton } from 'connectkit'
 import Background from './components/Background'
@@ -18,6 +19,10 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isAuthenticating, setIsAuthenticating] = useState(false)
   const { personality } = useAutonomousAi()
+
+  useEffect(() => {
+    try { sdk.actions.ready() } catch {}
+  }, [])
 
   const modelUrl = (() => {
     const map: Record<string, string> = {

@@ -1,0 +1,8 @@
+{
+  "miniapp": {
+    "version": "1",
+    "name": "DCA Delegation",
+    "iconUrl": "/vite.svg",
+    "webUrl": "/"
+  }
+}

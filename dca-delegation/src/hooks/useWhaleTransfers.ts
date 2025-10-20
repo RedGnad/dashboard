@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { queryEnvio } from '../lib/envioClient'
 import { TOKENS } from '../lib/tokens'
-import { useTokenMetrics } from './useTokenMetrics'
 
 export type WhaleMove = {
   id: string
@@ -15,9 +14,7 @@ export type WhaleMove = {
   transactionHash: string
 }
 
-const WHALE_THRESHOLDS: Record<string, bigint> = {
-  WMON: 10000n * 10n ** 18n,
-}
+// thresholds can be extended if needed; currently derived from env
 
 function symbolFromAddress(addr: string): string | null {
   const a = addr.toLowerCase()
@@ -43,7 +40,7 @@ export function useWhaleTransfers(days: number = 7) {
   const whaleMonOnly = (import.meta.env.VITE_WHALE_MON_ONLY !== 'false')
   const monThreshold = Number(import.meta.env.VITE_WHALE_MON_THRESHOLD ?? 10000)
 
-  const { tokenMetrics } = useTokenMetrics()
+  // token metrics unused in current UI; keep hook minimal
 
   const since = useMemo(() => {
     const nowSec = Math.floor(Date.now() / 1000)
