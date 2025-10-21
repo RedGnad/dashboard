@@ -61,6 +61,7 @@ export default function DcaControl() {
     delegateSmartAccount,
     delegationExpired,
     delegationExpiresAt,
+    reinitialize,
     startNativeDca,
     stopDca,
     refreshBalances,
@@ -124,6 +125,21 @@ export default function DcaControl() {
     ),
   }));
   const { tokenMetrics, loading: tokenMetricsLoading } = useTokenMetrics();
+  // Avoid greying the Start AI button on every Envio refresh: require readiness only once
+  // Speed up first activation: as soon as Envio metrics are ready, allow starting AI
+  // (token prices may still be warming up but AI can operate with partial data and re-evaluate)
+  const initialDataReadyRef = useRef(false);
+  useEffect(() => {
+    if (!initialDataReadyRef.current) {
+      const metricsReady = Boolean(metrics?.lastUpdated);
+      const minimalPricesReady = Array.isArray(tokenMetrics)
+        ? tokenMetrics.some((tm) => Number.isFinite(tm.price) && tm.price > 0)
+        : false;
+      if (metricsReady || minimalPricesReady) {
+        initialDataReadyRef.current = true;
+      }
+    }
+  }, [metrics?.lastUpdated, tokenMetrics]);
   const {
     personality,
     enabled: aiEnabled,
@@ -149,6 +165,26 @@ export default function DcaControl() {
   // removed unused selectedTokenForChart state
   // const [selectedTokenForChart, setSelectedTokenForChart] = useState<string>("USDC");
   const [tokenDates, setTokenDates] = useState<string[]>([]);
+  // Seuil whales contrôlé depuis l'UI (localStorage)
+  const [whaleThreshold, setWhaleThreshold] = useState<number>(() => {
+    try {
+      const v = localStorage.getItem("whaleThresholdUsd");
+      return v ? Number(v) : 10000;
+    } catch {
+      return 10000;
+    }
+  });
+  const onChangeWhaleThreshold = (val: number) => {
+    setWhaleThreshold(val);
+    try {
+      localStorage.setItem("whaleThresholdUsd", String(val));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("whale:threshold", { detail: val })
+        );
+      }
+    } catch {}
+  };
   const [selectedChartToken, setSelectedChartToken] = useState<string | null>(
     null
   );
@@ -571,13 +607,38 @@ export default function DcaControl() {
     return (
       <div className="max-w-md w-full">
         <div className="glass rounded-2xl p-8 text-center">
-          <div className="animate-spin w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold mb-2 text-white">
-            Initializing...
-          </h2>
-          <p className="text-gray-300 text-sm">
-            Setting up smart accounts and delegation permissions
-          </p>
+          {isLoading ? (
+            <>
+              <div className="animate-spin w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+              <h2 className="text-xl font-semibold mb-2 text-white">
+                Initializing…
+              </h2>
+              <p className="text-gray-300 text-sm">
+                Setting up smart accounts and delegation permissions
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-xl font-semibold mb-2 text-white">
+                Setup required
+              </h2>
+              <p className="text-gray-300 text-sm mb-4">
+                Initialize your smart accounts and grant delegation. This takes
+                one signature.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    reinitialize();
+                  } catch {}
+                }}
+                className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 text-white font-semibold hover:from-purple-700 hover:to-violet-700"
+              >
+                Initialize Delegation
+              </button>
+            </>
+          )}
         </div>
       </div>
     );
@@ -1001,7 +1062,8 @@ export default function DcaControl() {
                   disabled={
                     isLoading ||
                     delegationExpired ||
-                    (aiEnabled && (metricsLoading || tokenMetricsLoading))
+                    // Only gate AI start until initial metrics/prices are ready; do not re-disable on refresh
+                    (aiEnabled && !initialDataReadyRef.current)
                   }
                   className="flex items-center justify-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
                   style={{
@@ -1120,6 +1182,12 @@ export default function DcaControl() {
                           src={TOKENS.MON.logoUrl}
                           alt="MON"
                           className="w-4 h-4 rounded-full"
+                          onError={(e) => {
+                            try {
+                              (e.currentTarget as HTMLImageElement).src =
+                                TOKENS.MON.logoUrl!;
+                            } catch {}
+                          }}
                         />
                       )}
                       MON
@@ -1154,6 +1222,12 @@ export default function DcaControl() {
                             src={t.logoUrl}
                             alt={t.symbol}
                             className="w-4 h-4 rounded-full"
+                            onError={(e) => {
+                              try {
+                                (e.currentTarget as HTMLImageElement).src =
+                                  TOKENS.MON.logoUrl!;
+                              } catch {}
+                            }}
                           />
                         )}
                         {t.symbol}
@@ -1207,20 +1281,29 @@ export default function DcaControl() {
                     </span>
                   </div>
                 )}
-                {dcaStatus.lastUserOpHash && (
+                {(dcaStatus as any).lastTxHash || dcaStatus.lastUserOpHash ? (
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-300">Last UO</span>
-                    <a
-                      className="text-blue-400 font-mono hover:underline"
-                      href={`https://testnet.monadexplorer.com/tx/${dcaStatus.lastUserOpHash}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Open in explorer"
-                    >
-                      {dcaStatus.lastUserOpHash.slice(0, 10)}...
-                    </a>
+                    <span className="text-gray-300">Last Tx</span>
+                    {(dcaStatus as any).lastTxHash ? (
+                      <a
+                        className="text-blue-400 font-mono hover:underline"
+                        href={`https://testnet.monadexplorer.com/tx/${
+                          (dcaStatus as any).lastTxHash
+                        }`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Open in explorer"
+                      >
+                        {String((dcaStatus as any).lastTxHash).slice(0, 10)}...
+                      </a>
+                    ) : (
+                      <span className="text-gray-400 font-mono flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                        Pending…
+                      </span>
+                    )}
                   </div>
-                )}
+                ) : null}
                 {visibleError && (
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-gray-300">Last Error</span>
@@ -1390,7 +1473,7 @@ export default function DcaControl() {
                           : "bg-gray-400"
                       }`}
                     ></span>
-                    OpenAI
+                    Centralized
                   </button>
                   <button
                     onClick={() => {
@@ -1934,6 +2017,23 @@ export default function DcaControl() {
               <div className="flex items-center justify-between mb-3">
                 <div className="text-lg font-semibold text-white">
                   Whale Movements (7d)
+                </div>
+                <div className="flex items-center gap-2 text-xs opacity-90">
+                  <span className="text-gray-300">Whale ≥</span>
+                  <select
+                    className="bg-black/30 border border-white/10 rounded px-1 py-0.5"
+                    value={String(whaleThreshold)}
+                    onChange={(e) =>
+                      onChangeWhaleThreshold(Number(e.target.value))
+                    }
+                    title="Seuil des whales (USD)"
+                  >
+                    {[10000, 50000, 500000, 1000000].map((v) => (
+                      <option key={v} value={v}>
+                        {v.toLocaleString()} USDC{v === 1000000 ? "+" : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
               {whalesError && (

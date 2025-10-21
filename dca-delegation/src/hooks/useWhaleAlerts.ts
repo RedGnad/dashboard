@@ -38,8 +38,14 @@ export function useWhaleAlerts() {
   const envioEnabled = ((import.meta.env.VITE_ENVIO_ENABLED ?? 'true') === 'true')
   const whaleEnabled = (import.meta.env.VITE_WHALE_NOTIFICATIONS !== 'false')
   const whaleMonOnly = (import.meta.env.VITE_WHALE_MON_ONLY !== 'false')
-  const monThreshold = Number(import.meta.env.VITE_WHALE_MON_THRESHOLD ?? 10000)
-  const usdThreshold = Number(import.meta.env.VITE_WHALE_USD_THRESHOLD ?? 30000)
+  const [usdThreshold, setUsdThreshold] = useState<number>(() => {
+    try {
+      const v = localStorage.getItem('whaleThresholdUsd')
+      return v ? Number(v) : 10000
+    } catch { return 10000 }
+  })
+  // Pour les tokens WMON quand whaleMonOnly=true, on conserve un seuil MON dédié issu de l'env (optionnel)
+  const monThreshold = Number(import.meta.env.VITE_WHALE_MON_THRESHOLD ?? Number.POSITIVE_INFINITY)
   const minUsd = Number(import.meta.env.VITE_WHALE_MIN_USD ?? 100)
   const since = useMemo(() => Math.floor(Date.now() / 1000) - 7 * 86400, [])
   const { tokenMetrics } = useTokenMetrics()
@@ -154,7 +160,17 @@ export function useWhaleAlerts() {
     const pollMs = Number((import.meta as any).env?.VITE_ENVIO_POLL_MS ?? 15000)
     const id = setInterval(run, Math.max(15000, pollMs))
     return () => { abort.abort(); clearInterval(id) }
-  }, [since, envioEnabled])
+  }, [since, envioEnabled, usdThreshold])
+
+  // Écoute les changements du seuil via événement UI
+  useEffect(() => {
+    const handler = (e: any) => {
+      const v = Number(e?.detail)
+      if (Number.isFinite(v) && v > 0) setUsdThreshold(v)
+    }
+    if (typeof window !== 'undefined') window.addEventListener('whale:threshold', handler as any)
+    return () => { if (typeof window !== 'undefined') window.removeEventListener('whale:threshold', handler as any) }
+  }, [])
 
   return { alerts, unseen, loading, error, markSeen, dismiss }
 }

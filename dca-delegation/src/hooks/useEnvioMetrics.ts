@@ -28,8 +28,7 @@ export function useEnvioMetrics(saAddress?: string) {
   const [error, setError] = useState<string | null>(null)
   const envioEnabled = ((import.meta.env.VITE_ENVIO_ENABLED ?? 'true') === 'true')
   const debugEnvio = (((import.meta as any).env?.VITE_DEBUG_ENVIO ?? 'true') === 'true')
-  // Thresholds from env (consistent with useWhaleTransfers/useWhaleAlerts)
-  const whaleUsdThreshold = Number((import.meta as any).env?.VITE_WHALE_USDC_THRESHOLD ?? (import.meta as any).env?.VITE_WHALE_USD_THRESHOLD ?? 5000)
+  // Thresholds: use per-user override via localStorage ('whaleThresholdUsd') with a code default; ignore env to avoid confusion
   const minUsd = Number((import.meta as any).env?.VITE_WHALE_MIN_USD ?? 100)
 
   const tracked = useMemo(() => Object.values(TOKENS).map(t => (t.address as string).toLowerCase()), [])
@@ -116,7 +115,10 @@ export function useEnvioMetrics(saAddress?: string) {
           }`,
           variables: { tokens: tokenList, since: sinceWhale }
         }, abort.signal)
-        for (const t of wdata.TokenTransfer) {
+  // Read the latest user-defined threshold (if any) at fetch-time for real-time effect
+  const userOverrideRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('whaleThresholdUsd') : null
+  const whaleUsdThreshold = Number(userOverrideRaw ?? 10000)
+  for (const t of wdata.TokenTransfer) {
           const addr = String(t.tokenAddress).toLowerCase()
           const tok = Object.values(TOKENS).find(x => (x.address as string).toLowerCase() === addr)
           if (!tok) continue

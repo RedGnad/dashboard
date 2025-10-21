@@ -153,7 +153,7 @@ export default function AiQuipsOverlay({}: AiQuipsOverlayProps) {
         };
 
   return (
-    <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-[560px] h-[560px]">
+    <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-[560px] h-[560px]">
       <div className="absolute top-16 right-2 max-w-[260px]" style={style}>
         <div className="relative pointer-events-none rounded-xl px-3 py-2 text-xs leading-snug text-white/90 bg-black/50 backdrop-blur-md border border-white/10 shadow-[0_0_20px_rgba(99,102,241,0.25)]">
           <div className="text-[12px] text-white whitespace-pre-line">

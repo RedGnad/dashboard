@@ -32,6 +32,7 @@ interface DcaStatus {
   isActive: boolean
   nextExecution?: Date
   lastUserOpHash?: string
+  lastTxHash?: string
   lastError?: string
 }
 
@@ -55,10 +56,42 @@ export function useDcaDelegation() {
   const [delegationExpiresAt, setDelegationExpiresAt] = useState<number | undefined>(undefined)
   const [delegationExpired, setDelegationExpired] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
+  // Resolve user operation to on-chain tx hash
+  useEffect(() => {
+    let cancelled = false
+    const hash = (dcaStatus as any).lastUserOpHash as string | undefined
+    if (!hash) return
+    // Don't re-resolve if we already have a tx hash
+    if ((dcaStatus as any).lastTxHash) return
+    async function resolve() {
+      try {
+        const rpc = (import.meta as any).env?.VITE_ZERO_DEV_BUNDLER_RPC as string | undefined
+        if (!rpc) return
+        // Poll a few times until the bundler has the receipt
+        for (let i = 0; i < 12 && !cancelled; i++) {
+          const res = await fetch(rpc, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'eth_getUserOperationReceipt', params: [hash] })
+          }).then(r => r.ok ? r.json() : null).catch(() => null)
+          const r = res?.result
+          const txh = r?.receipt?.transactionHash || r?.transactionHash
+          if (typeof txh === 'string' && txh.startsWith('0x') && txh.length > 2) {
+            setDcaStatus(prev => ({ ...prev, lastTxHash: txh }))
+            return
+          }
+          await new Promise(res => setTimeout(res, 1500))
+        }
+      } catch {}
+    }
+    resolve()
+    return () => { cancelled = true }
+  }, [dcaStatus.lastUserOpHash])
 
   const opQueueRef = useRef<Array<() => Promise<void>>>([])
   const processingRef = useRef(false)
   const initInFlightRef = useRef(false)
+  const hydratedRef = useRef(false)
   const lastDcaConfigRef = useRef<null | {
     mode: 'manual' | 'ai'
     amountMon: string
@@ -218,6 +251,57 @@ export function useDcaDelegation() {
     } finally {
       setIsLoading(false)
       initInFlightRef.current = false
+    }
+  }, [isConnected, address, isInitialized, walletClient])
+
+  // Hydrate from cache without triggering any wallet signature/popups
+  const hydrateFromCache = useCallback(async () => {
+    if (!isConnected || !address || isInitialized || !walletClient) return
+    if (hydratedRef.current) return
+    try {
+      // Recreate deterministic smart accounts
+      const delegatorSA = await createDelegatorSmartAccount(walletClient)
+      const delegateSA = await createDelegateSmartAccount()
+
+      // Attempt to read cached delegation (scoped first, then global)
+      const scopedKey = `dca-delegation-${delegatorSA.address.toLowerCase()}-${delegateSA.address.toLowerCase()}`
+      let stored = localStorage.getItem(scopedKey)
+      if (!stored) stored = localStorage.getItem('dca-delegation')
+      if (stored) {
+        try {
+          const signed = JSON.parse(stored)
+          const matchDelegator = signed.delegator?.toLowerCase?.() === delegatorSA.address.toLowerCase()
+            || signed.from?.toLowerCase?.() === delegatorSA.address.toLowerCase()
+          const matchDelegate = signed.delegate?.toLowerCase?.() === delegateSA.address.toLowerCase()
+            || signed.to?.toLowerCase?.() === delegateSA.address.toLowerCase()
+
+          // Validate expiry and minimal fields; skip deep scope checks to avoid unnecessary prompts
+          const notExpired = !isDelegationExpired(signed)
+          if (matchDelegator && matchDelegate && signed.signature && notExpired) {
+            setDelegatorSmartAccount(delegatorSA)
+            setDelegateSmartAccount(delegateSA)
+            setSignedDelegation(signed)
+            setDelegationExpiresAt(signed?.expiresAt)
+            setDelegationExpired(isDelegationExpired(signed))
+            setIsInitialized(true)
+            // Load balances directly to avoid referencing refreshBalances before it's declared
+            try {
+              const newBalances = await getAllBalances(delegatorSA.address)
+              setBalances(newBalances as unknown as Balances)
+            } catch {}
+            hydratedRef.current = true
+            return
+          }
+        } catch {
+          // ignore parse errors; fall through to not hydrating
+        }
+      }
+      // If we get here, no valid cache: set accounts but leave uninitialized
+      setDelegatorSmartAccount(delegatorSA)
+      setDelegateSmartAccount(delegateSA)
+      hydratedRef.current = true
+    } catch {
+      // ignore; keep lazy initialize path
     }
   }, [isConnected, address, isInitialized, walletClient])
 
@@ -854,7 +938,7 @@ export function useDcaDelegation() {
       })
       console.log('[topup] tx hash:', hash)
       await refreshBalances(delegatorSmartAccount.address)
-      setDcaStatus(prev => ({ ...prev, lastError: undefined }))
+      setDcaStatus(prev => ({ ...prev, lastError: undefined, lastTxHash: hash }))
       return hash
     } finally {
       setIsLoading(false)
@@ -1197,12 +1281,12 @@ export function useDcaDelegation() {
   // Native swap: MON -> token (e.g., USDC) via router.swapExactETHForTokens
   // moved above and enhanced with isLoading + expiry checks
 
-  // Initialize on connection
+  // On connection, only hydrate cached state; do NOT auto-initialize (avoids unwanted popup at launch)
   useEffect(() => {
     if (isConnected && address && !isInitialized) {
-      initialize()
+      hydrateFromCache()
     }
-  }, [isConnected, address, isInitialized, walletClient, initialize])
+  }, [isConnected, address, isInitialized, hydrateFromCache])
 
   // Periodic light refresh of balances
   useEffect(() => {
@@ -1256,6 +1340,7 @@ export function useDcaDelegation() {
     runNativeSwapMonToToken,
     refreshBalances: () => refreshBalances(),
     reinitialize: initialize,
+  hydrateFromCache,
     clearCache,
     panic,
     delegationExpired,

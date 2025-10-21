@@ -20,7 +20,8 @@ export const TOKENS: Record<string, TokenMeta> = {
   WBTC: { symbol: 'WBTC', address: '0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d', decimals: 8, logoUrl: 'https://imagedelivery.net/cBNDGgkrsEA-b_ixIp9SkQ/wbtc.png/public' },
   PINGU: { symbol: 'PINGU', address: '0xA2426cD97583939E79Cfc12aC6E9121e37D0904d', decimals: 18, logoUrl: 'https://pingu.exchange/external/token-512.png' },
   OCTO: { symbol: 'OCTO', address: '0xCa9A4F46Faf5628466583486FD5ACE8AC33ce126', decimals: 18, logoUrl: 'https://test.octo.exchange/assets/img/platforms/octoswap.png' },
-  KB: { symbol: 'KB', address: '0x34d1ae6076aee4072f54e1156d2e507dd564a355', decimals: 18, logoUrl: 'https://imagedelivery.net/cBNDGgkrsEA-b_ixIp9SkQ/I_t8rg_V_400x400.jpg/public' }, // Utiliser MON logo pour KB
+  // KB: utiliser l'avatar Twitter via unavatar (CORS-friendly). Fallback géré côté UI.
+  KB: { symbol: 'KB', address: '0x34d1ae6076aee4072f54e1156d2e507dd564a355', decimals: 18, logoUrl: 'https://unavatar.io/twitter/kryptobaby777' },
   WSOL: { symbol: 'WSOL', address: '0x5387C85A4965769f6B0Df430638a1388493486F1', decimals: 9, logoUrl: 'https://imagedelivery.net/cBNDGgkrsEA-b_ixIp9SkQ/sol.png/public' },
   // Prefer official Magma image; fallback to Pinata IPFS if needed
   gMON: { symbol: 'gMON', address: '0x2c9C959516e9AAEdB2C748224a41249202ca8BE7', decimals: 18, logoUrl: 'https://green-adjacent-sheep-82.mypinata.cloud/ipfs/bafkreie3p6vymabk3f3bp7j2776xkrewhwl5odojxix4lwsrqdgok4ncvm' }, // gMON logo (Pinata fallback)

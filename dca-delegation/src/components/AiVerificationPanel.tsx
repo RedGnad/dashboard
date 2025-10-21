@@ -167,60 +167,24 @@ export default function AiVerificationPanel({
     };
   }, [auditHistory]);
 
-  const exportForVerification = async (report: AuditReport) => {
-    const core = exportForSwarm(report.decision, {
-      balances,
-      metrics,
-      portfolioValueMon,
-      delegationExpired,
-      maxDailySpend: 1.0,
-      maxSlippageBps: 500,
-    });
-
-    const payload = {
-      ...core,
-      meta: {
-        provider,
-        modelId,
-        createdAt: new Date().toISOString(),
-      },
-      audit: {
-        timestamp: report.timestamp,
-        overallStatus: report.overallStatus,
-        riskScore: report.riskScore,
-        results: report.results,
-      },
-    };
-
-    const jsonString = JSON.stringify(payload);
-    const hashHex = await sha256Hex(jsonString);
-
-    const exportData = {
-      ...payload,
-      hash: {
-        algorithm: "SHA-256",
-        hex: hashHex,
-      },
-      anchors: {
-        ipfsCid: null as string | null,
-        swarm: { reference: null as string | null },
-        chain: { network: "monad-testnet", txHash: null as string | null },
-      },
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `ai-decision-audit-${report.decision.id}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  // Glow state for the whole panel
+  const latestTsGlow = auditHistory[0]?.timestamp || 0;
+  const metricsTsGlow = metrics?.lastUpdated || 0;
+  const needsRefresh = metricsTsGlow > latestTsGlow + 500;
+  const latestStatus = auditHistory[0]?.overallStatus as
+    | "PASS"
+    | "WARN"
+    | "FAIL"
+    | undefined;
+  const panelGlowClass =
+    isAuditing || needsRefresh
+      ? "ring-1 ring-yellow-400/40 shadow-[0_0_28px_rgba(250,204,21,0.35)] animate-pulse"
+      : latestStatus === "PASS"
+      ? "ring-1 ring-emerald-400/40 shadow-[0_0_28px_rgba(52,211,153,0.25)]"
+      : "";
 
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 transition-shadow ${panelGlowClass}`}>
       {/* Status Overview */}
       <div className="glass rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
@@ -229,6 +193,50 @@ export default function AiVerificationPanel({
             AI Verification
           </div>
           <div className="flex items-center gap-3 text-sm">
+            {/* Live audit indicator */}
+            {(() => {
+              const latestTs = auditHistory[0]?.timestamp || 0;
+              const metricsTs = metrics?.lastUpdated || 0;
+              const needsRefresh = metricsTs > latestTs + 500;
+              const status = auditHistory[0]?.overallStatus as
+                | "PASS"
+                | "WARN"
+                | "FAIL"
+                | undefined;
+              if (isAuditing || needsRefresh) {
+                return (
+                  <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_12px_rgba(250,204,21,0.45)] bg-yellow-500/10 border-yellow-400/30 text-yellow-300">
+                    <div className="w-2 h-2 rounded-full bg-yellow-300 animate-pulse" />
+                    <span>Audit en cours…</span>
+                  </div>
+                );
+              }
+              if (status === "PASS") {
+                return (
+                  <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_14px_rgba(74,222,128,0.45)] bg-emerald-500/10 border-emerald-400/30 text-emerald-300">
+                    <div className="w-2 h-2 rounded-full bg-emerald-300" />
+                    <span>Synchro OK</span>
+                  </div>
+                );
+              }
+              if (status === "WARN") {
+                return (
+                  <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_12px_rgba(250,204,21,0.35)] bg-yellow-500/10 border-yellow-400/30 text-yellow-300">
+                    <div className="w-2 h-2 rounded-full bg-yellow-300" />
+                    <span>Attention</span>
+                  </div>
+                );
+              }
+              if (status === "FAIL") {
+                return (
+                  <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_12px_rgba(248,113,113,0.35)] bg-red-500/10 border-red-400/30 text-red-300">
+                    <div className="w-2 h-2 rounded-full bg-red-300" />
+                    <span>Bloqué</span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             <button
               onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
               className="flex items-center gap-1 text-gray-300 hover:text-white"
@@ -264,9 +272,30 @@ export default function AiVerificationPanel({
           </div>
         </div>
 
-        {/* Current Status */}
-        {auditHistory.length > 0 && (
-          <div className="grid md:grid-cols-3 gap-3 mb-4">
+        {/* Tx today and live audit status inline */}
+        <div className="grid md:grid-cols-3 gap-3 mb-4">
+          <div className="glass rounded-xl p-4">
+            <div className="text-sm text-gray-300">
+              Tx Today (all protocols)
+            </div>
+            <div className="text-lg font-semibold text-white flex items-center gap-2">
+              {Number(metrics?.txToday || 0)}
+              {isAuditing || needsRefresh ? (
+                <span className="ml-2 inline-flex items-center gap-2 text-yellow-300">
+                  <span className="w-2 h-2 rounded-full bg-yellow-300 animate-pulse" />
+                  <span>Re-auditing…</span>
+                </span>
+              ) : (
+                latestStatus === "PASS" && (
+                  <span className="ml-2 inline-flex items-center gap-2 text-emerald-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-300" />
+                    <span>Up to date</span>
+                  </span>
+                )
+              )}
+            </div>
+          </div>
+          {auditHistory.length > 0 && (
             <div className="glass rounded-xl p-4">
               <div className="text-sm text-gray-300">Latest Status</div>
               <div
@@ -278,6 +307,8 @@ export default function AiVerificationPanel({
                 {auditHistory[0].overallStatus}
               </div>
             </div>
+          )}
+          {auditHistory.length > 0 && (
             <div className="glass rounded-xl p-4">
               <div className="text-sm text-gray-300">Risk Score</div>
               <div
@@ -292,6 +323,12 @@ export default function AiVerificationPanel({
                 {auditHistory[0].riskScore}/100
               </div>
             </div>
+          )}
+        </div>
+
+        {/* Success Rate */}
+        {auditHistory.length > 0 && (
+          <div className="grid md:grid-cols-3 gap-3 mb-4">
             <div className="glass rounded-xl p-4">
               <div className="text-sm text-gray-300">Success Rate</div>
               <div className="text-lg font-semibold text-white">
@@ -343,7 +380,11 @@ export default function AiVerificationPanel({
           </div>
           <div className="space-y-3 max-h-60 overflow-y-auto">
             {auditHistory.slice(0, 10).map((report) => (
-              <div key={report.decision.id} className="glass rounded-lg p-3">
+              // Use decisionId+timestamp for uniqueness: the same decision can be re-audited with fresher metrics
+              <div
+                key={`${report.decision.id}-${report.timestamp}`}
+                className="glass rounded-lg p-3"
+              >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     {getStatusIcon(report.overallStatus)}

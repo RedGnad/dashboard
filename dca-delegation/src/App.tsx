@@ -9,9 +9,9 @@ import DcaControl from "./components/DcaControl";
 import ModelStage from "./components/ModelStage";
 import AiBubbleOverlay from "./components/AiBubbleOverlay";
 import AiQuipsOverlay from "./components/AiQuipsOverlay";
-import EnvioStatusBadge from "./components/EnvioStatusBadge";
 import { CHAIN_ID } from "./lib/chain";
 import { useAutonomousAi } from "./hooks/useAutonomousAi";
+import { useDcaDelegation } from "./hooks/useDcaDelegation";
 
 function App() {
   const { address, isConnected } = useAccount();
@@ -21,6 +21,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const { personality } = useAutonomousAi();
+  const { isInitialized, delegationExpired } = useDcaDelegation();
 
   useEffect(() => {
     try {
@@ -69,10 +70,13 @@ function App() {
       <Background />
       <ParticlesLayer />
       {isConnected && isAuthenticated && <WhaleNotifications />}
-      {isConnected && isAuthenticated && <EnvioStatusBadge />}
       {isAuthenticated && <ModelStage key={personality} modelUrl={modelUrl} />}
-      {isAuthenticated && <AiBubbleOverlay />}
-      {isAuthenticated && <AiQuipsOverlay />}
+      {isAuthenticated && (isInitialized || delegationExpired === false) && (
+        <AiBubbleOverlay />
+      )}
+      {isAuthenticated && (isInitialized || delegationExpired === false) && (
+        <AiQuipsOverlay />
+      )}
 
       <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
         {!isConnected ? (

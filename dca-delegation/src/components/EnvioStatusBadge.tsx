@@ -15,6 +15,26 @@ export default function EnvioStatusBadge() {
   const { metrics, loading } = useEnvioMetrics();
   const url = getEnvioUrl();
   const id = shortId(url);
+  const [threshold, setThreshold] = React.useState<number>(() => {
+    try {
+      const v = localStorage.getItem("whaleThresholdUsd");
+      return v ? Number(v) : 10000;
+    } catch {
+      return 10000;
+    }
+  });
+
+  const onChangeThreshold = (val: number) => {
+    setThreshold(val);
+    try {
+      localStorage.setItem("whaleThresholdUsd", String(val));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("whale:threshold", { detail: val })
+        );
+      }
+    } catch {}
+  };
   const sinceUTC = (() => {
     const d = new Date();
     d.setUTCHours(0, 0, 0, 0);
@@ -29,6 +49,21 @@ export default function EnvioStatusBadge() {
         </div>
         <div className="opacity-80">
           txToday: {loading ? "…" : metrics.txToday}
+        </div>
+        <div className="mt-1 flex items-center gap-2 opacity-90">
+          <span className="text-gray-300">Whale≥</span>
+          <select
+            className="bg-black/30 border border-white/10 rounded px-1 py-0.5"
+            value={String(threshold)}
+            onChange={(e) => onChangeThreshold(Number(e.target.value))}
+            title="Seuil des whales (USD)"
+          >
+            {[10000, 50000, 500000, 1000000].map((v) => (
+              <option key={v} value={v}>
+                {v.toLocaleString()} USDC{v === 1000000 ? "+" : ""}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
       <div className="sr-only">since {sinceUTC}</div>

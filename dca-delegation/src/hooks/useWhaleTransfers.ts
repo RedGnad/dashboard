@@ -39,8 +39,22 @@ export function useWhaleTransfers(days: number = 7) {
   const envioEnabled = ((import.meta.env.VITE_ENVIO_ENABLED ?? 'true') === 'true')
   const whaleEnabled = (import.meta.env.VITE_WHALE_NOTIFICATIONS !== 'false')
   const whaleMonOnly = ((import.meta.env.VITE_WHALE_MON_ONLY ?? 'false') === 'true')
-  // Seuil en USDC
-  const usdcThreshold = Number((import.meta as any).env?.VITE_WHALE_USDC_THRESHOLD ?? (import.meta as any).env?.VITE_WHALE_USD_THRESHOLD ?? 5000)
+  // Seuil en USDC: priorité au localStorage contrôlé via UI; défaut 10k
+  const [usdcThreshold, setUsdcThreshold] = useState<number>(() => {
+    try {
+      const v = localStorage.getItem('whaleThresholdUsd')
+      return v ? Number(v) : 10000
+    } catch { return 10000 }
+  })
+  // Réagir aux changements du seuil émis par l'UI
+  useEffect(() => {
+    const handler = (e: any) => {
+      const v = Number(e?.detail)
+      if (Number.isFinite(v) && v > 0) setUsdcThreshold(v)
+    }
+    if (typeof window !== 'undefined') window.addEventListener('whale:threshold', handler as any)
+    return () => { if (typeof window !== 'undefined') window.removeEventListener('whale:threshold', handler as any) }
+  }, [])
   // Eviter le clignotement de "loading" après la première réussite
   const [initialized, setInitialized] = useState(false)
 
