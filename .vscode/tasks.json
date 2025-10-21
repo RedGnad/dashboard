@@ -1,0 +1,21 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "envio: codegen + build",
+			"type": "shell",
+			"command": "pnpm -s -C /Users/red.g/Desktop/GUARDIAN/ENVIO run codegen && pnpm -s -C /Users/red.g/Desktop/GUARDIAN/ENVIO run build",
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "envio: codegen + build",
+			"type": "shell",
+			"command": "pnpm -s -C /Users/red.g/Desktop/GUARDIAN/ENVIO run codegen && pnpm -s -C /Users/red.g/Desktop/GUARDIAN/ENVIO run build",
+			"problemMatcher": [
+				"$tsc"
+			]
+		}
+	]
+}

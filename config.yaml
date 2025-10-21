@@ -198,6 +198,24 @@ contracts:
           transaction_fields:
             - hash
             - from
+  - name: UniswapV2Factory
+    abi_file_path: abis/UniswapV2Factory.json
+    handler: src/EventHandlers_UniswapV2.ts
+    events:
+      - event: PairCreated(address indexed token0, address indexed token1, address pair, uint)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+  - name: UniswapV2Pair
+    abi_file_path: abis/UniswapV2Pair.json
+    handler: src/EventHandlers_UniswapV2.ts
+    events:
+      - event: Swap(address indexed sender, uint amount0In, uint amount1In, uint amount0Out, uint amount1Out, address indexed to)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
 networks:
 - id: 10143
   start_block: 3999999
@@ -260,5 +278,12 @@ networks:
       address:
         # Add discovered/priority Pair addresses here to capture Swap events immediately
         # e.g. - 0xPAIR_ADDRESS_HERE
+    # Canonical Uniswap V2 on Monad testnet
+    - name: UniswapV2Factory
+      address:
+        - 0x733e88f248b742db6c14c0b1713af5ad7fdd59d0
+    - name: UniswapV2Pair
+      address:
+        # Leave empty; pairs discovered via Factory events will populate UniswapV2PairInfo; add hot pairs if needed for immediate Swap capture
 unordered_multichain_mode: true
 preload_handlers: true
