@@ -132,9 +132,9 @@ KuruOrderBook.Trade.handler(async ({ event, context }) => {
         const quote = String((reg as any).quoteAsset)
         const priceRaw = BigInt(event.params.price as any)
         const filledRaw = BigInt(event.params.filledSize as any)
-        const pricePrecision = Number((reg as any).pricePrecision || 0)
-        const scale = BigInt(10) ** BigInt(isNaN(pricePrecision) ? 0 : pricePrecision)
-        const quoteAmount = scale > 0n ? (filledRaw * priceRaw) / scale : filledRaw * priceRaw
+  const pp = (reg as any).pricePrecision != null ? BigInt(String((reg as any).pricePrecision)) : 1n
+  const scale = pp === 0n ? 1n : pp
+  const quoteAmount = (filledRaw * priceRaw) / scale
         const isBuy = Boolean(event.params.isBuy)
         const tokenIn = isBuy ? quote : base
         const tokenOut = isBuy ? base : quote

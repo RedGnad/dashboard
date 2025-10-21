@@ -27,7 +27,7 @@ const MIN_INDEX_THRESHOLDS = {
 // Whale thresholds (mark as whale movement for AI signals)
 const WHALE_THRESHOLDS = {
   WMON: 10000n * 10n ** 18n,       // 10,000 WMON = whale
-  USDC: 30000n * 10n ** 6n,        // 30,000 USDC = whale
+  USDC: 5000n * 10n ** 6n,         // 5,000 USDC = whale (lowered for testnet)
   CHOG: 100000n * 10n ** 18n,      // 100,000 CHOG = whale
   YAKI: 100000n * 10n ** 18n,      // 100,000 YAKI = whale
   DAK: 100000n * 10n ** 18n,       // 100,000 DAK = whale
