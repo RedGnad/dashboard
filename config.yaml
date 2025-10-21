@@ -179,25 +179,25 @@ contracts:
   # 1) Factory: PairCreated(address token0, address token1, address pair, uint)
   # 2) Pair: Swap(address indexed sender, uint amount0In, uint amount1In, uint amount0Out, uint amount1Out, address indexed to)
   #
-  # Example entries (addresses to be provided):
-  # - name: OctoswapFactory
-  #   abi_file_path: abis/OctoFactory.json
-  #   handler: src/EventHandlers_UniswapV2.ts
-  #   events:
-  #     - event: PairCreated(address indexed token0, address indexed token1, address pair, uint)
-  #       field_selection:
-  #         transaction_fields:
-  #           - hash
-  #           - from
-  # - name: OctoswapPair
-  #   abi_file_path: abis/OctoPair.json
-  #   handler: src/EventHandlers_UniswapV2.ts
-  #   events:
-  #     - event: Swap(address indexed sender, uint amount0In, uint amount1In, uint amount0Out, uint amount1Out, address indexed to)
-  #       field_selection:
-  #         transaction_fields:
-  #           - hash
-  #           - from
+  # Example entries:
+  - name: OctoswapFactory
+    abi_file_path: abis/OctoFactory.json
+    handler: src/EventHandlers_UniswapV2.ts
+    events:
+      - event: PairCreated(address indexed token0, address indexed token1, address pair, uint)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
+  - name: OctoswapPair
+    abi_file_path: abis/OctoPair.json
+    handler: src/EventHandlers_UniswapV2.ts
+    events:
+      - event: Swap(address indexed sender, uint amount0In, uint amount1In, uint amount0Out, uint amount1Out, address indexed to)
+        field_selection:
+          transaction_fields:
+            - hash
+            - from
 networks:
 - id: 10143
   start_block: 3999999
@@ -252,12 +252,13 @@ networks:
     - name: PinguStaking
       address:
         - 0xCf410B10C0f30948033e47b7209CC026054E9F18
-    # Add Octoswap/Atlantis when addresses are confirmed
-    # - name: OctoswapFactory
-    #   address:
-    #     - 0x...
-    # - name: OctoswapPair
-    #   address:
-    #     - 0x...
+    # Octoswap addresses (Factory provided; Pair addresses can be added as discovered/needed)
+    - name: OctoswapFactory
+      address:
+        - 0xe26dd94f67Ca3615fcaF6062750147F37Df84F7a
+    - name: OctoswapPair
+      address:
+        # Add discovered/priority Pair addresses here to capture Swap events immediately
+        # e.g. - 0xPAIR_ADDRESS_HERE
 unordered_multichain_mode: true
 preload_handlers: true

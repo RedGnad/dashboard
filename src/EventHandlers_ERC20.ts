@@ -10,6 +10,10 @@ const TRACKED_TOKENS = {
   BEAN: "0x268e4e24e0051ec27b3d27a95977e71ce6875a05",
   WBTC: "0xcf5a6076cfa32686c0Df13aBaDa2b40dec133F1d",
   DAKIMAKURA: "0x0569049E527BB151605EEC7bf48Cfd55bD2Bf4c8",
+  PINGU: "0xA2426cD97583939E79Cfc12aC6E9121e37D0904d",
+  OCTO: "0xCa9A4F46Faf5628466583486FD5ACE8AC33ce126",
+  KB: "0x34d1ae6076aee4072f54e1156d2e507dd564a355",
+  WSOL: "0x5387C85A4965769f6B0Df430638a1388493486F1",
 };
 
 // Minimum thresholds to INDEX (reduce DB volume)
@@ -22,6 +26,10 @@ const MIN_INDEX_THRESHOLDS = {
   BEAN: 1n * 10n ** 18n,           // 1 BEAN minimum
   WBTC: 1n * 10n ** 7n,            // 0.1 WBTC minimum (8 decimals)
   DAKIMAKURA: 1n * 10n ** 18n,     // 1 DAKIMAKURA minimum
+  PINGU: 1n * 10n ** 18n,          // 1 PINGU minimum
+  OCTO: 1n * 10n ** 18n,           // 1 OCTO minimum
+  KB: 1n * 10n ** 18n,             // 1 KB minimum
+  WSOL: 1n * 10n ** 9n,            // 1 WSOL minimum (9 decimals)
 };
 
 // Whale thresholds (mark as whale movement for AI signals)
@@ -34,6 +42,10 @@ const WHALE_THRESHOLDS = {
   BEAN: 100000n * 10n ** 18n,      // 100,000 BEAN = whale
   WBTC: 1n * 10n ** 8n,            // 1 WBTC = whale (8 decimals, ~$60k)
   DAKIMAKURA: 100000n * 10n ** 18n, // 100,000 DAKIMAKURA = whale
+  PINGU: 100000n * 10n ** 18n,     // 100,000 PINGU = whale
+  OCTO: 100000n * 10n ** 18n,      // 100,000 OCTO = whale
+  KB: 100000n * 10n ** 18n,        // 100,000 KB = whale
+  WSOL: 10000n * 10n ** 9n,        // 10,000 WSOL = whale (testnet)
 };
 
 // Key addresses that might indicate important activity (DEX routers, etc.)
@@ -351,6 +363,14 @@ function getTokenSymbol(address: string): string {
       return "WBTC";
     case TRACKED_TOKENS.DAKIMAKURA.toLowerCase():
       return "DAKIMAKURA";
+    case TRACKED_TOKENS.PINGU.toLowerCase():
+      return "PINGU";
+    case TRACKED_TOKENS.OCTO.toLowerCase():
+      return "OCTO";
+    case TRACKED_TOKENS.KB.toLowerCase():
+      return "KB";
+    case TRACKED_TOKENS.WSOL.toLowerCase():
+      return "WSOL";
     default:
       return "UNKNOWN";
   }
