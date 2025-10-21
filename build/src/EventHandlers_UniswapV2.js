@@ -16,6 +16,7 @@ const STATIC_PAIR_TOKENS = (() => {
     const PINGU = "0xa2426cd97583939e79cfc12ac6e9121e37d0904d";
     const USDC = "0xf817257fed379853cde0fa4f97ab987181b1e5ea";
     const WSOL = "0x5387c85a4965769f6b0df430638a1388493486f1";
+    const WBTC = "0xcf5a6076cfa32686c0df13abada2b40dec133f1d";
     const a = [WMON, CHOG].sort();
     return {
         // WMON/CHOG on Octoswap (Bean)
@@ -28,6 +29,16 @@ const STATIC_PAIR_TOKENS = (() => {
         "0xe8736384c92e077dc8536d0d2b974baebb52c360": { token0: [WSOL, USDC].sort()[0], token1: [WSOL, USDC].sort()[1] },
         // PINGU/WMON
         "0x3611a3e98fc6546d8fb3235c8a2ae7072915bf28": { token0: [PINGU, WMON].sort()[0], token1: [PINGU, WMON].sort()[1] },
+        // WMON/USDC
+        "0x159e8445313aad3eb0a9a373bfa313db5d4131c5": { token0: [WMON, USDC].sort()[0], token1: [WMON, USDC].sort()[1] },
+        // CHOG/WMON alt
+        "0x4d2e4c5ff07d1c82d512335dea0a1aa82c031a86": { token0: [CHOG, WMON].sort()[0], token1: [CHOG, WMON].sort()[1] },
+        // DAK/WMON alt
+        "0x6007a0804fe538745ffed91f9c124cd3ce06102d": { token0: [DAK, WMON].sort()[0], token1: [DAK, WMON].sort()[1] },
+        // YAKI/WMON alt
+        "0x6def0cf33d16f067c95f9df8918b876dd360561c": { token0: [YAKI, WMON].sort()[0], token1: [YAKI, WMON].sort()[1] },
+        // WBTC/USDC
+        "0x1df72acff7fd1fdc392ad44dd2167f6baaf6c559": { token0: [WBTC, USDC].sort()[0], token1: [WBTC, USDC].sort()[1] },
     };
 })();
 // Octoswap Factory: capture PairCreated and store pair metadata

@@ -282,6 +282,11 @@ networks:
         - 0xB8c074805Ab9C39281289089f20EC2629449f03a  # YAKI/WMON (assumed) Octoswap pair
         - 0xE8736384c92E077dC8536D0d2B974bAeBb52c360  # WSOL/USDC Octoswap pair
         - 0x3611A3e98fC6546d8fB3235C8A2ae7072915BF28  # PINGU/WMON (assumed) Octoswap pair
+        - 0x159E8445313aaD3eB0a9a373bfa313db5D4131C5  # WMON/USDC Octoswap pair
+        - 0x4d2E4c5FF07d1C82d512335dEA0a1Aa82c031a86  # CHOG/WMON Octoswap pair (alternate)
+        - 0x6007A0804fE538745FFEd91F9c124Cd3ce06102D  # DAK/WMON Octoswap pair (alternate)
+        - 0x6DeF0Cf33D16F067C95F9dF8918b876DD360561C  # YAKI/WMON Octoswap pair (alternate)
+        - 0x1df72ACFf7fd1Fdc392ad44Dd2167f6BAAF6c559  # WBTC/USDC Octoswap pair
     # Canonical Uniswap V2 on Monad testnet
     - name: UniswapV2Factory
       address:
