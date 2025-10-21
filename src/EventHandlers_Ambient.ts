@@ -3,7 +3,7 @@
  * Ambient handlers: on chaque event, on met à jour DailyMetrics (protocolId = "ambient").
  * On n'écrit pas d'entités d'events bruts car elles ne sont pas déclarées dans le schema.graphql.
  */
-import { AmbientCore, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted } from "generated";
+import { AmbientCore, DailyMetrics, DailyUser, ProtocolState, DailyTxFeeCounted, SwapEvent } from "generated";
 
 function dateISOFromTs(tsMs: number): string {
 	const d = new Date(tsMs);
@@ -116,6 +116,37 @@ AmbientCore?.CrocSwap?.handler?.(async ({ event, context }) => {
 			txHash,
 			feeWei,
 	});
+
+		// Derive a unified SwapEvent for frontend pricing
+		try {
+			const base = event.params.base as string
+			const quote = event.params.quote as string
+			const isBuy = Boolean(event.params.isBuy)
+			const bf = BigInt((event.params as any).baseFlow ?? 0)
+			const qf = BigInt((event.params as any).quoteFlow ?? 0)
+			const baseAbs = bf < 0n ? -bf : bf
+			const quoteAbs = qf < 0n ? -qf : qf
+			const tokenIn = isBuy ? quote : base
+			const tokenOut = isBuy ? base : quote
+			const amountIn = isBuy ? quoteAbs : baseAbs
+			const amountOut = isBuy ? baseAbs : quoteAbs
+			const pairKey = [tokenIn.toLowerCase(), tokenOut.toLowerCase()].sort().join("_")
+			const id = `${event.chainId}_${event.block.number}_${event.logIndex}_ambient`
+			context.SwapEvent.set({
+				id,
+				pairKey,
+				tokenIn,
+				tokenOut,
+				amountIn: amountIn as any,
+				amountOut: amountOut as any,
+				price: 0 as any,
+				recipient: (event.transaction?.from as string) || "0x0000000000000000000000000000000000000000",
+				blockNumber: event.block.number,
+				blockTimestamp: event.block.timestamp,
+				transactionHash: event.transaction.hash,
+				logIndex: event.logIndex,
+			} as any)
+		} catch {}
 });
 
 AmbientCore?.CrocMicroSwap?.handler?.(async ({ event, context }) => {
@@ -139,6 +170,43 @@ AmbientCore?.CrocMicroSwap?.handler?.(async ({ event, context }) => {
 			txHash: txHash2,
 			feeWei: feeWei2,
 	});
+
+		// Derive a unified SwapEvent for frontend pricing
+		try {
+			const input = (event.params as any)?.input // bytes; not decoded here, use flows instead
+			const baseFlow = BigInt((event.params as any)?.baseFlow ?? 0)
+			const quoteFlow = BigInt((event.params as any)?.quoteFlow ?? 0)
+			// We cannot decode base/quote from bytes without parser; fall back if not present
+			const base = (event as any)?.params?.base as string | undefined
+			const quote = (event as any)?.params?.quote as string | undefined
+			if (base && quote) {
+				const isBuy = Boolean((event as any)?.params?.isBuy)
+				const bf = baseFlow
+				const qf = quoteFlow
+				const baseAbs = bf < 0n ? -bf : bf
+				const quoteAbs = qf < 0n ? -qf : qf
+				const tokenIn = isBuy ? quote : base
+				const tokenOut = isBuy ? base : quote
+				const amountIn = isBuy ? quoteAbs : baseAbs
+				const amountOut = isBuy ? baseAbs : quoteAbs
+				const pairKey = [tokenIn.toLowerCase(), tokenOut.toLowerCase()].sort().join("_")
+				const id = `${event.chainId}_${event.block.number}_${event.logIndex}_ambientmicro`
+				context.SwapEvent.set({
+					id,
+					pairKey,
+					tokenIn,
+					tokenOut,
+					amountIn: amountIn as any,
+					amountOut: amountOut as any,
+					price: 0 as any,
+					recipient: (event.transaction?.from as string) || "0x0000000000000000000000000000000000000000",
+					blockNumber: event.block.number,
+					blockTimestamp: event.block.timestamp,
+					transactionHash: event.transaction.hash,
+					logIndex: event.logIndex,
+				} as any)
+			}
+		} catch {}
 });
 
 // Note: We only register handlers for the two events declared in config.yaml
