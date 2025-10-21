@@ -159,3 +159,14 @@ type Kuru_Trade {
   gasUsed: BigInt
   gasPrice: BigInt
 }
+
+# Minimal mapping for UniswapV2-style pairs discovered from Factory.PairCreated
+type UniswapV2PairInfo {
+  id: ID!
+  pairAddress: String! @index
+  token0: String! @index
+  token1: String! @index
+  blockNumber: Int! @index
+  blockTimestamp: Int! @index
+  transactionHash: String! @index
+}
