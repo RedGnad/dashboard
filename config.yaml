@@ -277,7 +277,11 @@ networks:
     - name: OctoswapPair
       address:
         # Add discovered/priority Pair addresses here to capture Swap events immediately
-        # e.g. - 0xPAIR_ADDRESS_HERE
+        - 0x1076ad67c1F8ecaEeaabbDF28577fe5B7ccD5E03  # WMON/CHOG pair (Bean/Octoswap)
+        - 0x9E9B7F93B0375b2D53d68bD65CEeB716f10ADA21  # DAK/WMON (assumed) Octoswap pair
+        - 0xB8c074805Ab9C39281289089f20EC2629449f03a  # YAKI/WMON (assumed) Octoswap pair
+        - 0xE8736384c92E077dC8536D0d2B974bAeBb52c360  # WSOL/USDC Octoswap pair
+        - 0x3611A3e98fC6546d8fB3235C8A2ae7072915BF28  # PINGU/WMON (assumed) Octoswap pair
     # Canonical Uniswap V2 on Monad testnet
     - name: UniswapV2Factory
       address:
