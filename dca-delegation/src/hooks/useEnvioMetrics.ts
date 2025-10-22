@@ -43,6 +43,25 @@ export function useEnvioMetrics(saAddress?: string) {
     return m
   }, [tokenMetrics])
 
+  // Hydrate from cache quickly to avoid "pending" feel at startup
+  useEffect(() => {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('envio:metrics') : null
+      if (raw) {
+        const cached = JSON.parse(raw)
+        if (cached && typeof cached === 'object') {
+          setMetrics({
+            txToday: Number(cached.txToday) || 0,
+            feesTodayMon: Number(cached.feesTodayMon) || 0,
+            whales24h: Array.isArray(cached.whales24h) ? cached.whales24h : [],
+            lastUpdated: Number(cached.lastUpdated) || Date.now(),
+          })
+          setLoading(false)
+        }
+      }
+    } catch {}
+  }, [])
+
   useEffect(() => {
     // Even without saAddress we still compute global market activity and whales
     if (!envioEnabled) {
@@ -53,7 +72,7 @@ export function useEnvioMetrics(saAddress?: string) {
       return
     }
 
-    let abort = new AbortController()
+  let abort = new AbortController()
     async function run() {
       setLoading(true)
       setError(null)
@@ -138,8 +157,10 @@ export function useEnvioMetrics(saAddress?: string) {
           }
         }
 
-        const nowTs = Date.now()
-        setMetrics({ txToday: txCount, feesTodayMon: toMon(feeWei), whales24h: whales, lastUpdated: nowTs })
+  const nowTs = Date.now()
+  const next = { txToday: txCount, feesTodayMon: toMon(feeWei), whales24h: whales, lastUpdated: nowTs }
+  setMetrics(next)
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem('envio:metrics', JSON.stringify(next)) } catch {}
         if (debugEnvio) {
           const endpoint = getEnvioUrl()
           console.info('[envio] metrics-ready', {
@@ -162,7 +183,7 @@ export function useEnvioMetrics(saAddress?: string) {
     run()
     const pollMs = Number((import.meta as any).env?.VITE_ENVIO_POLL_MS ?? 15000)
     const id = setInterval(run, Math.max(3000, pollMs))
-    return () => { abort.abort(); clearInterval(id) }
+    return () => { try { abort.abort('unmount') } catch { abort.abort() }; clearInterval(id) }
   }, [saAddress, tracked, since, sinceWhale, envioEnabled])
 
   return { metrics, loading, error }

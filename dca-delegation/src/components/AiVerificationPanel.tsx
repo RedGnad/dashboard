@@ -6,7 +6,6 @@ import {
   XCircle,
   Eye,
   Download,
-  Hash,
 } from "lucide-react";
 import { useAiAudit } from "../hooks/useAiAudit";
 import { useAutonomousAi } from "../hooks/useAutonomousAi";
@@ -29,75 +28,71 @@ export default function AiVerificationPanel({
     auditHistory,
     isAuditing,
     auditDecision,
-    getAuditStats,
     exportForSwarm,
   } = useAiAudit();
   const {
     decisions,
     enabled: aiEnabled,
-    provider,
-    modelId,
   } = useAutonomousAi();
   const { metrics, loading: envioLoading } = useEnvioMetrics();
   const [selectedReport, setSelectedReport] = useState<AuditReport | null>(
     null
   );
-  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
-  const [hashPreview, setHashPreview] = useState<Record<string, string>>({});
+  // Removed technical hash preview (not useful for users)
 
-  const stats = getAuditStats();
   const latestDecision = decisions[0];
 
   // Auto-audit latest decision; re-audit if fresher metrics arrive
   useEffect(() => {
-    // Wait for Envio metrics to load before running the first audit to avoid using default zeros
-    if (latestDecision && aiEnabled && !envioLoading) {
-      const latestForDecision = auditHistory.find(
-        (r) => r.decision.id === latestDecision.id
-      );
-      const needAudit =
-        !latestForDecision ||
-        (metrics?.lastUpdated &&
-          latestForDecision.timestamp < metrics.lastUpdated - 500);
-      if (needAudit) {
-        const debugEnvio =
-          ((import.meta as any).env?.VITE_DEBUG_ENVIO ?? "true") === "true";
-        const endpoint = getEnvioUrl();
-        if (debugEnvio) {
-          console.info("[ai] pre-audit", {
-            decisionId: latestDecision.id,
-            endpoint,
-            envioLoading,
-            txToday: metrics?.txToday,
-            whales: metrics?.whales24h?.length,
-            feesTodayMon: metrics?.feesTodayMon,
-            lastUpdatedISO: metrics?.lastUpdated
-              ? new Date(metrics.lastUpdated).toISOString()
-              : null,
-          });
-        }
+    // Trigger immediately on first decision (even if metrics are still loading);
+    // will automatically re-audit once metrics.lastUpdated advances.
+    if (!latestDecision || !aiEnabled) return;
 
-        (async () => {
-          const report = await auditDecision(
-            latestDecision,
-            balances,
-            metrics,
-            portfolioValueMon,
-            delegationExpired
-          );
-          if (debugEnvio) {
-            console.info("[ai] post-audit", {
-              decisionId: latestDecision.id,
-              overallStatus: report.overallStatus,
-              riskScore: report.riskScore,
-              marketRule: report.results.find(
-                (r) => r.ruleId === "market-conditions"
-              )?.message,
-            });
-          }
-        })();
-      }
+    const latestForDecision = auditHistory.find(
+      (r) => r.decision.id === latestDecision.id
+    );
+    const needAudit =
+      !latestForDecision ||
+      (metrics?.lastUpdated &&
+        latestForDecision.timestamp < metrics.lastUpdated - 500);
+    if (!needAudit) return;
+
+    const debugEnvio =
+      ((import.meta as any).env?.VITE_DEBUG_ENVIO ?? "true") === "true";
+    const endpoint = getEnvioUrl();
+    if (debugEnvio) {
+      console.info("[ai] pre-audit", {
+        decisionId: latestDecision.id,
+        endpoint,
+        envioLoading,
+        txToday: metrics?.txToday,
+        whales: metrics?.whales24h?.length,
+        feesTodayMon: metrics?.feesTodayMon,
+        lastUpdatedISO: metrics?.lastUpdated
+          ? new Date(metrics.lastUpdated).toISOString()
+          : null,
+      });
     }
+
+    (async () => {
+      const report = await auditDecision(
+        latestDecision,
+        balances,
+        metrics,
+        portfolioValueMon,
+        delegationExpired
+      );
+      if (debugEnvio) {
+        console.info("[ai] post-audit", {
+          decisionId: latestDecision.id,
+          overallStatus: report.overallStatus,
+          riskScore: report.riskScore,
+          marketRule: report.results.find(
+            (r) => r.ruleId === "market-conditions"
+          )?.message,
+        });
+      }
+    })();
   }, [
     latestDecision,
     auditHistory,
@@ -132,56 +127,39 @@ export default function AiVerificationPanel({
     }
   };
 
-  const bytesToHex = (buffer: ArrayBuffer) =>
-    Array.from(new Uint8Array(buffer))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  const sha256Hex = async (str: string) => {
-    const data = new TextEncoder().encode(str);
-    const digest = await crypto.subtle.digest("SHA-256", data);
-    return bytesToHex(digest);
-  };
-
-  useEffect(() => {
-    let mounted = true;
-    const run = async () => {
-      const next: Record<string, string> = {};
-      for (const report of auditHistory.slice(0, 10)) {
-        const minimal = {
-          decisionId: report.decision.id,
-          timestamp: report.timestamp,
-          results: report.results.map((r) => ({
-            ruleId: r.ruleId,
-            passed: r.passed,
-          })),
-          overallStatus: report.overallStatus,
-        };
-        const hex = await sha256Hex(JSON.stringify(minimal));
-        next[report.decision.id] = hex;
-      }
-      if (mounted) setHashPreview(next);
-    };
-    run();
-    return () => {
-      mounted = false;
-    };
-  }, [auditHistory]);
+  // Technical hash preview removed
 
   // Glow state for the whole panel
   const latestTsGlow = auditHistory[0]?.timestamp || 0;
   const metricsTsGlow = metrics?.lastUpdated || 0;
-  const needsRefresh = metricsTsGlow > latestTsGlow + 500;
+  const needsRefresh =
+    auditHistory.length > 0 && metricsTsGlow > latestTsGlow + 500;
   const latestStatus = auditHistory[0]?.overallStatus as
     | "PASS"
     | "WARN"
     | "FAIL"
     | undefined;
-  const panelGlowClass =
-    isAuditing || needsRefresh
-      ? "ring-1 ring-yellow-400/40 shadow-[0_0_28px_rgba(250,204,21,0.35)] animate-pulse"
-      : latestStatus === "PASS"
-      ? "ring-1 ring-emerald-400/40 shadow-[0_0_28px_rgba(52,211,153,0.25)]"
-      : "";
+  const panelGlowClass = (() => {
+    // Yellow only when auditing or when metrics are fresher (refresh pending)
+    if (isAuditing || needsRefresh) {
+      return "ring-1 ring-yellow-400/40 shadow-[0_0_28px_rgba(250,204,21,0.35)] animate-pulse";
+    }
+    // Red if latest audit failed
+    if (latestStatus === "FAIL") {
+      return "ring-1 ring-red-400/40 shadow-[0_0_28px_rgba(248,113,113,0.25)]";
+    }
+    // If latest audit exists but had 0 tx at audit time, show yellow (non-pulsing)
+    if (auditHistory.length > 0) {
+      const txAtAudit = (auditHistory[0].txTodayAtAudit ?? 0);
+      if (txAtAudit <= 0) {
+        return "ring-1 ring-yellow-400/40 shadow-[0_0_20px_rgba(250,204,21,0.20)]";
+      }
+      // Otherwise green when up-to-date with some activity
+      return "ring-1 ring-emerald-400/40 shadow-[0_0_28px_rgba(52,211,153,0.25)]";
+    }
+    // Neutral otherwise
+    return "";
+  })();
 
   return (
     <div className={`space-y-4 transition-shadow ${panelGlowClass}`}>
@@ -193,57 +171,59 @@ export default function AiVerificationPanel({
             AI Verification
           </div>
           <div className="flex items-center gap-3 text-sm">
-            {/* Live audit indicator */}
+            {/* Live audit indicator (process state, not risk level) */}
             {(() => {
-              const latestTs = auditHistory[0]?.timestamp || 0;
-              const metricsTs = metrics?.lastUpdated || 0;
-              const needsRefresh = metricsTs > latestTs + 500;
-              const status = auditHistory[0]?.overallStatus as
-                | "PASS"
-                | "WARN"
-                | "FAIL"
-                | undefined;
-              if (isAuditing || needsRefresh) {
+              const hasAudit = auditHistory.length > 0;
+              if (isAuditing) {
                 return (
                   <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_12px_rgba(250,204,21,0.45)] bg-yellow-500/10 border-yellow-400/30 text-yellow-300">
                     <div className="w-2 h-2 rounded-full bg-yellow-300 animate-pulse" />
-                    <span>Audit en cours…</span>
+                    <span>Auditing…</span>
                   </div>
                 );
               }
-              if (status === "PASS") {
-                return (
-                  <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_14px_rgba(74,222,128,0.45)] bg-emerald-500/10 border-emerald-400/30 text-emerald-300">
-                    <div className="w-2 h-2 rounded-full bg-emerald-300" />
-                    <span>Synchro OK</span>
-                  </div>
-                );
-              }
-              if (status === "WARN") {
+              if (hasAudit && needsRefresh) {
                 return (
                   <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_12px_rgba(250,204,21,0.35)] bg-yellow-500/10 border-yellow-400/30 text-yellow-300">
                     <div className="w-2 h-2 rounded-full bg-yellow-300" />
-                    <span>Attention</span>
+                    <span>Refreshing…</span>
                   </div>
                 );
               }
-              if (status === "FAIL") {
+              if (hasAudit) {
+                const txAtAudit = (auditHistory[0].txTodayAtAudit ?? 0);
+                if (txAtAudit <= 0) {
+                  return (
+                    <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_12px_rgba(250,204,21,0.25)] bg-yellow-500/10 border-yellow-400/30 text-yellow-300">
+                      <div className="w-2 h-2 rounded-full bg-yellow-300" />
+                      <span>Awaiting activity…</span>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_14px_rgba(74,222,128,0.45)] bg-emerald-500/10 border-emerald-400/30 text-emerald-300">
+                      <div className="w-2 h-2 rounded-full bg-emerald-300" />
+                      <span>Audit up to date</span>
+                    </div>
+                  );
+                }
+              }
+              if (latestDecision && aiEnabled) {
                 return (
-                  <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_12px_rgba(248,113,113,0.35)] bg-red-500/10 border-red-400/30 text-red-300">
-                    <div className="w-2 h-2 rounded-full bg-red-300" />
-                    <span>Bloqué</span>
+                  <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_12px_rgba(250,204,21,0.35)] bg-yellow-500/10 border-yellow-400/30 text-yellow-300">
+                    <div className="w-2 h-2 rounded-full bg-yellow-300" />
+                    <span>Awaiting first audit…</span>
                   </div>
                 );
               }
-              return null;
+              return (
+                <div className="flex items-center gap-2 px-2 py-1 rounded border bg-white/5 border-white/10 text-gray-300">
+                  <div className="w-2 h-2 rounded-full bg-gray-300" />
+                  <span>Idle</span>
+                </div>
+              );
             })()}
-            <button
-              onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
-              className="flex items-center gap-1 text-gray-300 hover:text-white"
-            >
-              <Eye size={14} />
-              {showTechnicalDetails ? "Hide" : "Show"} Technical
-            </button>
+            {/* Technical toggle removed */}
             <button
               onClick={() =>
                 latestDecision &&
@@ -272,34 +252,13 @@ export default function AiVerificationPanel({
           </div>
         </div>
 
-        {/* Tx today and live audit status inline */}
-        <div className="grid md:grid-cols-3 gap-3 mb-4">
-          <div className="glass rounded-xl p-4">
-            <div className="text-sm text-gray-300">
-              Tx Today (all protocols)
-            </div>
-            <div className="text-lg font-semibold text-white flex items-center gap-2">
-              {Number(metrics?.txToday || 0)}
-              {isAuditing || needsRefresh ? (
-                <span className="ml-2 inline-flex items-center gap-2 text-yellow-300">
-                  <span className="w-2 h-2 rounded-full bg-yellow-300 animate-pulse" />
-                  <span>Re-auditing…</span>
-                </span>
-              ) : (
-                latestStatus === "PASS" && (
-                  <span className="ml-2 inline-flex items-center gap-2 text-emerald-300">
-                    <span className="w-2 h-2 rounded-full bg-emerald-300" />
-                    <span>Up to date</span>
-                  </span>
-                )
-              )}
-            </div>
-          </div>
-          {auditHistory.length > 0 && (
-            <div className="glass rounded-xl p-4">
+        {/* Live audit status (compact) */}
+        {auditHistory.length > 0 && (
+          <div className="grid md:grid-cols-3 gap-2 mb-3">
+            <div className="glass rounded-xl p-3">
               <div className="text-sm text-gray-300">Latest Status</div>
               <div
-                className={`flex items-center gap-2 text-lg font-semibold ${
+                className={`flex items-center gap-2 text-base font-semibold ${
                   getStatusColor(auditHistory[0].overallStatus).split(" ")[0]
                 }`}
               >
@@ -307,12 +266,10 @@ export default function AiVerificationPanel({
                 {auditHistory[0].overallStatus}
               </div>
             </div>
-          )}
-          {auditHistory.length > 0 && (
-            <div className="glass rounded-xl p-4">
+            <div className="glass rounded-xl p-3">
               <div className="text-sm text-gray-300">Risk Score</div>
               <div
-                className={`text-lg font-semibold ${
+                className={`text-base font-semibold ${
                   auditHistory[0].riskScore > 50
                     ? "text-red-400"
                     : auditHistory[0].riskScore > 25
@@ -323,23 +280,11 @@ export default function AiVerificationPanel({
                 {auditHistory[0].riskScore}/100
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Success Rate */}
-        {auditHistory.length > 0 && (
-          <div className="grid md:grid-cols-3 gap-3 mb-4">
-            <div className="glass rounded-xl p-4">
-              <div className="text-sm text-gray-300">Success Rate</div>
-              <div className="text-lg font-semibold text-white">
-                {stats.total > 0
-                  ? Math.round((stats.passed / stats.total) * 100)
-                  : 0}
-                %
-              </div>
-            </div>
+            {/* Success Rate removed to reduce clutter and confusion */}
           </div>
         )}
+
+        {/* Success Rate removed */}
 
         {/* Verification Explanation */}
         <div className="glass rounded-xl p-4 mb-4">
@@ -388,6 +333,15 @@ export default function AiVerificationPanel({
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     {getStatusIcon(report.overallStatus)}
+                    {/* Activity badge: yellow when 0 tx, green when >0 tx at audit time */}
+                    {(() => {
+                      const txAtAudit = (report.txTodayAtAudit ?? 0);
+                      const color = txAtAudit > 0 ? 'bg-emerald-400' : 'bg-yellow-300';
+                      const title = `Activity: ${txAtAudit} tx`;
+                      return (
+                        <span className={`inline-block w-2 h-2 rounded-full ${color}`} title={title} />
+                      );
+                    })()}
                     <span className="text-sm text-gray-300">
                       {new Date(report.timestamp).toLocaleString()}
                     </span>
@@ -407,7 +361,16 @@ export default function AiVerificationPanel({
                       <Eye size={14} />
                     </button>
                     <button
-                      onClick={() => exportForVerification(report)}
+                      onClick={() =>
+                        exportForSwarm(report.decision, {
+                          balances,
+                          metrics,
+                          portfolioValueMon,
+                          delegationExpired,
+                          maxDailySpend: 1.0,
+                          maxSlippageBps: 500,
+                        })
+                      }
                       className="text-gray-400 hover:text-white"
                     >
                       <Download size={14} />
@@ -417,13 +380,7 @@ export default function AiVerificationPanel({
                 <div className="text-white text-sm">
                   {report.decision.action.type} - Risk: {report.riskScore}/100
                 </div>
-                {showTechnicalDetails && (
-                  <div className="mt-2 text-xs text-gray-500 flex items-center gap-2">
-                    <Hash size={12} />
-                    {hashPreview[report.decision.id]?.slice(0, 16) ||
-                      "computing…"}
-                  </div>
-                )}
+                {/* Technical hash removed */}
               </div>
             ))}
           </div>
@@ -535,7 +492,16 @@ export default function AiVerificationPanel({
 
               <div className="flex gap-3">
                 <button
-                  onClick={() => exportForVerification(selectedReport)}
+                  onClick={() =>
+                    exportForSwarm(selectedReport.decision, {
+                      balances,
+                      metrics,
+                      portfolioValueMon,
+                      delegationExpired,
+                      maxDailySpend: 1.0,
+                      maxSlippageBps: 500,
+                    })
+                  }
                   className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"
                 >
                   <Download size={14} />

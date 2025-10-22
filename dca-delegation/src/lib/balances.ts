@@ -141,6 +141,9 @@ export async function getAllBalances(address: `0x${string}`) {
       // Fallback: if we can't resolve gMON address, default to 0.0 without extra RPC
       map['gMON'] = '0.0'
     }
-  } catch {}
+  } catch (e) {
+    console.warn('[balances] Failed to load gMON balance', e)
+    if (map['gMON'] === undefined) map['gMON'] = '0.0'
+  }
   return map
 }

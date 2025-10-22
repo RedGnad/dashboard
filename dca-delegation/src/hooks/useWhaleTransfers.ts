@@ -240,7 +240,7 @@ export function useWhaleTransfers(days: number = 7) {
     }
     run()
     const id = setInterval(run, 60000)
-    return () => { abort.abort(); clearInterval(id) }
+    return () => { try { abort.abort('unmount') } catch { abort.abort() }; clearInterval(id) }
   }, [envioEnabled, whaleEnabled, whaleMonOnly, usdcThreshold, since, initialized])
 
   return { moves, loading, error }

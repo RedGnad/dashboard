@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAutonomousAi } from "../hooks/useAutonomousAi";
-import { useAiRestaking } from "../hooks/useAiRestaking";
 
 interface AiBubbleOverlayProps {
   // Props gardées pour compatibilité mais non utilisées pour les effets visuels
@@ -10,7 +9,6 @@ interface AiBubbleOverlayProps {
 
 export default function AiBubbleOverlay({}: AiBubbleOverlayProps) {
   const { decisions } = useAutonomousAi();
-  const { restakeAi } = useAiRestaking();
   const [mounted, setMounted] = useState(false);
   const [phase, setPhase] = useState<"hidden" | "enter" | "visible" | "exit">(
     "hidden"
@@ -23,8 +21,8 @@ export default function AiBubbleOverlay({}: AiBubbleOverlayProps) {
   }, [decisions]);
 
   useEffect(() => {
-    // Afficher seulement s'il y a une vraie décision IA ET que AI Restaking est activé
-    if (!latest || !restakeAi) return;
+    // Afficher pour toute vraie décision IA
+    if (!latest) return;
     setMounted(true);
     setPhase("enter");
     const t1 = setTimeout(() => setPhase("visible"), 20);
@@ -38,10 +36,10 @@ export default function AiBubbleOverlay({}: AiBubbleOverlayProps) {
       clearTimeout(t2);
       clearTimeout(t3);
     };
-  }, [latest?.id, restakeAi]);
+  }, [latest?.id]);
 
   // Afficher seulement s'il y a une vraie décision IA
-  if (!latest || !restakeAi || !mounted) return null;
+  if (!latest || !mounted) return null;
 
   const reasoning = (latest as any)?.action?.reasoning || "";
   const summary = (() => {

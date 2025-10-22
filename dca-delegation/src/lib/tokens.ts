@@ -45,7 +45,7 @@ export function getSourceTokens(): TokenMeta[] {
 export function getTargetTokens(): TokenMeta[] {
   // Tokens that can be bought (exclude MON and USDC as targets)
   // Exclude gMON (stake token) from tradeable/metric targets
-  return Object.values(TOKENS).filter(t => !t.isNative && !t.isStable && t.symbol !== 'gMON')
+  return Object.values(TOKENS).filter(t => !t.isNative && !t.isStable && t.symbol !== 'gMON' && t.symbol !== 'WMON')
 }
 
 export function getAllTradableTokens(): TokenMeta[] {

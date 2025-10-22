@@ -98,7 +98,8 @@ export function useAutonomousAi() {
   const makeDecision = useCallback(async (
     balances: Record<string, string>,
     metrics: EnvioMetrics,
-    tokenMetrics?: TokenMetrics[]
+    tokenMetrics?: TokenMetrics[],
+    options?: { allowStake?: boolean }
   ): Promise<AiDecision | null> => {
     if (!enabled) {
       return null
@@ -108,7 +109,7 @@ export function useAutonomousAi() {
     setError(null)
 
     try {
-      const decision = await autonomousAiAgent.makeDecision(balances, metrics, tokenMetrics)
+  const decision = await autonomousAiAgent.makeDecision(balances, metrics, tokenMetrics, options)
       setDecisions(autonomousAiAgent.getDecisions())
       return decision
     } catch (err) {

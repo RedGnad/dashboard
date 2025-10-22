@@ -159,7 +159,7 @@ export function useWhaleAlerts() {
     run()
     const pollMs = Number((import.meta as any).env?.VITE_ENVIO_POLL_MS ?? 15000)
     const id = setInterval(run, Math.max(15000, pollMs))
-    return () => { abort.abort(); clearInterval(id) }
+    return () => { try { abort.abort('unmount') } catch { abort.abort() }; clearInterval(id) }
   }, [since, envioEnabled, usdThreshold])
 
   // Écoute les changements du seuil via événement UI

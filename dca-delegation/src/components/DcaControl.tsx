@@ -58,7 +58,6 @@ export default function DcaControl() {
     dcaStatus,
     balances,
     delegatorSmartAccount,
-    delegateSmartAccount,
     delegationExpired,
     delegationExpiresAt,
     reinitialize,
@@ -71,6 +70,8 @@ export default function DcaControl() {
     convertAllToMon,
     withdrawToken,
     withdrawAll,
+    ensureMagmaDelegation,
+    unstakeMagma,
 
     panic,
   } = useDcaDelegation();
@@ -149,7 +150,6 @@ export default function DcaControl() {
     setPersonality,
     setEnabled,
     makeDecision,
-    markExecuted,
     provider,
     setProvider,
   } = useAutonomousAi();
@@ -164,7 +164,10 @@ export default function DcaControl() {
   >("price");
   // removed unused selectedTokenForChart state
   // const [selectedTokenForChart, setSelectedTokenForChart] = useState<string>("USDC");
-  const [tokenDates, setTokenDates] = useState<string[]>([]);
+  // Separate series per metric to avoid resets/mixing on tab switch
+  const [tokenDatesPrice, setTokenDatesPrice] = useState<string[]>([]);
+  const [tokenDatesMomentum, setTokenDatesMomentum] = useState<string[]>([]);
+  const [tokenDatesVol, setTokenDatesVol] = useState<string[]>([]);
   // Seuil whales contrôlé depuis l'UI (localStorage)
   const [whaleThreshold, setWhaleThreshold] = useState<number>(() => {
     try {
@@ -188,7 +191,13 @@ export default function DcaControl() {
   const [selectedChartToken, setSelectedChartToken] = useState<string | null>(
     null
   );
-  const [tokenSeries, setTokenSeries] = useState<
+  const [tokenSeriesPrice, setTokenSeriesPrice] = useState<
+    Record<string, { token: string; points: { x: string; y: number }[] }>
+  >({});
+  const [tokenSeriesMomentum, setTokenSeriesMomentum] = useState<
+    Record<string, { token: string; points: { x: string; y: number }[] }>
+  >({});
+  const [tokenSeriesVol, setTokenSeriesVol] = useState<
     Record<string, { token: string; points: { x: string; y: number }[] }>
   >({});
   const [tokenVolSeries, setTokenVolSeries] = useState<
@@ -227,18 +236,8 @@ export default function DcaControl() {
   const [chartUnit, setChartUnit] = useState<"USD" | "%">("%");
   const MAX_POINTS = Number((import.meta as any).env?.VITE_CHART_POINTS ?? 120);
 
-  const [restakeAi, setRestakeAi] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("restake-ai") === "1";
-    } catch {
-      return false;
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem("restake-ai", restakeAi ? "1" : "0");
-    } catch {}
-  }, [restakeAi]);
+  // Auto stake: always default OFF on every page load (no persistence)
+  const [restakeAi, setRestakeAi] = useState<boolean>(false);
 
   const [envioMode, setEnvioMode] = useState<"FAST" | "PRECISE" | "DEFAULT">(
     () => {
@@ -268,40 +267,56 @@ export default function DcaControl() {
     const now = new Date();
     const label = now.toISOString().slice(11, 19);
     const allowed = getTargetTokens().map((t) => t.symbol);
-    const nextSeries = { ...tokenSeries };
+
+    const nextPrice = { ...tokenSeriesPrice };
+    const nextMom = { ...tokenSeriesMomentum };
+    const nextVol = { ...tokenSeriesVol };
     const nextVolSeries = { ...tokenVolSeries };
-    // Always update series for the selected metric (price, momentum, or volatility)
+
     for (const sym of allowed) {
       const m = tokenMetrics.find((tm) => tm.token === sym);
-      const val = m
-        ? tokenMetricKind === "momentum"
-          ? m.momentum
-          : tokenMetricKind === "volatility"
-          ? m.volatility
-          : m.price
-        : 0;
-      const prev = nextSeries[sym]?.points || [];
-      const pts = [...prev, { x: label, y: Number.isFinite(val) ? val : 0 }];
-      while (pts.length > MAX_POINTS) pts.shift();
-      nextSeries[sym] = { token: sym, points: pts };
+      const p = Number.isFinite(m?.price) ? Number(m?.price) : 0;
+      const mom = Number.isFinite(m?.momentum) ? Number(m?.momentum) : 0;
+      const vol = Number.isFinite(m?.volatility) ? Number(m?.volatility) : 0;
 
-      const vol = m ? m.volume24h : 0;
+      const prevP = nextPrice[sym]?.points || [];
+      const ptsP = [...prevP, { x: label, y: p }];
+      while (ptsP.length > MAX_POINTS) ptsP.shift();
+      nextPrice[sym] = { token: sym, points: ptsP };
+
+      const prevM = nextMom[sym]?.points || [];
+      const ptsM = [...prevM, { x: label, y: mom }];
+      while (ptsM.length > MAX_POINTS) ptsM.shift();
+      nextMom[sym] = { token: sym, points: ptsM };
+
+      const prevV = nextVol[sym]?.points || [];
+      const ptsV = [...prevV, { x: label, y: vol }];
+      while (ptsV.length > MAX_POINTS) ptsV.shift();
+      nextVol[sym] = { token: sym, points: ptsV };
+
+      const vol24 = Number.isFinite(m?.volume24h) ? Number(m?.volume24h) : 0;
       const prevVol = nextVolSeries[sym]?.points || [];
-      const ptsVol = [
-        ...prevVol,
-        { x: label, y: Number.isFinite(vol) ? vol : 0 },
-      ];
+      const ptsVol = [...prevVol, { x: label, y: vol24 }];
       while (ptsVol.length > MAX_POINTS) ptsVol.shift();
       nextVolSeries[sym] = { token: sym, points: ptsVol };
     }
-    const prevDates = tokenDates || [];
-    const nextDates = [...prevDates, label];
-    while (nextDates.length > MAX_POINTS) nextDates.shift();
-    setTokenSeries(nextSeries);
+
+    const ndP = [...(tokenDatesPrice || []), label];
+    const ndM = [...(tokenDatesMomentum || []), label];
+    const ndV = [...(tokenDatesVol || []), label];
+    while (ndP.length > MAX_POINTS) ndP.shift();
+    while (ndM.length > MAX_POINTS) ndM.shift();
+    while (ndV.length > MAX_POINTS) ndV.shift();
+
+    setTokenSeriesPrice(nextPrice);
+    setTokenSeriesMomentum(nextMom);
+    setTokenSeriesVol(nextVol);
     setTokenVolSeries(nextVolSeries);
-    setTokenDates(nextDates);
+    setTokenDatesPrice(ndP);
+    setTokenDatesMomentum(ndM);
+    setTokenDatesVol(ndV);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tokenMetrics, tokenMetricsLoading, tokenMetricKind]);
+  }, [tokenMetrics, tokenMetricsLoading]);
 
   const {
     moves: whaleMoves,
@@ -409,7 +424,7 @@ export default function DcaControl() {
             return { allow: false, stop: true };
         }
         if (emaGate && tokenMetricKind === "price") {
-          const s = tokenSeries[sym]?.points || [];
+          const s = tokenSeriesPrice[sym]?.points || [];
           const ema = (pts: { x: string; y: number }[], window: number) => {
             const k = 2 / (window + 1);
             let e: number | null = null;
@@ -465,7 +480,7 @@ export default function DcaControl() {
       aiTrailPct,
       emaGate,
       tokenMetricKind,
-      tokenSeries,
+      tokenSeriesPrice,
     ]
   );
 
@@ -543,12 +558,38 @@ export default function DcaControl() {
       const decision = await makeDecision(
         currentBalances,
         metrics,
-        tokenMetrics
+        tokenMetrics,
+        { allowStake: restakeAi }
       );
       if (decision && decision.action.type !== "HOLD") {
-        markExecuted(decision.id);
 
         // Handle different action types
+        // MAGMA: STAKE / UNSTAKE handled by hook scheduler via magmaAction flag
+        if (decision.action.type === "STAKE") {
+          // Gate staking behind the Auto stake switch
+          if (!restakeAi) return null;
+          return {
+            amount: decision.action.amount || "0.05",
+            token: USDC as `0x${string}`,
+            interval: decision.nextInterval,
+            sourceToken: "MON",
+            magmaAction: "STAKE",
+            decisionId: decision.id,
+          } as any;
+        }
+        if (decision.action.type === "UNSTAKE") {
+          // Gate unstaking behind the Auto stake switch
+          if (!restakeAi) return null;
+          return {
+            amount: decision.action.amount || "0.05",
+            token: USDC as `0x${string}`,
+            interval: decision.nextInterval,
+            sourceToken: "MON",
+            magmaAction: "UNSTAKE",
+            decisionId: decision.id,
+          } as any;
+        }
+
         if (decision.action.type === "BUY") {
           // Map token symbols to addresses
           const tokenMap: Record<string, string> = Object.values(TOKENS).reduce(
@@ -568,6 +609,7 @@ export default function DcaControl() {
             token: targetAddress as `0x${string}`,
             interval: decision.nextInterval,
             sourceToken: decision.action.sourceToken, // Pass source info for future use
+            decisionId: decision.id,
           };
         } else if (decision.action.type === "SWAP") {
           const tokenMap: Record<string, string> = Object.values(TOKENS).reduce(
@@ -578,13 +620,15 @@ export default function DcaControl() {
             {} as Record<string, string>
           );
           const tgtReq = (decision.action.targetToken || "").toUpperCase();
-          const targetAddress = (tokenMap[tgtReq] || USDC) as `0x${string}`;
+          const finalSymbol = tgtReq === "WMON" ? "USDC" : tgtReq;
+          const targetAddress = (tokenMap[finalSymbol] || USDC) as `0x${string}`;
           const srcReq = (decision.action.sourceToken || "").toUpperCase();
           return {
             amount: decision.action.amount || "0.05",
             token: targetAddress,
             interval: decision.nextInterval,
             sourceToken: srcReq || "USDC",
+            decisionId: decision.id,
           };
         }
         // For SELL actions, we'll need to implement sell logic later
@@ -594,6 +638,7 @@ export default function DcaControl() {
           token: USDC as `0x${string}`,
           interval: decision.nextInterval,
           sourceToken: "MON",
+          decisionId: decision.id,
         };
       }
       return null; // HOLD decision
@@ -647,8 +692,8 @@ export default function DcaControl() {
   return (
     <div className="w-full max-w-[1280px] mx-auto px-4">
       <div className="flex justify-center mb-3">
-        <div className="flex items-center gap-4 w-[1280px]">
-          <div className="w-[360px]">
+        <div className="grid grid-cols-[360px_560px_360px] items-center gap-4 w-[1280px]">
+          <div className="pr-1">
             <div className="flex gap-2">
               <button
                 onClick={() => setActive("trade")}
@@ -702,8 +747,8 @@ export default function DcaControl() {
               </button>
             </div>
           </div>
-          <div className="w-[560px]" />
-          <div className="w-[360px] flex items-center justify-end">
+          <div />
+          <div className="flex items-center justify-end pr-1">
             <button
               onClick={refreshBalances}
               disabled={isLoading}
@@ -719,148 +764,33 @@ export default function DcaControl() {
       </div>
 
       {active === "trade" && (
-        <div className="flex items-stretch justify-center gap-4">
-          <div className="w-[360px] shrink-0 space-y-4 max-h-[78vh] overflow-y-auto pr-1">
-            <div className="glass rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="text-xl font-semibold text-white flex items-center gap-2">
-                  <SlidersHorizontal size={18} />
-                  DCA
-                </div>
-                <label className="inline-flex items-center gap-2 text-sm text-gray-300">
-                  <input
-                    type="checkbox"
-                    checked={aiEnabled}
-                    onChange={(e) => setEnabled(e.target.checked)}
-                    className="accent-purple-500"
-                    disabled={provider !== "openai"}
-                    title={
-                      provider !== "openai"
-                        ? provider === "opengradient"
-                          ? "Ready. Needs Devnet Token."
-                          : "Coming Soon"
-                        : "active"
-                    }
-                  />
-                  AI Control
-                </label>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      !metricsLoading && !metricsError
-                        ? "bg-green-400"
-                        : "bg-yellow-400"
-                    }`}
-                  ></span>
-                  <span className="text-[11px] text-gray-400">
-                    Envio{" "}
-                    {!metricsLoading && !metricsError ? "Available" : "Pending"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowAiLimits((v) => !v)}
-                    className="text-[11px] px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white"
-                  >
-                    Limits
-                  </button>
-                  <label className="inline-flex items-center gap-2 text-[11px] text-gray-300">
+        <div className="flex justify-center">
+          <div className="grid grid-cols-[360px_560px_360px] gap-4 items-stretch w-[1280px]">
+            <div className="space-y-4 max-h-[78vh] overflow-y-auto pr-1">
+              <div className="glass rounded-2xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="text-xl font-semibold text-white flex items-center gap-2">
+                    <SlidersHorizontal size={18} />
+                    DCA
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-300">
                     <input
                       type="checkbox"
+                      checked={aiEnabled}
+                      onChange={(e) => setEnabled(e.target.checked)}
                       className="accent-purple-500"
-                      checked={aiLimitsEnabled}
-                      onChange={(e) => setAiLimitsEnabled(e.target.checked)}
-                    />{" "}
-                    Enable
+                      disabled={provider !== "openai"}
+                      title={
+                        provider !== "openai"
+                          ? provider === "opengradient"
+                            ? "Ready. Needs Devnet Token."
+                            : "Coming Soon"
+                          : "active"
+                      }
+                    />
+                    AI Control
                   </label>
-                </div>
-              </div>
-              {showAiLimits && (
-                <div className="grid md:grid-cols-2 gap-2 text-xs">
                   <div className="flex items-center gap-2">
-                    <select
-                      value={aiEntryKind}
-                      onChange={(e) => setAiEntryKind(e.target.value as any)}
-                      className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-gray-200"
-                    >
-                      <option value="above">Start if ≥</option>
-                      <option value="below">Start if ≤</option>
-                    </select>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      step="any"
-                      placeholder="Entry price (base)"
-                      value={aiEntryPrice}
-                      onChange={(e) => setAiEntryPrice(e.target.value)}
-                      className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-white"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="inline-flex items-center gap-2 text-xs text-gray-300">
-                      <input
-                        type="checkbox"
-                        className="accent-purple-500"
-                        checked={aiStopEnabled}
-                        onChange={(e) => setAiStopEnabled(e.target.checked)}
-                      />{" "}
-                      Stop
-                    </label>
-                    <select
-                      value={aiStopKind}
-                      onChange={(e) => setAiStopKind(e.target.value as any)}
-                      className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-gray-200"
-                    >
-                      <option value="above">if ≥</option>
-                      <option value="below">if ≤</option>
-                    </select>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      step="any"
-                      placeholder="Stop price (base)"
-                      value={aiStopPrice}
-                      onChange={(e) => setAiStopPrice(e.target.value)}
-                      className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-white"
-                    />
-                  </div>
-                  <div className="col-span-2 flex items-center gap-3 text-xs">
-                    <label className="inline-flex items-center gap-2 text-gray-300">
-                      <input
-                        type="checkbox"
-                        className="accent-purple-500"
-                        checked={aiTrailEnabled}
-                        onChange={(e) => setAiTrailEnabled(e.target.checked)}
-                      />{" "}
-                      Trailing stop
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-400">Drop %</span>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        step="any"
-                        value={aiTrailPct}
-                        onChange={(e) => setAiTrailPct(e.target.value)}
-                        className="w-24 bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {aiEnabled ? (
-              <div className="p-3 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-300">
-                <div>
-                  AI control enabled. Amount, slippage, target token and
-                  interval are decided by the AI.
-                </div>
-                <div className="mt-1 text-gray-400 flex items-center justify-between">
-                  <span>
-                    Powered by Envio metrics. The AI analyzes market metrics,
-                    whale activity, and portfolio balance.
-                  </span>
-                  <span className="ml-2 inline-flex items-center gap-1">
                     <span
                       className={`w-2 h-2 rounded-full ${
                         !metricsLoading && !metricsError
@@ -874,77 +804,9 @@ export default function DcaControl() {
                         ? "Available"
                         : "Pending"}
                     </span>
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-300 mb-1">
-                    MON Amount
-                  </label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    step="any"
-                    value={monDcaAmount}
-                    onChange={(e) => setMonDcaAmount(e.target.value)}
-                    className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-300 mb-1">
-                    Slippage (bps)
-                  </label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    step="1"
-                    value={slippageBps}
-                    onChange={(e) => setSlippageBps(e.target.value)}
-                    className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-300 mb-1">
-                    Target Token
-                  </label>
-                  <select
-                    value={outToken}
-                    onChange={(e) => setOutToken(e.target.value)}
-                    className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"
-                  >
-                    {getTargetTokens()
-                      .filter((t) => t.symbol !== "WMON")
-                      .map((token) => (
-                        <option key={token.symbol} value={token.symbol}>
-                          {token.symbol}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-300 mb-1">
-                    Interval (s)
-                  </label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    step="1"
-                    min={Number(
-                      (import.meta as any).env?.VITE_MIN_DCA_INTERVAL_SECONDS ??
-                        60
-                    )}
-                    value={interval}
-                    onChange={(e) => setInterval(e.target.value)}
-                    className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <div className="flex items-center justify-between mb-1">
                     <button
                       type="button"
-                      onClick={() => setShowManualLimits((v) => !v)}
+                      onClick={() => setShowAiLimits((v) => !v)}
                       className="text-[11px] px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white"
                     >
                       Limits
@@ -953,274 +815,432 @@ export default function DcaControl() {
                       <input
                         type="checkbox"
                         className="accent-purple-500"
-                        checked={limitsEnabled}
-                        onChange={(e) => setLimitsEnabled(e.target.checked)}
+                        checked={aiLimitsEnabled}
+                        onChange={(e) => setAiLimitsEnabled(e.target.checked)}
                       />{" "}
                       Enable
                     </label>
                   </div>
-                  {showManualLimits && (
-                    <div className="grid grid-cols-2 gap-2">
+                </div>
+                {showAiLimits && (
+                  <div className="grid md:grid-cols-2 gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={aiEntryKind}
+                        onChange={(e) => setAiEntryKind(e.target.value as any)}
+                        className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-gray-200"
+                      >
+                        <option value="above">Start if ≥</option>
+                        <option value="below">Start if ≤</option>
+                      </select>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="any"
+                        placeholder="Entry price (base)"
+                        value={aiEntryPrice}
+                        onChange={(e) => setAiEntryPrice(e.target.value)}
+                        className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-white"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex items-center gap-2 text-xs text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-purple-500"
+                          checked={aiStopEnabled}
+                          onChange={(e) => setAiStopEnabled(e.target.checked)}
+                        />{" "}
+                        Stop
+                      </label>
+                      <select
+                        value={aiStopKind}
+                        onChange={(e) => setAiStopKind(e.target.value as any)}
+                        className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-gray-200"
+                      >
+                        <option value="above">if ≥</option>
+                        <option value="below">if ≤</option>
+                      </select>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="any"
+                        placeholder="Stop price (base)"
+                        value={aiStopPrice}
+                        onChange={(e) => setAiStopPrice(e.target.value)}
+                        className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-white"
+                      />
+                    </div>
+                    <div className="col-span-2 flex items-center gap-3 text-xs">
+                      <label className="inline-flex items-center gap-2 text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-purple-500"
+                          checked={aiTrailEnabled}
+                          onChange={(e) => setAiTrailEnabled(e.target.checked)}
+                        />{" "}
+                        Trailing stop
+                      </label>
                       <div className="flex items-center gap-2">
-                        <select
-                          value={entryKind}
-                          onChange={(e) => setEntryKind(e.target.value as any)}
-                          className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-gray-200"
-                        >
-                          <option value="above">Start if ≥</option>
-                          <option value="below">Start if ≤</option>
-                        </select>
+                        <span className="text-gray-400">Drop %</span>
                         <input
                           type="number"
                           inputMode="decimal"
                           step="any"
-                          placeholder="Entry price (base)"
-                          value={entryPrice}
-                          onChange={(e) => setEntryPrice(e.target.value)}
-                          className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
+                          value={aiTrailPct}
+                          onChange={(e) => setAiTrailPct(e.target.value)}
+                          className="w-24 bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
                         />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="inline-flex items-center gap-2 text-xs text-gray-300">
-                          <input
-                            type="checkbox"
-                            className="accent-purple-500"
-                            checked={stopEnabled}
-                            onChange={(e) => setStopEnabled(e.target.checked)}
-                          />{" "}
-                          Stop
-                        </label>
-                        <select
-                          value={stopKind}
-                          onChange={(e) => setStopKind(e.target.value as any)}
-                          className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-gray-200"
-                        >
-                          <option value="above">if ≥</option>
-                          <option value="below">if ≤</option>
-                        </select>
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          step="any"
-                          placeholder="Stop price (base)"
-                          value={stopPrice}
-                          onChange={(e) => setStopPrice(e.target.value)}
-                          className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
-                        />
-                      </div>
-                      <div className="col-span-2 flex items-center gap-3 text-xs">
-                        <label className="inline-flex items-center gap-2 text-gray-300">
-                          <input
-                            type="checkbox"
-                            className="accent-purple-500"
-                            checked={trailEnabled}
-                            onChange={(e) => setTrailEnabled(e.target.checked)}
-                          />{" "}
-                          Trailing stop
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <span className="text-gray-400">Drop %</span>
-                          <input
-                            type="number"
-                            inputMode="decimal"
-                            step="any"
-                            value={trailPct}
-                            onChange={(e) => setTrailPct(e.target.value)}
-                            className="w-24 bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
-                          />
-                        </div>
                       </div>
                     </div>
-                  )}
+                  </div>
+                )}
+              </div>
+
+              {aiEnabled ? (
+                <div className="p-3 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-300">
+                  <div>
+                    AI control enabled. Amount, slippage, target token and
+                    interval are decided by the AI.
+                  </div>
+                  <div className="mt-1 text-gray-400 flex items-center justify-between">
+                    <span>
+                      Powered by Envio metrics. The AI analyzes market metrics,
+                      whale activity, and portfolio balance.
+                    </span>
+                    <span className="ml-2 inline-flex items-center gap-1">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          !metricsLoading && !metricsError
+                            ? "bg-green-400"
+                            : "bg-yellow-400"
+                        }`}
+                      ></span>
+                      <span className="text-[11px] text-gray-400">
+                        Envio{" "}
+                        {!metricsLoading && !metricsError
+                          ? "Available"
+                          : "Pending"}
+                      </span>
+                    </span>
+                  </div>
                 </div>
-              </div>
-            )}
-            <div className="grid grid-cols-1 gap-3 mt-4">
-              {!dcaStatus.isActive ? (
-                <button
-                  onClick={() => {
-                    const selected = getToken(outToken);
-                    const addr = (
-                      selected && selected.symbol !== "WMON"
-                        ? selected.address
-                        : getTargetTokens().find((t) => t.symbol !== "WMON")
-                            ?.address || USDC
-                    ) as `0x${string}`;
-                    // reset trailing highs at start
-                    trailHighRef.current = {};
-                    aiTrailHighRef.current = {};
-                    return startNativeDca(
-                      monDcaAmount,
-                      parseInt(slippageBps),
-                      addr,
-                      parseInt(interval),
-                      aiEnabled,
-                      aiEnabled ? aiCallback : undefined,
-                      conditionCallback
-                    );
-                  }}
-                  disabled={
-                    isLoading ||
-                    delegationExpired ||
-                    // Only gate AI start until initial metrics/prices are ready; do not re-disable on refresh
-                    (aiEnabled && !initialDataReadyRef.current)
-                  }
-                  className="flex items-center justify-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
-                  style={{
-                    boxShadow:
-                      "0 0 25px rgba(34, 197, 94, 0.5), 0 4px 15px rgba(0, 0, 0, 0.2)",
-                  }}
-                >
-                  {aiEnabled ? "Start AI" : "Start"}
-                </button>
               ) : (
-                <button
-                  onClick={() => stopDca()}
-                  disabled={isLoading}
-                  className="flex items-center justify-center gap-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
-                  style={{
-                    boxShadow:
-                      "0 0 25px rgba(239, 68, 68, 0.5), 0 4px 15px rgba(0, 0, 0, 0.2)",
-                  }}
-                >
-                  {aiEnabled ? "Stop AI" : "Stop"}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="w-[560px] shrink-0" />
-
-          <div className="w-[360px] shrink-0 space-y-4 max-h-[78vh] overflow-y-auto pr-1">
-            <div className="glass rounded-2xl p-5">
-              <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2">
-                <Cpu size={18} />
-                MON Actions
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs text-gray-300 mb-1">
-                    Deposit MON
-                  </label>
-                  <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-300 mb-1">
+                      MON Amount
+                    </label>
                     <input
                       type="number"
                       inputMode="decimal"
                       step="any"
-                      value={monAmount}
-                      onChange={(e) => setMonAmount(e.target.value)}
+                      value={monDcaAmount}
+                      onChange={(e) => setMonDcaAmount(e.target.value)}
                       className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"
                     />
-                    <button
-                      onClick={() => topUpMon(monAmount)}
-                      disabled={isLoading}
-                      className="px-4 rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white font-semibold shadow-lg transition-all duration-200"
-                      style={{
-                        boxShadow:
-                          "0 0 20px rgba(147, 51, 234, 0.4), 0 4px 15px rgba(0, 0, 0, 0.2)",
-                      }}
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-300 mb-1">
+                      Slippage (bps)
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      step="1"
+                      value={slippageBps}
+                      onChange={(e) => setSlippageBps(e.target.value)}
+                      className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-300 mb-1">
+                      Target Token
+                    </label>
+                    <select
+                      value={outToken}
+                      onChange={(e) => setOutToken(e.target.value)}
+                      className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"
                     >
-                      Deposit
-                    </button>
+                      {getTargetTokens()
+                        .filter((t) => t.symbol !== "WMON")
+                        .map((token) => (
+                          <option key={token.symbol} value={token.symbol}>
+                            {token.symbol}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-300 mb-1">
+                      Interval (s)
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      step="1"
+                      min={Number(
+                        (import.meta as any).env
+                          ?.VITE_MIN_DCA_INTERVAL_SECONDS ?? 60
+                      )}
+                      value={interval}
+                      onChange={(e) => setInterval(e.target.value)}
+                      className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowManualLimits((v) => !v)}
+                        className="text-[11px] px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white"
+                      >
+                        Limits
+                      </button>
+                      <label className="inline-flex items-center gap-2 text-[11px] text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-purple-500"
+                          checked={limitsEnabled}
+                          onChange={(e) => setLimitsEnabled(e.target.checked)}
+                        />{" "}
+                        Enable
+                      </label>
+                    </div>
+                    {showManualLimits && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={entryKind}
+                            onChange={(e) =>
+                              setEntryKind(e.target.value as any)
+                            }
+                            className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-gray-200"
+                          >
+                            <option value="above">Start if ≥</option>
+                            <option value="below">Start if ≤</option>
+                          </select>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="any"
+                            placeholder="Entry price (base)"
+                            value={entryPrice}
+                            onChange={(e) => setEntryPrice(e.target.value)}
+                            className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="inline-flex items-center gap-2 text-xs text-gray-300">
+                            <input
+                              type="checkbox"
+                              className="accent-purple-500"
+                              checked={stopEnabled}
+                              onChange={(e) => setStopEnabled(e.target.checked)}
+                            />{" "}
+                            Stop
+                          </label>
+                          <select
+                            value={stopKind}
+                            onChange={(e) => setStopKind(e.target.value as any)}
+                            className="bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-gray-200"
+                          >
+                            <option value="above">if ≥</option>
+                            <option value="below">if ≤</option>
+                          </select>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="any"
+                            placeholder="Stop price (base)"
+                            value={stopPrice}
+                            onChange={(e) => setStopPrice(e.target.value)}
+                            className="w-full bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
+                        <div className="col-span-2 flex items-center gap-3 text-xs">
+                          <label className="inline-flex items-center gap-2 text-gray-300">
+                            <input
+                              type="checkbox"
+                              className="accent-purple-500"
+                              checked={trailEnabled}
+                              onChange={(e) =>
+                                setTrailEnabled(e.target.checked)
+                              }
+                            />{" "}
+                            Trailing stop
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-400">Drop %</span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              step="any"
+                              value={trailPct}
+                              onChange={(e) => setTrailPct(e.target.value)}
+                              className="w-24 bg-zinc-900/50 border border-zinc-600 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-300 mb-1">
-                    Portfolio Actions
-                  </label>
+              )}
+              <div className="grid grid-cols-1 gap-3 mt-4">
+                {!dcaStatus.isActive ? (
                   <button
-                    onClick={() => convertAllToMon(parseInt(slippageBps))}
-                    disabled={isLoading || delegationExpired || !hasConvertible}
-                    className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+                    onClick={() => {
+                      const selected = getToken(outToken);
+                      const addr = (
+                        selected && selected.symbol !== "WMON"
+                          ? selected.address
+                          : getTargetTokens().find((t) => t.symbol !== "WMON")
+                              ?.address || USDC
+                      ) as `0x${string}`;
+                      // reset trailing highs at start
+                      trailHighRef.current = {};
+                      aiTrailHighRef.current = {};
+                      return startNativeDca(
+                        monDcaAmount,
+                        parseInt(slippageBps),
+                        addr,
+                        parseInt(interval),
+                        aiEnabled,
+                        aiEnabled ? aiCallback : undefined,
+                        conditionCallback
+                      );
+                    }}
+                    disabled={
+                      isLoading ||
+                      delegationExpired ||
+                      // Only gate AI start until initial metrics/prices are ready; do not re-disable on refresh
+                      (aiEnabled && !initialDataReadyRef.current)
+                    }
+                    className="flex items-center justify-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
                     style={{
                       boxShadow:
-                        "0 0 25px rgba(245, 158, 11, 0.5), 0 4px 15px rgba(0, 0, 0, 0.2)",
+                        "0 0 25px rgba(34, 197, 94, 0.5), 0 4px 15px rgba(0, 0, 0, 0.2)",
                     }}
                   >
-                    <ArrowUpDown size={16} />
-                    Convert ALL to MON
+                    {aiEnabled ? "Start AI" : "Start"}
                   </button>
-                </div>
+                ) : (
+                  <button
+                    onClick={() => stopDca()}
+                    disabled={isLoading}
+                    className="flex items-center justify-center gap-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+                    style={{
+                      boxShadow:
+                        "0 0 25px rgba(239, 68, 68, 0.5), 0 4px 15px rgba(0, 0, 0, 0.2)",
+                    }}
+                  >
+                    {aiEnabled ? "Stop AI" : "Stop"}
+                  </button>
+                )}
               </div>
             </div>
-            <div className="glass rounded-2xl p-5">
-              <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2">
-                <Cpu size={18} />
-                Magma Restaking
-              </div>
-              <div className="space-y-3 text-sm text-gray-300">
-                <div className="flex items-center justify-between">
-                  <span>AI restaking</span>
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="accent-purple-500"
-                      checked={restakeAi}
-                      onChange={(e) => setRestakeAi(e.target.checked)}
-                    />
-                    <span className="text-xs">Enable</span>
-                  </label>
+            <div />
+            <div className="space-y-4 max-h-[78vh] overflow-y-auto pr-1">
+              <div className="glass rounded-2xl p-5">
+                <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2">
+                  <Cpu size={18} />
+                  MON Actions
                 </div>
-                <div className="text-[11px] text-gray-400">
-                  If enabled, staking actions may be performed automatically
-                  according to your mode (AI or manual). No manual stake/unstake
-                  controls are shown here.
-                </div>
-              </div>
-            </div>
-            <div className="glass rounded-2xl p-5">
-              <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2">
-                <BarChart2 size={18} />
-                Balances
-              </div>
-              <div className="grid grid-cols-1 gap-2 text-sm">
-                {parseFloat(balances.MON || "0") > 0 && (
-                  <div className="flex justify-between items-center gap-3 flex-wrap">
-                    <span className="text-gray-300 flex items-center gap-2">
-                      {TOKENS.MON.logoUrl && (
-                        <img
-                          src={TOKENS.MON.logoUrl}
-                          alt="MON"
-                          className="w-4 h-4 rounded-full"
-                          onError={(e) => {
-                            try {
-                              (e.currentTarget as HTMLImageElement).src =
-                                TOKENS.MON.logoUrl!;
-                            } catch {}
-                          }}
-                        />
-                      )}
-                      MON
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-white font-mono truncate max-w-[140px]">
-                        {formatMonDisplay(balances.MON)}
-                      </span>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-300 mb-1">
+                      Deposit MON
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="any"
+                        value={monAmount}
+                        onChange={(e) => setMonAmount(e.target.value)}
+                        className="w-full bg-zinc-900/50 border border-zinc-600 rounded-lg px-3 py-2 text-white"
+                      />
                       <button
-                        onClick={() => openWithdraw("MON")}
+                        onClick={() => topUpMon(monAmount)}
                         disabled={isLoading}
-                        className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-pink-600 to-rose-600 text-white disabled:opacity-50"
+                        className="px-4 rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white font-semibold shadow-lg transition-all duration-200"
+                        style={{
+                          boxShadow:
+                            "0 0 20px rgba(147, 51, 234, 0.4), 0 4px 15px rgba(0, 0, 0, 0.2)",
+                        }}
                       >
-                        Withdraw
+                        Deposit
                       </button>
                     </div>
                   </div>
-                )}
-                {getAllTradableTokens()
-                  .filter((t) => t.symbol !== "WMON")
-                  .filter(
-                    (t) => parseFloat((balances as any)[t.symbol] || "0") > 0
-                  )
-                  .map((t) => (
-                    <div
-                      key={t.symbol}
-                      className="flex justify-between items-center gap-3 flex-wrap"
+                  <div>
+                    <label className="block text-xs text-gray-300 mb-1">
+                      Portfolio Actions
+                    </label>
+                    <button
+                      onClick={() => convertAllToMon(parseInt(slippageBps))}
+                      disabled={
+                        isLoading || delegationExpired || !hasConvertible
+                      }
+                      className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200"
+                      style={{
+                        boxShadow:
+                          "0 0 25px rgba(245, 158, 11, 0.5), 0 4px 15px rgba(0, 0, 0, 0.2)",
+                      }}
                     >
+                      <ArrowUpDown size={16} />
+                      Convert ALL to MON
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="glass rounded-2xl p-5">
+                <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2">
+                  <Cpu size={18} />
+                  Magma Liquid Stacking
+                </div>
+                <div className="space-y-3 text-sm text-gray-300">
+                  <div className="flex items-center justify-between">
+                    <span>Auto stake</span>
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="accent-purple-500"
+                        checked={restakeAi}
+                        onChange={async (e) => {
+                          const enabled = e.target.checked;
+                          setRestakeAi(enabled);
+                          if (enabled) {
+                            try {
+                              await ensureMagmaDelegation?.();
+                            } catch {}
+                          }
+                        }}
+                      />
+                      <span className="text-xs">Enable</span>
+                    </label>
+                  </div>
+                  <div className="text-[11px] text-gray-400">
+                    Automatically convert your MON to gMON and back when
+                    helpful. This helps you earn yield while keeping funds
+                    liquid. You can turn this off anytime.
+                  </div>
+                </div>
+              </div>
+              <div className="glass rounded-2xl p-5">
+                <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2">
+                  <BarChart2 size={18} />
+                  Balances
+                </div>
+                <div className="grid grid-cols-1 gap-2 text-sm">
+                  {parseFloat(balances.MON || "0") > 0 && (
+                    <div className="flex justify-between items-center gap-3 flex-wrap">
                       <span className="text-gray-300 flex items-center gap-2">
-                        {t.logoUrl && (
+                        {TOKENS.MON.logoUrl && (
                           <img
-                            src={t.logoUrl}
-                            alt={t.symbol}
+                            src={TOKENS.MON.logoUrl}
+                            alt="MON"
                             className="w-4 h-4 rounded-full"
                             onError={(e) => {
                               try {
@@ -1230,98 +1250,179 @@ export default function DcaControl() {
                             }}
                           />
                         )}
-                        {t.symbol}
+                        MON
                       </span>
                       <div className="flex items-center gap-2">
                         <span className="text-white font-mono truncate max-w-[140px]">
-                          {(balances as any)[t.symbol] ?? "0.0"}
+                          {formatMonDisplay(balances.MON)}
                         </span>
                         <button
-                          onClick={() => openWithdraw(t.symbol)}
+                          onClick={() => openWithdraw("MON")}
                           disabled={isLoading}
-                          className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-rose-600 to-pink-600 text-white disabled:opacity-50"
+                          className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-pink-600 to-rose-600 text-white disabled:opacity-50"
                         >
                           Withdraw
                         </button>
                       </div>
                     </div>
-                  ))}
-              </div>
-              <div className="mt-3">
-                <button
-                  onClick={() => withdrawAll()}
-                  disabled={isLoading}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-rose-700 to-pink-700 hover:from-rose-800 hover:to-pink-800 disabled:opacity-50 text-white font-semibold py-2 px-3 rounded-xl text-sm"
-                >
-                  Withdraw ALL
-                </button>
-              </div>
-            </div>
-            <div className="glass rounded-2xl p-5">
-              <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2">
-                <Settings size={18} />
-                Status
-              </div>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-300">DCA</span>
-                  <span
-                    className={`font-semibold ${
-                      dcaStatus.isActive ? "text-green-400" : "text-gray-400"
-                    }`}
-                  >
-                    {dcaStatus.isActive ? "Active" : "Stopped"}
-                  </span>
-                </div>
-                {dcaStatus.nextExecution && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Next</span>
-                    <span className="text-white font-mono">
-                      {dcaStatus.nextExecution.toLocaleTimeString()}
-                    </span>
-                  </div>
-                )}
-                {(dcaStatus as any).lastTxHash || dcaStatus.lastUserOpHash ? (
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-300">Last Tx</span>
-                    {(dcaStatus as any).lastTxHash ? (
-                      <a
-                        className="text-blue-400 font-mono hover:underline"
-                        href={`https://testnet.monadexplorer.com/tx/${
-                          (dcaStatus as any).lastTxHash
-                        }`}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Open in explorer"
-                      >
-                        {String((dcaStatus as any).lastTxHash).slice(0, 10)}...
-                      </a>
-                    ) : (
-                      <span className="text-gray-400 font-mono flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-                        Pending…
+                  )}
+                  {parseFloat((balances as any).gMON || "0") > 0 && (
+                    <div className="flex justify-between items-center gap-3 flex-wrap">
+                      <span className="text-gray-300 flex items-center gap-2">
+                        {TOKENS.gMON?.logoUrl && (
+                          <img
+                            src={TOKENS.gMON.logoUrl}
+                            alt="gMON"
+                            className="w-4 h-4 rounded-full"
+                            onError={(e) => {
+                              try {
+                                (e.currentTarget as HTMLImageElement).src =
+                                  TOKENS.gMON.logoUrl!;
+                              } catch {}
+                            }}
+                          />
+                        )}
+                        gMON
                       </span>
-                    )}
-                  </div>
-                ) : null}
-                {visibleError && (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-gray-300">Last Error</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-red-400">{visibleError}</span>
-                      {visibleError.startsWith("ERC20 skipped") && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-white font-mono truncate max-w-[140px]">
+                          {(balances as any).gMON ?? "0.0"}
+                        </span>
                         <button
-                          onClick={renewDelegation}
+                          onClick={() => {
+                            try {
+                              const amt = (balances as any).gMON || "0";
+                              if (parseFloat(amt) > 0) {
+                                unstakeMagma?.(amt);
+                              }
+                            } catch {}
+                          }}
                           disabled={isLoading}
                           className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-amber-600 to-yellow-600 text-white disabled:opacity-50"
-                          title="Renew core delegation to enable ERC20 withdrawals"
                         >
-                          Renew
+                          Unstake
                         </button>
+                      </div>
+                    </div>
+                  )}
+                  {getAllTradableTokens()
+                    .filter((t) => t.symbol !== "WMON")
+                    .filter(
+                      (t) => parseFloat((balances as any)[t.symbol] || "0") > 0
+                    )
+                    .map((t) => (
+                      <div
+                        key={t.symbol}
+                        className="flex justify-between items-center gap-3 flex-wrap"
+                      >
+                        <span className="text-gray-300 flex items-center gap-2">
+                          {t.logoUrl && (
+                            <img
+                              src={t.logoUrl}
+                              alt={t.symbol}
+                              className="w-4 h-4 rounded-full"
+                              onError={(e) => {
+                                try {
+                                  (e.currentTarget as HTMLImageElement).src =
+                                    TOKENS.MON.logoUrl!;
+                                } catch {}
+                              }}
+                            />
+                          )}
+                          {t.symbol}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-white font-mono truncate max-w-[140px]">
+                            {(balances as any)[t.symbol] ?? "0.0"}
+                          </span>
+                          <button
+                            onClick={() => openWithdraw(t.symbol)}
+                            disabled={isLoading}
+                            className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-rose-600 to-pink-600 text-white disabled:opacity-50"
+                          >
+                            Withdraw
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                <div className="mt-3">
+                  <button
+                    onClick={() => withdrawAll()}
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-rose-700 to-pink-700 hover:from-rose-800 hover:to-pink-800 disabled:opacity-50 text-white font-semibold py-2 px-3 rounded-xl text-sm"
+                  >
+                    Withdraw ALL
+                  </button>
+                </div>
+              </div>
+              <div className="glass rounded-2xl p-5">
+                <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2">
+                  <Settings size={18} />
+                  Status
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">DCA</span>
+                    <span
+                      className={`font-semibold ${
+                        dcaStatus.isActive ? "text-green-400" : "text-gray-400"
+                      }`}
+                    >
+                      {dcaStatus.isActive ? "Active" : "Stopped"}
+                    </span>
+                  </div>
+                  {dcaStatus.nextExecution && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Next</span>
+                      <span className="text-white font-mono">
+                        {dcaStatus.nextExecution.toLocaleTimeString()}
+                      </span>
+                    </div>
+                  )}
+                  {(dcaStatus as any).lastTxHash || dcaStatus.lastUserOpHash ? (
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-300">Last Tx</span>
+                      {(dcaStatus as any).lastTxHash ? (
+                        <a
+                          className="text-blue-400 font-mono hover:underline"
+                          href={`https://testnet.monadexplorer.com/tx/${
+                            (dcaStatus as any).lastTxHash
+                          }`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open in explorer"
+                        >
+                          {String((dcaStatus as any).lastTxHash).slice(0, 10)}
+                          ...
+                        </a>
+                      ) : (
+                        <span className="text-gray-400 font-mono flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                          Pending…
+                        </span>
                       )}
                     </div>
-                  </div>
-                )}
+                  ) : null}
+                  {visibleError && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-gray-300">Last Error</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-red-400">{visibleError}</span>
+                        {visibleError.startsWith("ERC20 skipped") && (
+                          <button
+                            onClick={renewDelegation}
+                            disabled={isLoading}
+                            className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-amber-600 to-yellow-600 text-white disabled:opacity-50"
+                            title="Renew core delegation to enable ERC20 withdrawals"
+                          >
+                            Renew
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1329,252 +1430,252 @@ export default function DcaControl() {
       )}
 
       {active === "ai" && (
-        <div className="flex items-stretch justify-center gap-4">
-          <div className="w-[360px] shrink-0 space-y-4 max-h-[78vh] overflow-y-auto pr-1">
-            <div className="glass rounded-2xl p-5">
-              <div className="mb-4">
-                <div className="text-xl font-semibold text-white flex items-center gap-2 mb-3">
-                  <Brain size={18} />
-                  Autonomous AI Agent
+        <div className="flex justify-center">
+          <div className="grid grid-cols-[360px_560px_360px] gap-4 items-stretch w-[1280px]">
+            <div className="space-y-4 max-h-[78vh] overflow-y-auto pr-1">
+              <div className="glass rounded-2xl p-5">
+                <div className="mb-4">
+                  <div className="text-xl font-semibold text-white flex items-center gap-2 mb-3">
+                    <Brain size={18} />
+                    Autonomous AI Agent
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={aiEnabled}
+                      onChange={(e) => setEnabled(e.target.checked)}
+                      className="accent-purple-500"
+                      disabled={provider !== "openai"}
+                      title={
+                        provider !== "openai"
+                          ? provider === "opengradient"
+                            ? "Ready. Needs Devnet Token."
+                            : "Coming Soon"
+                          : "active"
+                      }
+                    />
+                    Enable AI Control
+                  </label>
                 </div>
-                <label className="inline-flex items-center gap-2 text-sm text-gray-300">
-                  <input
-                    type="checkbox"
-                    checked={aiEnabled}
-                    onChange={(e) => setEnabled(e.target.checked)}
-                    className="accent-purple-500"
-                    disabled={provider !== "openai"}
-                    title={
-                      provider !== "openai"
-                        ? provider === "opengradient"
-                          ? "Ready. Needs Devnet Token."
-                          : "Coming Soon"
-                        : "active"
+
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <button
+                    onClick={() => setPersonality("conservative")}
+                    className={`py-2 px-3 rounded-lg text-sm transition-all duration-200 ${
+                      personality === "conservative"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white/10 text-gray-300 hover:text-white"
+                    }`}
+                    style={
+                      personality === "conservative"
+                        ? { boxShadow: "0 0 20px rgba(37, 99, 235, 0.6)" }
+                        : {}
                     }
-                  />
-                  Enable AI Control
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 mb-4">
-                <button
-                  onClick={() => setPersonality("conservative")}
-                  className={`py-2 px-3 rounded-lg text-sm transition-all duration-200 ${
-                    personality === "conservative"
-                      ? "bg-blue-600 text-white"
-                      : "bg-white/10 text-gray-300 hover:text-white"
-                  }`}
-                  style={
-                    personality === "conservative"
-                      ? { boxShadow: "0 0 20px rgba(37, 99, 235, 0.6)" }
-                      : {}
-                  }
-                >
-                  Conservative
-                </button>
-                <button
-                  onClick={() => setPersonality("balanced")}
-                  className={`py-2 px-3 rounded-lg text-sm transition-all duration-200 ${
-                    personality === "balanced"
-                      ? "bg-blue-600 text-white"
-                      : "bg-white/10 text-gray-300 hover:text-white"
-                  }`}
-                  style={
-                    personality === "balanced"
-                      ? { boxShadow: "0 0 20px rgba(37, 99, 235, 0.6)" }
-                      : {}
-                  }
-                >
-                  Balanced
-                </button>
-                <button
-                  onClick={() => setPersonality("aggressive")}
-                  className={`py-2 px-3 rounded-lg text-sm transition-all duration-200 ${
-                    personality === "aggressive"
-                      ? "bg-blue-600 text-white"
-                      : "bg-white/10 text-gray-300 hover:text-white"
-                  }`}
-                  style={
-                    personality === "aggressive"
-                      ? { boxShadow: "0 0 20px rgba(37, 99, 235, 0.6)" }
-                      : {}
-                  }
-                >
-                  Aggressive
-                </button>
-                <button
-                  onClick={() => setPersonality("contrarian")}
-                  className={`py-2 px-3 rounded-lg text-sm transition-all duration-200 ${
-                    personality === "contrarian"
-                      ? "bg-blue-600 text-white"
-                      : "bg-white/10 text-gray-300 hover:text-white"
-                  }`}
-                  style={
-                    personality === "contrarian"
-                      ? { boxShadow: "0 0 20px rgba(37, 99, 235, 0.6)" }
-                      : {}
-                  }
-                >
-                  Contrarian
-                </button>
-              </div>
-
-              <div className="glass rounded-xl p-4 mb-4">
-                <div className="text-sm text-gray-300 mb-3">
-                  Status & Personality
+                  >
+                    Conservative
+                  </button>
+                  <button
+                    onClick={() => setPersonality("balanced")}
+                    className={`py-2 px-3 rounded-lg text-sm transition-all duration-200 ${
+                      personality === "balanced"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white/10 text-gray-300 hover:text-white"
+                    }`}
+                    style={
+                      personality === "balanced"
+                        ? { boxShadow: "0 0 20px rgba(37, 99, 235, 0.6)" }
+                        : {}
+                    }
+                  >
+                    Balanced
+                  </button>
+                  <button
+                    onClick={() => setPersonality("aggressive")}
+                    className={`py-2 px-3 rounded-lg text-sm transition-all duration-200 ${
+                      personality === "aggressive"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white/10 text-gray-300 hover:text-white"
+                    }`}
+                    style={
+                      personality === "aggressive"
+                        ? { boxShadow: "0 0 20px rgba(37, 99, 235, 0.6)" }
+                        : {}
+                    }
+                  >
+                    Aggressive
+                  </button>
+                  <button
+                    onClick={() => setPersonality("contrarian")}
+                    className={`py-2 px-3 rounded-lg text-sm transition-all duration-200 ${
+                      personality === "contrarian"
+                        ? "bg-blue-600 text-white"
+                        : "bg-white/10 text-gray-300 hover:text-white"
+                    }`}
+                    style={
+                      personality === "contrarian"
+                        ? { boxShadow: "0 0 20px rgba(37, 99, 235, 0.6)" }
+                        : {}
+                    }
+                  >
+                    Contrarian
+                  </button>
                 </div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div
-                      className={`flex items-center gap-2 ${
-                        aiEnabled ? "text-green-400" : "text-gray-400"
+
+                <div className="glass rounded-xl p-4 mb-4">
+                  <div className="text-sm text-gray-300 mb-3">
+                    Status & Personality
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div
+                        className={`flex items-center gap-2 ${
+                          aiEnabled ? "text-green-400" : "text-gray-400"
+                        }`}
+                      >
+                        <div
+                          className={`w-2 h-2 rounded-full ${
+                            aiEnabled ? "bg-green-400" : "bg-gray-400"
+                          }`}
+                        ></div>
+                        {aiEnabled ? "AI Enabled" : "AI Disabled"}
+                      </div>
+                      {isProcessing && (
+                        <div className="flex items-center gap-2 text-yellow-400">
+                          <div className="animate-spin w-3 h-3 border border-yellow-400 border-t-transparent rounded-full"></div>
+                          <span className="text-xs">Processing...</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-gray-300">Personality: </span>
+                      <span className="text-white capitalize font-medium">
+                        {personality}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="glass rounded-xl p-4 mb-4">
+                  <div className="text-sm text-gray-300 mb-3">AI Provider</div>
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => setProvider("openai")}
+                      className={`w-full px-3 py-2 rounded-lg flex items-center gap-2 text-sm ${
+                        provider === "openai"
+                          ? "bg-white/10 text-white"
+                          : "bg-white/5 text-gray-300 hover:text-white"
                       }`}
                     >
-                      <div
+                      <span
                         className={`w-2 h-2 rounded-full ${
-                          aiEnabled ? "bg-green-400" : "bg-gray-400"
+                          provider === "openai"
+                            ? hasOpenAiKey
+                              ? "bg-green-400"
+                              : "bg-red-400"
+                            : "bg-gray-400"
                         }`}
-                      ></div>
-                      {aiEnabled ? "AI Enabled" : "AI Disabled"}
-                    </div>
-                    {isProcessing && (
-                      <div className="flex items-center gap-2 text-yellow-400">
-                        <div className="animate-spin w-3 h-3 border border-yellow-400 border-t-transparent rounded-full"></div>
-                        <span className="text-xs">Processing...</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-gray-300">Personality: </span>
-                    <span className="text-white capitalize font-medium">
-                      {personality}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="glass rounded-xl p-4 mb-4">
-                <div className="text-sm text-gray-300 mb-3">AI Provider</div>
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setProvider("openai")}
-                    className={`w-full px-3 py-2 rounded-lg flex items-center gap-2 text-sm ${
-                      provider === "openai"
-                        ? "bg-white/10 text-white"
-                        : "bg-white/5 text-gray-300 hover:text-white"
-                    }`}
-                  >
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        provider === "openai"
-                          ? hasOpenAiKey
-                            ? "bg-green-400"
-                            : "bg-red-400"
-                          : "bg-gray-400"
-                      }`}
-                    ></span>
-                    Centralized
-                  </button>
-                  <button
-                    onClick={() => {
-                      setProvider("fortytwo");
-                      try {
-                        if (typeof window !== "undefined")
-                          window.dispatchEvent(
-                            new CustomEvent("ai:quip:fortytwo")
-                          );
-                      } catch {}
-                    }}
-                    className={`w-full px-3 py-2 rounded-lg flex items-center gap-2 text-sm ${
-                      provider === "fortytwo"
-                        ? "bg-white/10 text-white"
-                        : "bg-white/5 text-gray-300 hover:text-white"
-                    }`}
-                  >
-                    <span
-                      className={`w-2 h-2 rounded-full ${
+                      ></span>
+                      Centralized
+                    </button>
+                    <button
+                      onClick={() => {
+                        setProvider("fortytwo");
+                        try {
+                          if (typeof window !== "undefined")
+                            window.dispatchEvent(
+                              new CustomEvent("ai:quip:fortytwo")
+                            );
+                        } catch {}
+                      }}
+                      className={`w-full px-3 py-2 rounded-lg flex items-center gap-2 text-sm ${
                         provider === "fortytwo"
-                          ? "bg-yellow-400"
-                          : "bg-gray-400"
+                          ? "bg-white/10 text-white"
+                          : "bg-white/5 text-gray-300 hover:text-white"
                       }`}
-                    ></span>
-                    FortyTwo Network
-                    <span className="text-xs text-yellow-400 ml-auto">
-                      Coming Soon
-                    </span>
-                  </button>
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          provider === "fortytwo"
+                            ? "bg-yellow-400"
+                            : "bg-gray-400"
+                        }`}
+                      ></span>
+                      FortyTwo Network
+                      <span className="text-xs text-yellow-400 ml-auto">
+                        Coming Soon
+                      </span>
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              {aiError && (
-                <div className="p-3 bg-red-600/20 border border-red-600/30 rounded-lg text-red-400 text-sm mb-4">
-                  {aiError}
+                {aiError && (
+                  <div className="p-3 bg-red-600/20 border border-red-600/30 rounded-lg text-red-400 text-sm mb-4">
+                    {aiError}
+                  </div>
+                )}
+
+                <div className="glass rounded-xl p-4">
+                  <div className="text-sm text-gray-300 mb-2">How it works</div>
+                  <p className="text-gray-400 text-xs leading-relaxed">
+                    {aiEnabled
+                      ? "AI automatically controls DCA decisions using market metrics, whale activity, and portfolio balance analysis."
+                      : "Enable AI to let the agent make autonomous trading decisions based on real-time market data."}
+                  </p>
                 </div>
-              )}
-
-              <div className="glass rounded-xl p-4">
-                <div className="text-sm text-gray-300 mb-2">How it works</div>
-                <p className="text-gray-400 text-xs leading-relaxed">
-                  {aiEnabled
-                    ? "AI automatically controls DCA decisions using market metrics, whale activity, and portfolio balance analysis."
-                    : "Enable AI to let the agent make autonomous trading decisions based on real-time market data."}
-                </p>
               </div>
             </div>
-          </div>
-
-          <div className="w-[560px] shrink-0" />
-
-          <div className="w-[360px] shrink-0 space-y-4 max-h-[78vh] overflow-y-auto pr-1">
-            {decisions.length > 0 && (
-              <div className="glass rounded-2xl p-5">
-                <div className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  <BarChart2 size={18} />
-                  Decision History
-                </div>
-                <div className="space-y-3 max-h-60 overflow-y-auto">
-                  {decisions.slice(0, 10).map((decision) => (
-                    <div key={decision.id} className="glass rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm text-gray-300">
-                          {new Date(decision.timestamp).toLocaleString()}
+            <div />
+            <div className="space-y-4 max-h-[78vh] overflow-y-auto pr-1">
+              {decisions.length > 0 && (
+                <div className="glass rounded-2xl p-5">
+                  <div className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <BarChart2 size={18} />
+                    Decision History
+                  </div>
+                  <div className="space-y-3 max-h-60 overflow-y-auto">
+                    {decisions.slice(0, 10).map((decision) => (
+                      <div key={decision.id} className="glass rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm text-gray-300">
+                            {new Date(decision.timestamp).toLocaleString()}
+                          </div>
+                          <div
+                            className={`px-2 py-1 rounded text-xs ${
+                              decision.executed
+                                ? "bg-green-600/20 text-green-400"
+                                : "bg-yellow-600/20 text-yellow-400"
+                            }`}
+                          >
+                            {decision.executed ? "Executed" : "Pending"}
+                          </div>
                         </div>
-                        <div
-                          className={`px-2 py-1 rounded text-xs ${
-                            decision.executed
-                              ? "bg-green-600/20 text-green-400"
-                              : "bg-yellow-600/20 text-yellow-400"
-                          }`}
-                        >
-                          {decision.executed ? "Executed" : "Pending"}
+                        <div className="text-white text-sm">
+                          <span className="capitalize">
+                            {decision.personality}
+                          </span>
+                          : {decision.action.type}
+                          {decision.action.type === "BUY" &&
+                            ` ${decision.action.amount} ${decision.action.sourceToken} → ${decision.action.targetToken}`}
+                          {decision.action.type === "SELL_TO_MON" &&
+                            ` ${decision.action.amount} ${decision.action.fromToken} → MON`}
+                          {decision.action.type === "SELL_TO_USDC" &&
+                            ` ${decision.action.amount} ${decision.action.fromToken} → USDC`}
+                          {decision.action.type === "HOLD" &&
+                            ` for ${decision.action.duration}s`}
+                        </div>
+                        <div className="text-gray-400 text-xs mt-1">
+                          {decision.action.reasoning}
+                        </div>
+                        <div className="text-gray-500 text-xs mt-1">
+                          Confidence: {Math.round(decision.confidence * 100)}% |
+                          Next: {decision.nextInterval}s
                         </div>
                       </div>
-                      <div className="text-white text-sm">
-                        <span className="capitalize">
-                          {decision.personality}
-                        </span>
-                        : {decision.action.type}
-                        {decision.action.type === "BUY" &&
-                          ` ${decision.action.amount} ${decision.action.sourceToken} → ${decision.action.targetToken}`}
-                        {decision.action.type === "SELL_TO_MON" &&
-                          ` ${decision.action.amount} ${decision.action.fromToken} → MON`}
-                        {decision.action.type === "SELL_TO_USDC" &&
-                          ` ${decision.action.amount} ${decision.action.fromToken} → USDC`}
-                        {decision.action.type === "HOLD" &&
-                          ` for ${decision.action.duration}s`}
-                      </div>
-                      <div className="text-gray-400 text-xs mt-1">
-                        {decision.action.reasoning}
-                      </div>
-                      <div className="text-gray-500 text-xs mt-1">
-                        Confidence: {Math.round(decision.confidence * 100)}% |
-                        Next: {decision.nextInterval}s
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1750,8 +1851,6 @@ export default function DcaControl() {
                 <div className="flex items-center gap-2 text-sm">
                   <button
                     onClick={() => {
-                      setTokenSeries({});
-                      setTokenDates([]);
                       setTokenMetricKind("price");
                     }}
                     className={`px-2 py-1 rounded ${
@@ -1764,8 +1863,6 @@ export default function DcaControl() {
                   </button>
                   <button
                     onClick={() => {
-                      setTokenSeries({});
-                      setTokenDates([]);
                       setTokenMetricKind("momentum");
                     }}
                     className={`px-2 py-1 rounded ${
@@ -1778,8 +1875,6 @@ export default function DcaControl() {
                   </button>
                   <button
                     onClick={() => {
-                      setTokenSeries({});
-                      setTokenDates([]);
                       setTokenMetricKind("volatility");
                     }}
                     className={`px-2 py-1 rounded ${
@@ -1792,9 +1887,7 @@ export default function DcaControl() {
                   </button>
                 </div>
               </div>
-              {tokenMetricsLoading ? (
-                <div className="text-sm text-gray-300">Loading…</div>
-              ) : tokenMetricKind === "volatility" ? (
+              {tokenMetricKind === "volatility" ? (
                 <ProtocolBarChart
                   data={getTargetTokens().map((t) => {
                     const m = tokenMetrics.find((tm) => tm.token === t.symbol);
@@ -1808,8 +1901,26 @@ export default function DcaControl() {
                 (() => {
                   const selected = getToken(outToken);
                   const sym = selected?.symbol || "";
-                  const baseSeries = Object.values(tokenSeries);
-                  const s = tokenSeries[sym]?.points || [];
+                  const baseSeries = Object.values(
+                    tokenMetricKind === "price"
+                      ? tokenSeriesPrice
+                      : tokenSeriesMomentum
+                  );
+                  const hasAnyPoints = baseSeries.some(s => (s.points || []).length > 0)
+                  const s = (
+                    tokenMetricKind === "price"
+                      ? tokenSeriesPrice
+                      : tokenSeriesMomentum
+                  )[sym]?.points || [];
+                  const datesForChart =
+                    tokenMetricKind === "price"
+                      ? tokenDatesPrice
+                      : tokenDatesMomentum;
+                  if (!hasAnyPoints) {
+                    return (
+                      <div className="text-sm text-gray-400">Warming up live metrics…</div>
+                    )
+                  }
                   function ma(
                     points: { x: string; y: number }[],
                     window: number
@@ -1977,8 +2088,8 @@ export default function DcaControl() {
                         )}
                       </div>
                       <TokenMetricsChart
-                        series={baseSeries}
-                        dates={tokenDates}
+                        series={baseSeries as any}
+                        dates={datesForChart}
                         zeroAxis={tokenMetricKind !== "price"}
                         overlays={overlays}
                         volBars={(tokenVolSeries[sym]?.points || []).map(
@@ -2272,30 +2383,14 @@ export default function DcaControl() {
                 </button>
               </div>
             )}
-            {delegateSmartAccount && (
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-gray-200">
-                  {delegateSmartAccount.address.slice(0, 6)}...
-                  {delegateSmartAccount.address.slice(-4)}
-                </span>
-                <button
-                  className="p-1 hover:text-white"
-                  onClick={() =>
-                    navigator.clipboard.writeText(delegateSmartAccount.address)
-                  }
-                  title="Copy"
-                >
-                  <Copy size={14} />
-                </button>
-              </div>
-            )}
+            {/* Delegate smart account address intentionally hidden */}
           </div>
           <div className="glass rounded-xl p-4">
             <div className="text-lg font-semibold text-white mb-2">
               Envio Endpoint (Development Settings)
             </div>
             <div className="text-sm text-gray-300 mb-2">
-              FAST is not precise but up to date, PRECISE is accurate but still
+              FAST is less precise but up to date, PRECISE is accurate but still
               syncing, if not available please wait up to 24h or use FAST
             </div>
             <div className="flex items-center gap-2">

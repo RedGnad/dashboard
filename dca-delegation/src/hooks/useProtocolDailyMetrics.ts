@@ -118,7 +118,7 @@ export function useProtocolDailyMetrics(metric: ProtocolMetricKey, days = 30) {
     run()
     const pollMs = Number((import.meta as any).env?.VITE_ENVIO_POLL_MS ?? 15000)
     const id = setInterval(run, Math.max(10000, pollMs))
-    return () => { abort.abort(); clearInterval(id) }
+    return () => { try { abort.abort('unmount') } catch { abort.abort() }; clearInterval(id) }
   }, [metric, since, envioEnabled, initialized])
 
   const loadOlder = useCallback(async () => {

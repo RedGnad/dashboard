@@ -35,10 +35,26 @@ function pickEnvioUrl(): string {
 async function fetchWithRetry(input: RequestInfo | URL, init: RequestInit & { timeoutMs?: number }, retries = 2, backoffMs = 800): Promise<Response> {
   let lastErr: any
   for (let attempt = 0; attempt <= retries; attempt++) {
+    // Compose external signal (if any) with an internal timeout signal
     const ctrl = new AbortController()
-    const t = setTimeout(() => ctrl.abort(), init.timeoutMs ?? 10000)
+    const ext = init.signal as AbortSignal | undefined
+    const onExternalAbort = () => {
+      if (!ctrl.signal.aborted) {
+        try { ctrl.abort((ext as any)?.reason ?? 'external-abort') } catch { ctrl.abort() }
+      }
+    }
+    if (ext) {
+      if (ext.aborted) {
+        try { ctrl.abort((ext as any)?.reason ?? 'external-abort') } catch { ctrl.abort() }
+      } else {
+        ext.addEventListener('abort', onExternalAbort, { once: true })
+      }
+    }
+    const t = setTimeout(() => {
+      try { ctrl.abort('timeout') } catch { ctrl.abort() }
+    }, init.timeoutMs ?? 10000)
     try {
-      const resp = await fetch(input, { ...init, signal: init.signal || ctrl.signal })
+      const resp = await fetch(input, { ...init, signal: ctrl.signal })
       clearTimeout(t)
       if (!resp.ok) {
         const text = await resp.text().catch(() => '')
@@ -50,6 +66,9 @@ async function fetchWithRetry(input: RequestInfo | URL, init: RequestInit & { ti
       lastErr = e
     } finally {
       try { clearTimeout(t) } catch {}
+      if (ext) {
+        try { ext.removeEventListener('abort', onExternalAbort as any) } catch {}
+      }
     }
     if (attempt < retries) await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, attempt)))
   }

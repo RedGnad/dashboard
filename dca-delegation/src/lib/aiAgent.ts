@@ -10,6 +10,8 @@ export type AiAction =
   | { type: 'HOLD', duration: number, reasoning: string }
   | { type: 'SELL_TO_MON', fromToken: string, amount: string, reasoning: string }
   | { type: 'SELL_TO_USDC', fromToken: string, amount: string, reasoning: string }
+  | { type: 'STAKE', amount: string, reasoning: string }
+  | { type: 'UNSTAKE', amount: string, reasoning: string }
 
 export interface AiDecision {
   id: string
@@ -214,7 +216,8 @@ export class AutonomousAiAgent {
   async makeDecision(
     balances: Record<string, string>,
     metrics: EnvioMetrics,
-    tokenMetrics?: TokenMetrics[]
+    tokenMetrics?: TokenMetrics[],
+    options?: { allowStake?: boolean }
   ): Promise<AiDecision> {
     if (!this.enabled) {
       throw new Error('AI agent is disabled')
@@ -223,7 +226,8 @@ export class AutonomousAiAgent {
     const portfolioValue = this.calculatePortfolioValue(balances)
     const personalityPrompt = this.getPersonalityPrompt(this.personality)
     
-    const prompt = this.buildDecisionPrompt(balances, metrics, portfolioValue, personalityPrompt, tokenMetrics)
+  const allowStake = options?.allowStake !== false
+  const prompt = this.buildDecisionPrompt(balances, metrics, portfolioValue, personalityPrompt, tokenMetrics, { allowStake })
     
     try {
       if (this.provider !== 'openai') {
@@ -274,6 +278,51 @@ export class AutonomousAiAgent {
       }
 
       let decision = this.parseDecision(content, balances, metrics, portfolioValue)
+
+      // If staking is not allowed, coerce any STAKE/UNSTAKE into HOLD (ignored)
+      if (!allowStake && (decision.action.type === 'STAKE' || decision.action.type === 'UNSTAKE')) {
+        decision = {
+          ...decision,
+          action: { type: 'HOLD', duration: Math.max(300, decision.nextInterval), reasoning: 'Stake disabled by user' }
+        }
+      }
+
+      // Stake-bias: if portfolio has a very high share of MON (incl. WMON), occasionally convert BUY -> STAKE
+      try {
+        const monBal = parseFloat(balances.MON || '0') + parseFloat(balances.WMON || '0')
+        const share = portfolioValue > 0 ? (monBal / portfolioValue) : 0
+        const whaleCount = metrics.whales24h.length
+        const highRisk = whaleCount > 10
+        if (allowStake && decision.action.type === 'BUY') {
+          // More conservative: only bias when MON share is >= 60%, or >= 50% with elevated whales
+          if (share >= 0.6 || (share >= 0.5 && highRisk)) {
+            // Not systematic: keep staking occasional and diversification-friendly
+            const lastType = this.decisions[0]?.action?.type
+            const stakeRecent = this.decisions.slice(0, 5).filter(d => d.action.type === 'STAKE').length
+            const okFreq = lastType !== 'STAKE' && stakeRecent < 2
+            const biasChance = this.personality === 'aggressive' ? 0.3 : this.personality === 'balanced' ? 0.2 : 0.1
+            const roll = Math.random()
+            if (!okFreq || roll >= biasChance) {
+              // Skip bias this time
+            } else {
+            const amtNum = Number((decision.action as any).amount || 0)
+            // Reduce stake size: ~3-8% of portfolio
+            const minAmt = portfolioValue * 0.03
+            const maxAmt = portfolioValue * 0.08
+            const stakeAmt = Number.isFinite(amtNum) && amtNum > 0 ? Math.max(minAmt, Math.min(maxAmt, amtNum)) : minAmt
+            decision = {
+              ...decision,
+              action: {
+                type: 'STAKE',
+                amount: stakeAmt.toFixed(4),
+                // Replace token-specific reasoning to avoid confusion when bias converts BUY->STAKE
+                reasoning: `Converted to STAKE on Magma for yield: high MON share${highRisk ? ' + elevated whale activity' : ''}`
+              } as any
+            }
+            }
+          }
+        }
+      } catch {}
       if (decision.action.type === 'BUY') {
         const lastSame = this.decisions
           .filter(d => d.action.type === 'BUY')
@@ -283,7 +332,7 @@ export class AutonomousAiAgent {
         const consecutive = lastSame.findIndex(t => t !== lastTarget)
         const repeatCount = consecutive === -1 ? lastSame.length : consecutive
         if (lastTarget && decision.action.targetToken === lastTarget && repeatCount >= maxRepeat) {
-          const allowed = Array.from(new Set([...getTargetTokens().map(t => t.symbol), 'WMON', 'USDC']))
+          const allowed = Array.from(new Set([...getTargetTokens().map(t => t.symbol), 'USDC']))
           const alternative = allowed.find(t => t !== lastTarget) || decision.action.targetToken
           decision = {
             ...decision,
@@ -302,7 +351,7 @@ export class AutonomousAiAgent {
         const M_MIN = 1.0
         const V_MAX = 15.0
         const L_MIN = 0.3
-        const allowedSet = new Set([...getTargetTokens().map(t => t.symbol), 'USDC', 'WMON'])
+  const allowedSet = new Set([...getTargetTokens().map(t => t.symbol), 'USDC'])
         const tgt = (decision.action as any).targetToken as string
         const tm = tokenMetrics.find(tm => tm.token === tgt)
         const ok = tm && tm.momentum >= M_MIN && tm.volatility <= V_MAX && tm.liquidityScore >= L_MIN
@@ -353,8 +402,10 @@ export class AutonomousAiAgent {
     metrics: EnvioMetrics,
     portfolioValue: number,
     personalityPrompt: string,
-    tokenMetrics?: TokenMetrics[]
+    tokenMetrics?: TokenMetrics[],
+    opts?: { allowStake?: boolean }
   ): string {
+    const allowStake = opts?.allowStake !== false
     const whaleActivity = metrics.whales24h.length > 10 ? 'HIGH' : metrics.whales24h.length > 5 ? 'MEDIUM' : 'LOW'
     const marketActivity = metrics.txToday > 50 ? 'HIGH' : metrics.txToday > 20 ? 'MEDIUM' : 'LOW'
     // Summarize recent BUY decisions to encourage diversification
@@ -372,11 +423,12 @@ export class AutonomousAiAgent {
     // Diversification constraint by personality
     const maxRepeat = this.personality === 'aggressive' ? 2 : 1
     
-    const allowedTargets = Array.from(new Set([...getTargetTokens().map(t => t.symbol), 'USDC', 'WMON']))
-      .filter(t => t !== 'DAKIMAKURA')
+    // Do not suggest WMON as a target
+    const allowedTargets = Array.from(new Set([...getTargetTokens().map(t => t.symbol), 'USDC']))
+      .filter(t => t !== 'DAKIMAKURA' && t !== 'WMON')
       .join(', ')
 
-    return `
+  return `
 CURRENT PORTFOLIO:
 - MON: ${balances.MON}
 - WMON: ${balances.WMON}  
@@ -406,8 +458,14 @@ CONSTRAINTS:
 - Next interval: 60-1800 seconds (be reasonable)
 - Source tokens (to spend): MON (native), USDC (stable), or ANY volatile token for swaps
 - Target tokens (to buy): ${allowedTargets}
-- Available actions: BUY (spend source to get target), SWAP (volatile→volatile), HOLD (wait), SELL_TO_MON (convert to native), SELL_TO_USDC (safe haven)
+- Available actions: BUY (spend source to get target), SWAP (volatile→volatile), HOLD (wait), SELL_TO_MON (convert to native), SELL_TO_USDC (safe haven)${allowStake ? ", STAKE (stake MON via Magma to receive gMON), UNSTAKE (unstake gMON to MON)" : ""}
 - Diversification: avoid buying the same target token more than ${maxRepeat} time(s) in a row; prefer underrepresented tokens from RECENT BUYS
+
+SPECIAL RULES:
+- Never choose WMON as a target.
+${allowStake ? `- Consider STAKE only when MON share is very high (≥55% of portfolio), or ≥50% with high whale activity, and ONLY if it clearly beats the best volatile alternative for this tick.
+- Suggested STAKE size: about 3-8% of portfolio in a single action; use sparingly (roughly 10-20% of the time when conditions match) and avoid back-to-back stakes.
+- Maintain diversification even when staking is considered; do not let gMON crowd out volatile exposure.` : `- Staking is DISABLED by the user. Do not propose STAKE or UNSTAKE.`}
 
 DECISION LOGIC:
 - Choose source token based on available balance (MON or USDC)
@@ -417,7 +475,7 @@ DECISION LOGIC:
 Respond with JSON only:
 {
   "action": {
-    "type": "BUY|SWAP|HOLD|SELL_TO_MON|SELL_TO_USDC",
+  "type": "BUY|SWAP|HOLD|SELL_TO_MON|SELL_TO_USDC${allowStake ? '|STAKE|UNSTAKE' : ''}",
     "sourceToken": "MON|USDC|<any volatile token symbol>",
     "targetToken": "<symbol from allowed targets>",
     "amount": "0.05",
@@ -439,24 +497,56 @@ Respond with JSON only:
       const cleaned = content.replace(/```json\n?|\n?```/g, '').trim()
       const parsed = JSON.parse(cleaned)
       
-      const action: AiAction = {
-        type: parsed.action.type,
-        ...(parsed.action.type === 'BUY' && { 
+      const atype = String(parsed?.action?.type || '').toUpperCase()
+      let action: AiAction
+      if (atype === 'BUY') {
+        action = {
+          type: 'BUY',
           sourceToken: parsed.action.sourceToken,
           targetToken: parsed.action.targetToken,
-          amount: String(parsed.action.amount)
-        }),
-        ...(parsed.action.type === 'SELL_TO_MON' && { 
+          amount: String(parsed.action.amount),
+          reasoning: String(parsed.action.reasoning || 'AI decision completed')
+        }
+      } else if (atype === 'SWAP') {
+        action = {
+          type: 'SWAP',
+          sourceToken: parsed.action.sourceToken,
+          targetToken: parsed.action.targetToken,
+          amount: String(parsed.action.amount),
+          reasoning: String(parsed.action.reasoning || 'AI decision completed')
+        }
+      } else if (atype === 'SELL_TO_MON') {
+        action = {
+          type: 'SELL_TO_MON',
           fromToken: parsed.action.fromToken || parsed.action.targetToken,
-          amount: String(parsed.action.amount)
-        }),
-        ...(parsed.action.type === 'SELL_TO_USDC' && { 
+          amount: String(parsed.action.amount),
+          reasoning: String(parsed.action.reasoning || 'AI decision completed')
+        }
+      } else if (atype === 'SELL_TO_USDC') {
+        action = {
+          type: 'SELL_TO_USDC',
           fromToken: parsed.action.fromToken || parsed.action.targetToken,
-          amount: String(parsed.action.amount)
-        }),
-        ...(parsed.action.type === 'HOLD' && { duration: parsed.nextInterval }),
-        reasoning: String(parsed.action.reasoning || 'AI decision completed')
-      } as AiAction
+          amount: String(parsed.action.amount),
+          reasoning: String(parsed.action.reasoning || 'AI decision completed')
+        }
+      } else if (atype === 'STAKE') {
+        action = {
+          type: 'STAKE',
+          amount: String(parsed.action.amount || (portfolioValue * 0.05).toFixed(4)),
+          reasoning: String(parsed.action.reasoning || 'Stake via Magma')
+        }
+      } else if (atype === 'UNSTAKE') {
+        action = {
+          type: 'UNSTAKE',
+          amount: String(parsed.action.amount || (portfolioValue * 0.05).toFixed(4)),
+          reasoning: String(parsed.action.reasoning || 'Unstake via Magma')
+        }
+      } else if (atype === 'HOLD') {
+        action = { type: 'HOLD', duration: Number(parsed.nextInterval || 600), reasoning: String(parsed.action.reasoning || 'Hold') }
+      } else {
+        // Unknown -> default HOLD
+        action = { type: 'HOLD', duration: 600, reasoning: 'Default hold' }
+      }
 
       // Validate and clamp values
       const nextInterval = Math.max(60, Math.min(1800, Number(parsed.nextInterval || 300)))

@@ -43,7 +43,7 @@ let ABORT: AbortController | null = null
 async function pollOnce() {
   if (IN_FLIGHT) return
   IN_FLIGHT = true
-  ABORT?.abort()
+  try { ABORT?.abort('unmount') } catch { ABORT?.abort() }
   ABORT = new AbortController()
   const envioEnabled = ((import.meta as any).env?.VITE_ENVIO_ENABLED ?? 'true') === 'true'
   const priceSource = String(((import.meta as any).env?.VITE_PRICE_SOURCE ?? 'AUTO')).toUpperCase()
@@ -163,7 +163,15 @@ export function useTokenMetrics() {
   useEffect(() => {
     SUBS.add(setLocal)
     ensurePolling()
-    return () => { SUBS.delete(setLocal); if (SUBS.size === 0 && POLL_ID) { clearInterval(POLL_ID); POLL_ID = null; ABORT?.abort(); ABORT = null } }
+    return () => {
+      SUBS.delete(setLocal)
+      if (SUBS.size === 0 && POLL_ID) {
+        clearInterval(POLL_ID)
+        POLL_ID = null
+        try { ABORT?.abort('unmount') } catch { ABORT?.abort() }
+        ABORT = null
+      }
+    }
   }, [])
   return local
 }

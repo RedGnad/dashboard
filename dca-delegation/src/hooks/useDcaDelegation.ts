@@ -23,6 +23,7 @@ import {
   redeemWithdrawMonDelegation
 } from '../lib/delegation'
 import { TOKENS, WMON, STAKE_MANAGER } from '../lib/tokens'
+import { autonomousAiAgent } from '../lib/aiAgent'
 import { getAllBalances } from '../lib/balances'
 import { validateEnv } from '../lib/clients'
 import { dcaScheduler } from '../lib/scheduler'
@@ -420,10 +421,14 @@ export function useDcaDelegation() {
                 const res = await cfg.conditionCallback({ mode: 'manual', balances: balances as Record<string, string>, outToken })
                 if (res?.stop) {
                   dcaScheduler.stop()
-                  setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+                  setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined, lastError: res?.reason ? `Stopped: ${res.reason}` : 'Stopped by condition' }))
                   return
                 }
-                if (res && res.allow === false) return
+                if (res && res.allow === false) {
+                  // Skip this tick but surface a hint once
+                  setDcaStatus(prev => ({ ...prev, lastError: res?.reason ? `Skipped: ${res.reason}` : 'Skipped by condition' }))
+                  return
+                }
               } catch {}
             }
             await enqueueOp(() => runNativeSwapMonToToken(amountMon, slippageBps, outToken, true))
@@ -446,6 +451,32 @@ export function useDcaDelegation() {
           try {
             const firstDecision = await aiCallback(balances as Record<string, string>)
             if (firstDecision) {
+              const magma = (firstDecision as any).magmaAction as ('STAKE'|'UNSTAKE'|undefined)
+              if (magma === 'STAKE' || magma === 'UNSTAKE') {
+                let allowed = true
+                let stop = false
+                if (conditionCallback) {
+                  try {
+                    const res = await conditionCallback({ mode: 'ai', balances: balances as Record<string, string>, outToken: firstDecision.token })
+                    allowed = res?.allow !== false
+                    stop = !!res?.stop
+                  } catch {}
+                }
+                if (stop) {
+                  dcaScheduler.stop()
+                  setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+                }
+                if (allowed) {
+                  if (magma === 'STAKE') {
+                    await enqueueOp(async () => { await stakeMagma(firstDecision.amount) })
+                  } else {
+                    await enqueueOp(async () => { await unstakeMagma(firstDecision.amount) })
+                  }
+                  try { const did = (firstDecision as any).decisionId; if (did) autonomousAiAgent.markDecisionExecuted(did) } catch {}
+                }
+                currentInterval = Math.max(minInterval, Number(firstDecision.interval || clampedInterval))
+                // Skip swap handling
+              } else {
               const src = (firstDecision as any).sourceToken as string | undefined
               if (src && src.toUpperCase() !== 'MON') {
                 const meta = TOKENS[src.toUpperCase() as keyof typeof TOKENS]
@@ -463,7 +494,10 @@ export function useDcaDelegation() {
                     dcaScheduler.stop()
                     setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
                   }
-                  if (allowed) await enqueueOp(() => runErc20SwapToToken(meta.address as `0x${string}`, meta.decimals, (firstDecision as any).amount, slippageBps, firstDecision.token))
+                  if (allowed) {
+                    await enqueueOp(() => runErc20SwapToToken(meta.address as `0x${string}`, meta.decimals, (firstDecision as any).amount, slippageBps, firstDecision.token))
+                    try { const did = (firstDecision as any).decisionId; if (did) autonomousAiAgent.markDecisionExecuted(did) } catch {}
+                  }
                 } else {
                   let allowed = true
                   let stop = false
@@ -478,7 +512,10 @@ export function useDcaDelegation() {
                     dcaScheduler.stop()
                     setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
                   }
-                  if (allowed) await enqueueOp(() => runNativeSwapMonToToken(firstDecision.amount, slippageBps, firstDecision.token, true))
+                  if (allowed) {
+                    await enqueueOp(() => runNativeSwapMonToToken(firstDecision.amount, slippageBps, firstDecision.token, true))
+                    try { const did = (firstDecision as any).decisionId; if (did) autonomousAiAgent.markDecisionExecuted(did) } catch {}
+                  }
                 }
               } else {
                 let allowed = true
@@ -494,9 +531,13 @@ export function useDcaDelegation() {
                   dcaScheduler.stop()
                   setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
                 }
-                if (allowed) await enqueueOp(() => runNativeSwapMonToToken(firstDecision.amount, slippageBps, firstDecision.token, true))
+                if (allowed) {
+                  await enqueueOp(() => runNativeSwapMonToToken(firstDecision.amount, slippageBps, firstDecision.token, true))
+                  try { const did = (firstDecision as any).decisionId; if (did) autonomousAiAgent.markDecisionExecuted(did) } catch {}
+                }
               }
               currentInterval = Math.max(minInterval, Number(firstDecision.interval || clampedInterval))
+              }
             }
           } catch (e) {
             await enqueueOp(() => runNativeSwapMonToToken(amountMon, slippageBps, outToken, true))
@@ -510,6 +551,29 @@ export function useDcaDelegation() {
               try {
                 const aiDecision = await aiCallback(balances as Record<string, string>)
                 if (aiDecision) {
+                  const magma = (aiDecision as any).magmaAction as ('STAKE'|'UNSTAKE'|undefined)
+                  if (magma === 'STAKE' || magma === 'UNSTAKE') {
+                    const cfg = lastDcaConfigRef.current
+                    if (cfg?.conditionCallback) {
+                      try {
+                        const res = await cfg.conditionCallback({ mode: 'ai', balances: balances as Record<string, string>, outToken: aiDecision.token })
+                        if (res?.stop) {
+                          dcaScheduler.stop()
+                          setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
+                          return
+                        }
+                        if (res && res.allow === false) return
+                      } catch {}
+                    }
+                    if (magma === 'STAKE') {
+                      await enqueueOp(async () => { await stakeMagma(aiDecision.amount) })
+                    } else {
+                      await enqueueOp(async () => { await unstakeMagma(aiDecision.amount) })
+                    }
+                    try { const did = (aiDecision as any).decisionId; if (did) autonomousAiAgent.markDecisionExecuted(did) } catch {}
+                    currentInterval = Math.max(minInterval, Number(aiDecision.interval || currentInterval))
+                    dcaScheduler.updateInterval(currentInterval)
+                  } else {
                   const src = (aiDecision as any).sourceToken as string | undefined
                   if (src && src.toUpperCase() !== 'MON') {
                     const meta = TOKENS[src.toUpperCase() as keyof typeof TOKENS]
@@ -527,6 +591,7 @@ export function useDcaDelegation() {
                         } catch {}
                       }
                       await enqueueOp(() => runErc20SwapToToken(meta.address as `0x${string}`, meta.decimals, (aiDecision as any).amount, slippageBps, aiDecision.token))
+                      try { const did = (aiDecision as any).decisionId; if (did) autonomousAiAgent.markDecisionExecuted(did) } catch {}
                     } else {
                       const cfg = lastDcaConfigRef.current
                       if (cfg?.conditionCallback) {
@@ -541,6 +606,7 @@ export function useDcaDelegation() {
                         } catch {}
                       }
                       await enqueueOp(() => runNativeSwapMonToToken(aiDecision.amount, slippageBps, aiDecision.token, true))
+                      try { const did = (aiDecision as any).decisionId; if (did) autonomousAiAgent.markDecisionExecuted(did) } catch {}
                     }
                   } else {
                     const cfg = lastDcaConfigRef.current
@@ -556,10 +622,12 @@ export function useDcaDelegation() {
                       } catch {}
                     }
                     await enqueueOp(() => runNativeSwapMonToToken(aiDecision.amount, slippageBps, aiDecision.token, true))
+                    try { const did = (aiDecision as any).decisionId; if (did) autonomousAiAgent.markDecisionExecuted(did) } catch {}
                   }
                   // Update interval for next execution
                   currentInterval = Math.max(minInterval, Number(aiDecision.interval || currentInterval))
                   dcaScheduler.updateInterval(currentInterval)
+                  }
                 } else {
                   // AI decided to HOLD - just wait for next interval
                   console.log('[ai-dca] AI decided to HOLD')
@@ -1192,8 +1260,10 @@ export function useDcaDelegation() {
           throw e
         }
       }
-      setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
-      await refreshBalances()
+  setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+  await refreshBalances()
+  // Small post-refresh delay + second refresh to capture freshly minted gMON on some nodes
+  try { await new Promise(r => setTimeout(r, 1200)); await refreshBalances() } catch {}
       return uoHash
     } finally {
       setIsExecuting(false)
@@ -1230,14 +1300,28 @@ export function useDcaDelegation() {
           throw e
         }
       }
-      setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
-      await refreshBalances()
+  setDcaStatus(prev => ({ ...prev, lastUserOpHash: uoHash }))
+  await refreshBalances()
+  try { await new Promise(r => setTimeout(r, 1200)); await refreshBalances() } catch {}
       return uoHash
     } finally {
       setIsExecuting(false)
       setIsLoading(false)
     }
   }, [delegateSmartAccount, delegatorSmartAccount, isExecuting, refreshBalances])
+
+  // Ensure Magma delegation exists (trigger creation if missing)
+  const ensureMagmaDelegation = useCallback(async (): Promise<boolean> => {
+    if (!delegatorSmartAccount || !delegateSmartAccount) throw new Error('Smart accounts not initialized')
+    try {
+      // Minimal allowance (0) is fine to establish the scoped delegation; deposit path will recreate with max if needed
+      await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, 0n)
+      return true
+    } catch (e) {
+      console.error('[magma] ensure delegation failed:', e)
+      return false
+    }
+  }, [delegatorSmartAccount, delegateSmartAccount])
 
   // Panic: convert everything to MON, withdraw all MON to EOA, clear cache
   const panic = useCallback(async () => {
@@ -1336,6 +1420,7 @@ export function useDcaDelegation() {
     withdrawAll,
     stakeMagma,
     unstakeMagma,
+  ensureMagmaDelegation,
     
     runNativeSwapMonToToken,
     refreshBalances: () => refreshBalances(),

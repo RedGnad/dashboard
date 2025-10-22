@@ -32,6 +32,8 @@ export interface AuditReport {
   results: Array<AuditResult & { ruleId: string; ruleName: string }>
   overallStatus: 'PASS' | 'WARN' | 'FAIL'
   riskScore: number // 0-100
+  // Snapshot of market activity at audit time to drive UI indicators
+  txTodayAtAudit?: number
 }
 
 // Core audit rules for AI verification
@@ -234,7 +236,8 @@ export class AiAuditor {
       timestamp: Date.now(),
       results,
       overallStatus,
-      riskScore
+      riskScore,
+      txTodayAtAudit: context?.metrics?.txToday
     }
 
     this.auditHistory.unshift(report)
