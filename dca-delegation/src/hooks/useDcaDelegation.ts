@@ -336,7 +336,60 @@ export function useDcaDelegation() {
       const need = parseUnits(amountMon, 18)
       const have = parseUnits(latest.MON || '0', 18)
       if (have < need) {
-        throw new Error(`Insufficient MON in Delegator SA. Need ${amountMon}, have ${latest.MON || '0'}. Top up or reduce the amount.`)
+        // Optional: auto-unstake gMON to fund the shortfall when a cached Magma delegation exists (no extra signature)
+        try {
+          const autoUnstake = String((import.meta as any).env?.VITE_AUTO_UNSTAKE_FOR_OPS ?? 'true') !== 'false'
+          const gMonStr = (latest as any).gMON || '0'
+          const gHave = parseUnits(gMonStr || '0', 18)
+          const shortfall = need - have
+          if (autoUnstake && gHave > 0n && shortfall > 0n) {
+            const key = `dca-magma-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+            const stored = localStorage.getItem(key)
+            if (stored) {
+              try {
+                const md = JSON.parse(stored)
+                const targets: string[] = (md.delegation?.scope?.targets || md.scope?.targets || [])
+                const sels: string[] = (md.delegation?.scope?.selectors || md.scope?.selectors || [])
+                const hasTarget = Array.isArray(targets) && targets.map((x:string)=>x.toLowerCase()).includes((STAKE_MANAGER as string).toLowerCase())
+                const selSet = new Set(Array.isArray(sels) ? sels : [])
+                const hasSelectors = selSet.has('withdrawMon(uint256)')
+                const match = (md.from?.toLowerCase?.() === delegatorSmartAccount.address.toLowerCase()) && (md.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase())
+                if (match && hasTarget && hasSelectors && !isDelegationExpired(md)) {
+                  // Unstake just enough to cover the shortfall
+                  const shortfallMon = shortfall
+                  const maxUnstake = gHave
+                  const toUnstake = shortfallMon > maxUnstake ? maxUnstake : shortfallMon
+                  if (toUnstake > 0n) {
+                    const toUnstakeStr = (Number(toUnstake) / 1e18).toString()
+                    await redeemWithdrawMonDelegation(
+                      delegateSmartAccount,
+                      md,
+                      toUnstakeStr
+                    )
+                    // Refresh balances
+                    const after = await getAllBalances(delegatorSmartAccount.address as `0x${string}`)
+                    setBalances(after as unknown as Balances)
+                    // Record an operational entry in AI history for transparency
+                    try {
+                      const { autonomousAiAgent } = await import('../lib/aiAgent')
+                      autonomousAiAgent.recordSystemEvent(
+                        { type: 'UNSTAKE', amount: toUnstakeStr, reasoning: '[system] Auto-UNSTAKE pour financer un BUY (aucune popup)' } as any,
+                        { balances: after as Record<string, string>, metrics: { ...(dcaStatus as any).metricsToday ?? { whales24h: [], txToday: 0, feesTodayMon: 0 } }, portfolioValueMon: 0 }
+                      )
+                    } catch {}
+                  }
+                }
+              } catch {}
+            }
+          }
+        } catch {}
+        // Re-evaluate balance after potential unstake
+        const latest2 = await getAllBalances(delegatorSmartAccount.address as `0x${string}`)
+        setBalances(latest2 as unknown as Balances)
+        const have2 = parseUnits(latest2.MON || '0', 18)
+        if (have2 < need) {
+          throw new Error(`Insufficient MON in Delegator SA. Need ${amountMon}, have ${latest2.MON || '0'}. Top up or reduce the amount.`)
+        }
       }
 
       const uoHash = await redeemNativeSwapDelegation(
@@ -1272,14 +1325,39 @@ export function useDcaDelegation() {
   }, [delegateSmartAccount, delegatorSmartAccount, isExecuting, refreshBalances])
 
   // Magma: Unstake gMON -> MON via StakeManager.withdrawMon(amount)
-  const unstakeMagma = useCallback(async (amountMon: string) => {
+  const unstakeMagma = useCallback(async (amountMon: string, opts?: { silent?: boolean }) => {
     if (!delegateSmartAccount || !delegatorSmartAccount) throw new Error('Smart accounts not initialized')
     if (isExecuting) throw new Error('An operation is already in progress. Please wait for it to complete.')
     setIsExecuting(true)
     setIsLoading(true)
     try {
-      // Reuse existing Magma delegation or create minimal one (no value enforcer needed for withdraw)
-      let md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, 0n)
+      // Reuse existing Magma delegation; in silent mode, DO NOT create a new one (avoid popup)
+      let md: any = null
+      const silent = !!opts?.silent
+      if (silent) {
+        try {
+          const key = `dca-magma-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+          const stored = localStorage.getItem(key)
+          if (stored) {
+            const signed = JSON.parse(stored)
+            const targets: string[] = (signed.delegation?.scope?.targets || signed.scope?.targets || [])
+            const sels: string[] = (signed.delegation?.scope?.selectors || signed.scope?.selectors || [])
+            const hasTarget = Array.isArray(targets) && targets.map((x:string)=>x.toLowerCase()).includes((STAKE_MANAGER as string).toLowerCase())
+            const selSet = new Set(Array.isArray(sels) ? sels : [])
+            const hasSelectors = selSet.has('withdrawMon(uint256)')
+            const match = (signed.from?.toLowerCase?.() === delegatorSmartAccount.address.toLowerCase()) && (signed.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase())
+            if (match && hasTarget && hasSelectors && !isDelegationExpired(signed)) {
+              md = signed
+            }
+          }
+        } catch {}
+        if (!md) {
+          setDcaStatus(prev => ({ ...prev, lastError: 'Unstake silencieux indisponible: autorisation Magma absente/expirée. Activez « Auto stake » pour autoriser puis réessayez.' }))
+          return null
+        }
+      } else {
+        md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, 0n)
+      }
       let uoHash: `0x${string}` | null = null
       try {
         uoHash = await redeemWithdrawMonDelegation(
@@ -1289,7 +1367,7 @@ export function useDcaDelegation() {
         )
       } catch (e: any) {
         const msg = String(e?.message || '')
-        if (msg.includes('method-not-allowed') || msg.includes('expired')) {
+        if (!silent && (msg.includes('method-not-allowed') || msg.includes('expired'))) {
           md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, 0n)
           uoHash = await redeemWithdrawMonDelegation(
             delegateSmartAccount,
@@ -1372,16 +1450,20 @@ export function useDcaDelegation() {
     }
   }, [isConnected, address, isInitialized, hydrateFromCache])
 
-  // Periodic light refresh of balances
+  // Periodic light refresh of balances (throttled as requested)
   useEffect(() => {
+    // Faster refresh when actively DCA'ing or executing; slower otherwise
+    const fastMs = 3000
+    const slowMs = 6000
+    const intervalMs = (dcaStatus.isActive || isExecuting) ? fastMs : slowMs
     const id = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
       if (isInitialized && delegatorSmartAccount) {
         refreshBalances(delegatorSmartAccount.address)
       }
-    }, 2000)
+    }, intervalMs)
     return () => clearInterval(id)
-  }, [isInitialized, delegatorSmartAccount, refreshBalances])
+  }, [isInitialized, delegatorSmartAccount, refreshBalances, dcaStatus.isActive, isExecuting])
 
   // Clean up on disconnect
   useEffect(() => {

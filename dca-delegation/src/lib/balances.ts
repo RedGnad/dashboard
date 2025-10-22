@@ -99,33 +99,70 @@ export async function getWmonBalance(address: `0x${string}`) {
 
 // Get all balances for an address
 export async function getAllBalances(address: `0x${string}`) {
-  // Build balances for all tokens from TOKENS registry
-  const entries = await Promise.all(
-    Object.entries(TOKENS)
-      // Skip gMON here and fetch it specifically from StakeManager afterwards
-      .filter(([symbol]) => symbol !== 'gMON')
-      .map(async ([symbol, meta]) => {
-      try {
-        if (meta.isNative) {
-          const bal = await getBalance(publicClient, { address })
-          return [symbol, formatUnits(bal, meta.decimals)] as const
-        }
-        const bal = await readContract(publicClient, {
-          address: meta.address,
-          abi: ERC20_ABI,
-          functionName: 'balanceOf',
-          args: [address],
-        })
-        return [symbol, formatUnits(bal, meta.decimals)] as const
-      } catch (e) {
-        console.warn(`[balances] Failed to load ${symbol} balance`, e)
-        return [symbol, '0.0'] as const
-      }
-    })
-  )
+  const disableMulticallEnv = String((import.meta as any).env?.VITE_DISABLE_MULTICALL ?? 'false') === 'true'
+  // Session flag to avoid spamming a broken multicall endpoint
+  const sessionFlagKey = 'balances:disableMulticall'
+  let disableMulticall = disableMulticallEnv
+  try { if (!disableMulticall) disableMulticall = localStorage.getItem(sessionFlagKey) === '1' } catch {}
+  // Build balances for all tokens from TOKENS registry using multicall for ERC20s
+  const erc20Entries = Object.entries(TOKENS)
+    .filter(([symbol, meta]) => !meta.isNative && symbol !== 'gMON')
+  const nativeEntries = Object.entries(TOKENS)
+    .filter(([_, meta]) => meta.isNative)
 
   const map: Record<string, string> = {}
-  for (const [sym, val] of entries) map[sym] = val
+
+  // Native balances (usually just MON)
+  for (const [symbol, meta] of nativeEntries) {
+    try {
+      const bal = await getBalance(publicClient, { address })
+      map[symbol] = formatUnits(bal, meta.decimals)
+    } catch (e) {
+      console.warn(`[balances] Failed to load ${symbol} balance`, e)
+      map[symbol] = '0.0'
+    }
+  }
+
+  // ERC20 balances via multicall (unless disabled)
+  if (!disableMulticall) {
+    try {
+      const calls = erc20Entries.map(([_, meta]) => ({
+        address: meta.address as `0x${string}`,
+        abi: ERC20_ABI,
+        functionName: 'balanceOf' as const,
+        args: [address] as const,
+      }))
+      const res = await publicClient.multicall({ contracts: calls, allowFailure: true })
+      res.forEach((r, i) => {
+        const [symbol, meta] = erc20Entries[i]
+        try {
+          if ((r as any)?.status === 'success') {
+            map[symbol] = formatUnits((r as any).result as bigint, (meta as any).decimals)
+          } else {
+            map[symbol] = '0.0'
+          }
+        } catch (e) {
+          console.warn(`[balances] Failed to parse ${symbol} balance`, e)
+          map[symbol] = '0.0'
+        }
+      })
+    } catch (e) {
+      console.warn('[balances] Multicall failed, will disable for this session and fall back sequentially')
+      try { localStorage.setItem(sessionFlagKey, '1') } catch {}
+      disableMulticall = true
+    }
+  }
+  if (disableMulticall) {
+    for (const [symbol, meta] of erc20Entries) {
+      try {
+        const bal = await readContract(publicClient, { address: meta.address as `0x${string}`, abi: ERC20_ABI, functionName: 'balanceOf', args: [address] })
+        map[symbol] = formatUnits(bal, (meta as any).decimals)
+      } catch (err) {
+        console.warn(`[balances] Failed to load ${symbol} balance`, err)
+        map[symbol] = '0.0'
+      }
+    }
+  }
   // Fetch gMON balance via StakeManager.gMON() to get the actual token address
   try {
     const gmon = await getGMonAddress()

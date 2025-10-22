@@ -159,6 +159,26 @@ export class AutonomousAiAgent {
     return [...this.decisions]
   }
 
+  // Record non-AI operational events (e.g., silent UNSTAKE to fund a BUY)
+  recordSystemEvent(action: AiAction, context: { balances: Record<string, string>, metrics: EnvioMetrics, portfolioValueMon: number }) {
+    try {
+      const evt: AiDecision = {
+        id: `sys_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        timestamp: Date.now(),
+        personality: this.personality,
+        action,
+        context,
+        nextInterval: 0,
+        confidence: 1,
+        executed: true,
+      }
+      this.decisions.unshift(evt)
+      this.saveState()
+    } catch (e) {
+      console.warn('[ai] failed to record system event', e)
+    }
+  }
+
   private calculatePortfolioValue(balances: Record<string, string>): number {
     // Simple calculation: assume 1 MON = 1 unit, USDC stable, CHOG volatile
     const mon = parseFloat(balances.MON || '0')
@@ -310,19 +330,74 @@ export class AutonomousAiAgent {
             const minAmt = portfolioValue * 0.03
             const maxAmt = portfolioValue * 0.08
             const stakeAmt = Number.isFinite(amtNum) && amtNum > 0 ? Math.max(minAmt, Math.min(maxAmt, amtNum)) : minAmt
+
+            // Build richer staking reasoning from live metrics
+            const monSharePct = (share * 100).toFixed(0)
+            let momentumNote = ''
+            let volNote = ''
+            let altNote = ''
+            try {
+              if (tokenMetrics && tokenMetrics.length) {
+                const sortedByMomentum = tokenMetrics.slice().sort((a,b) => (b.momentum - a.momentum) || (a.volatility - b.volatility))
+                const best = sortedByMomentum[0]
+                const avgMomentum = tokenMetrics.reduce((s, t) => s + (t.momentum || 0), 0) / tokenMetrics.length
+                const avgVol = tokenMetrics.reduce((s, t) => s + (t.volatility || 0), 0) / tokenMetrics.length
+                momentumNote = avgMomentum < 1 ? 'broad momentum weak' : `best momentum: ${best.token} (${best.momentum.toFixed(1)})`
+                volNote = avgVol > 12 ? 'volatility elevated' : 'volatility moderate'
+                if (best && best.momentum < 1.2) {
+                  altNote = 'no clear outperformer this tick'
+                } else if (best) {
+                  altNote = `alt: ${best.token} looks strongest`
+                }
+              }
+            } catch {}
+            const whaleNote = highRisk ? 'whales active' : 'whales calm'
             decision = {
               ...decision,
               action: {
                 type: 'STAKE',
                 amount: stakeAmt.toFixed(4),
                 // Replace token-specific reasoning to avoid confusion when bias converts BUY->STAKE
-                reasoning: `Converted to STAKE on Magma for yield: high MON share${highRisk ? ' + elevated whale activity' : ''}`
+                reasoning: `Stake on Magma: MON share ${monSharePct}%, ${whaleNote}${momentumNote ? `, ${momentumNote}` : ''}${volNote ? `, ${volNote}` : ''}${altNote ? ` — ${altNote}` : ''}`
               } as any
             }
             }
           }
         }
       } catch {}
+
+      // If the model directly chose STAKE, enrich simplistic reasoning using metrics
+      if (allowStake && decision.action.type === 'STAKE') {
+        try {
+          const monBal = parseFloat(balances.MON || '0') + parseFloat(balances.WMON || '0')
+          const share = portfolioValue > 0 ? (monBal / portfolioValue) : 0
+          const whaleCount = metrics.whales24h.length
+          const highRisk = whaleCount > 10
+          const monSharePct = (share * 100).toFixed(0)
+          let momentumNote = ''
+          let volNote = ''
+          let altNote = ''
+          if (tokenMetrics && tokenMetrics.length) {
+            const sortedByMomentum = tokenMetrics.slice().sort((a,b) => (b.momentum - a.momentum) || (a.volatility - b.volatility))
+            const best = sortedByMomentum[0]
+            const avgMomentum = tokenMetrics.reduce((s, t) => s + (t.momentum || 0), 0) / tokenMetrics.length
+            const avgVol = tokenMetrics.reduce((s, t) => s + (t.volatility || 0), 0) / tokenMetrics.length
+            momentumNote = avgMomentum < 1 ? 'broad momentum weak' : `best momentum: ${best.token} (${best.momentum.toFixed(1)})`
+            volNote = avgVol > 12 ? 'volatility elevated' : 'volatility moderate'
+            if (best && best.momentum < 1.2) {
+              altNote = 'no clear outperformer this tick'
+            } else if (best) {
+              altNote = `alt: ${best.token} looks strongest`
+            }
+          }
+          const whaleNote = highRisk ? 'whales active' : 'whales calm'
+          const prevReason = String((decision.action as any).reasoning || '')
+          const tooGeneric = prevReason.length < 24 || /stake via magma/i.test(prevReason)
+          if (tooGeneric) {
+            (decision.action as any).reasoning = `Stake on Magma: MON share ${monSharePct}%, ${whaleNote}${momentumNote ? `, ${momentumNote}` : ''}${volNote ? `, ${volNote}` : ''}${altNote ? ` — ${altNote}` : ''}`
+          }
+        } catch {}
+      }
       if (decision.action.type === 'BUY') {
         const lastSame = this.decisions
           .filter(d => d.action.type === 'BUY')
@@ -468,9 +543,10 @@ ${allowStake ? `- Consider STAKE only when MON share is very high (≥55% of por
 - Maintain diversification even when staking is considered; do not let gMON crowd out volatile exposure.` : `- Staking is DISABLED by the user. Do not propose STAKE or UNSTAKE.`}
 
 DECISION LOGIC:
-- Choose source token based on available balance (MON or USDC)
-- Choose target token based on market analysis and personality
-- Consider portfolio diversification and risk management
+- Choose source token based on available balance (MON or USDC). You may also rotate positions by using SWAP: sell any volatile you hold into another volatile with better metrics (momentum/liquidity) instead of always routing via MON.
+- Choose target token based on comparative metrics: favor higher momentum, adequate liquidity, and reasonable volatility. Consider whale activity as a risk modifier.
+- If MON balance is low but gMON exists and staking is allowed, you may UNSTAKE first, then proceed (keep stake usage modest overall).
+- Maintain diversification and risk management.
 
 Respond with JSON only:
 {

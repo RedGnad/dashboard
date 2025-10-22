@@ -24,16 +24,9 @@ export default function AiVerificationPanel({
   portfolioValueMon,
   delegationExpired,
 }: AiVerificationPanelProps) {
-  const {
-    auditHistory,
-    isAuditing,
-    auditDecision,
-    exportForSwarm,
-  } = useAiAudit();
-  const {
-    decisions,
-    enabled: aiEnabled,
-  } = useAutonomousAi();
+  const { auditHistory, isAuditing, auditDecision, exportForSwarm } =
+    useAiAudit();
+  const { decisions, enabled: aiEnabled } = useAutonomousAi();
   const { metrics, loading: envioLoading } = useEnvioMetrics();
   const [selectedReport, setSelectedReport] = useState<AuditReport | null>(
     null
@@ -150,7 +143,7 @@ export default function AiVerificationPanel({
     }
     // If latest audit exists but had 0 tx at audit time, show yellow (non-pulsing)
     if (auditHistory.length > 0) {
-      const txAtAudit = (auditHistory[0].txTodayAtAudit ?? 0);
+      const txAtAudit = auditHistory[0].txTodayAtAudit ?? 0;
       if (txAtAudit <= 0) {
         return "ring-1 ring-yellow-400/40 shadow-[0_0_20px_rgba(250,204,21,0.20)]";
       }
@@ -191,7 +184,7 @@ export default function AiVerificationPanel({
                 );
               }
               if (hasAudit) {
-                const txAtAudit = (auditHistory[0].txTodayAtAudit ?? 0);
+                const txAtAudit = auditHistory[0].txTodayAtAudit ?? 0;
                 if (txAtAudit <= 0) {
                   return (
                     <div className="flex items-center gap-2 px-2 py-1 rounded border shadow-[0_0_12px_rgba(250,204,21,0.25)] bg-yellow-500/10 border-yellow-400/30 text-yellow-300">
@@ -335,11 +328,15 @@ export default function AiVerificationPanel({
                     {getStatusIcon(report.overallStatus)}
                     {/* Activity badge: yellow when 0 tx, green when >0 tx at audit time */}
                     {(() => {
-                      const txAtAudit = (report.txTodayAtAudit ?? 0);
-                      const color = txAtAudit > 0 ? 'bg-emerald-400' : 'bg-yellow-300';
+                      const txAtAudit = report.txTodayAtAudit ?? 0;
+                      const color =
+                        txAtAudit > 0 ? "bg-emerald-400" : "bg-yellow-300";
                       const title = `Activity: ${txAtAudit} tx`;
                       return (
-                        <span className={`inline-block w-2 h-2 rounded-full ${color}`} title={title} />
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full ${color}`}
+                          title={title}
+                        />
                       );
                     })()}
                     <span className="text-sm text-gray-300">

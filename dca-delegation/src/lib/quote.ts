@@ -15,7 +15,7 @@ const client = createPublicClient({ chain: { id: CHAIN_ID, name: 'monad-testnet'
 
 type QuoteKey = `${string}->${string}`
 const cache = new Map<QuoteKey, { t: number; p: number }>()
-const TTL_MS = 10_000
+const TTL_MS = Number(((import.meta as any).env?.VITE_QUOTE_TTL_MS) ?? 10_000)
 const DEBUG = ((import.meta as any).env?.VITE_DEBUG_PRICING ?? 'false') === 'true'
 const MIN_PAIR_USD = Number(((import.meta as any).env?.VITE_MIN_PAIR_USD) ?? 500)
 type AggMode = 'RESERVES' | 'ROUTER' | 'MEDIAN'

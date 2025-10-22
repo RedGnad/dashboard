@@ -225,13 +225,8 @@ export default function DcaControl() {
   const [aiTrailPct, setAiTrailPct] = useState<string>("5");
   const trailHighRef = useRef<Record<string, number>>({});
   const aiTrailHighRef = useRef<Record<string, number>>({});
-  const [showMA5, setShowMA5] = useState(false);
-  const [showMA15, setShowMA15] = useState(false);
-  const [showEMA9, setShowEMA9] = useState(false);
-  const [showEMA21, setShowEMA21] = useState(false);
-  const [emaGate, setEmaGate] = useState(false);
-  const [showVolume, setShowVolume] = useState(true);
-  const [showIndicators, setShowIndicators] = useState(false);
+  const [emaGate] = useState(false);
+  const [showVolume] = useState(false);
   const [logScale, setLogScale] = useState(false);
   const [chartUnit, setChartUnit] = useState<"USD" | "%">("%");
   const MAX_POINTS = Number((import.meta as any).env?.VITE_CHART_POINTS ?? 120);
@@ -562,7 +557,6 @@ export default function DcaControl() {
         { allowStake: restakeAi }
       );
       if (decision && decision.action.type !== "HOLD") {
-
         // Handle different action types
         // MAGMA: STAKE / UNSTAKE handled by hook scheduler via magmaAction flag
         if (decision.action.type === "STAKE") {
@@ -621,7 +615,8 @@ export default function DcaControl() {
           );
           const tgtReq = (decision.action.targetToken || "").toUpperCase();
           const finalSymbol = tgtReq === "WMON" ? "USDC" : tgtReq;
-          const targetAddress = (tokenMap[finalSymbol] || USDC) as `0x${string}`;
+          const targetAddress = (tokenMap[finalSymbol] ||
+            USDC) as `0x${string}`;
           const srcReq = (decision.action.sourceToken || "").toUpperCase();
           return {
             amount: decision.action.amount || "0.05",
@@ -909,19 +904,35 @@ export default function DcaControl() {
                       whale activity, and portfolio balance.
                     </span>
                     <span className="ml-2 inline-flex items-center gap-1">
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          !metricsLoading && !metricsError
-                            ? "bg-green-400"
-                            : "bg-yellow-400"
-                        }`}
-                      ></span>
-                      <span className="text-[11px] text-gray-400">
-                        Envio{" "}
-                        {!metricsLoading && !metricsError
+                      {(() => {
+                        const fresh =
+                          !!metrics?.lastUpdated &&
+                          Date.now() - (metrics.lastUpdated || 0) < 120000;
+                        const color = fresh
+                          ? "bg-green-400"
+                          : metricsLoading
+                          ? "bg-yellow-400"
+                          : metricsError
+                          ? "bg-red-400"
+                          : "bg-yellow-400";
+                        const label = fresh
                           ? "Available"
-                          : "Pending"}
-                      </span>
+                          : metricsLoading
+                          ? "Pending"
+                          : metricsError
+                          ? "Offline"
+                          : "Pending";
+                        return (
+                          <>
+                            <span
+                              className={`w-2 h-2 rounded-full ${color}`}
+                            ></span>
+                            <span className="text-[11px] text-gray-400">
+                              Envio {label}
+                            </span>
+                          </>
+                        );
+                      })()}
                     </span>
                   </div>
                 </div>
@@ -1293,7 +1304,7 @@ export default function DcaControl() {
                             try {
                               const amt = (balances as any).gMON || "0";
                               if (parseFloat(amt) > 0) {
-                                unstakeMagma?.(amt);
+                                unstakeMagma?.(amt, { silent: true });
                               }
                             } catch {}
                           }}
@@ -1859,7 +1870,7 @@ export default function DcaControl() {
                         : "bg-white/5 text-gray-300"
                     }`}
                   >
-                    Price
+                    Price Index
                   </button>
                   <button
                     onClick={() => {
@@ -1906,63 +1917,71 @@ export default function DcaControl() {
                       ? tokenSeriesPrice
                       : tokenSeriesMomentum
                   );
-                  const hasAnyPoints = baseSeries.some(s => (s.points || []).length > 0)
-                  const s = (
-                    tokenMetricKind === "price"
-                      ? tokenSeriesPrice
-                      : tokenSeriesMomentum
-                  )[sym]?.points || [];
+                  const hasAnyPoints = baseSeries.some(
+                    (s) => (s.points || []).length > 0
+                  );
+                  // Selected token points unused (overlays removed)
                   const datesForChart =
                     tokenMetricKind === "price"
                       ? tokenDatesPrice
                       : tokenDatesMomentum;
+                  // For momentum display, derive a rolling % momentum from PRICE series to guarantee a distinct shape from raw USD prices.
+                  // Momentum = % change between recent avg (last 10) and older avg (previous 20) per timestamp.
+                  function deriveMomentumFromPrice() {
+                    const out: {
+                      token: string;
+                      points: { x: string; y: number }[];
+                    }[] = [];
+                    const shortW = 10;
+                    const longW = 30;
+                    for (const s of Object.values(tokenSeriesPrice)) {
+                      const pts = s.points || [];
+                      if (!pts.length) {
+                        out.push({ token: s.token, points: [] });
+                        continue;
+                      }
+                      const ys = pts.map((p) => p.y);
+                      const mo: { x: string; y: number }[] = [];
+                      for (let i = 0; i < ys.length; i++) {
+                        const iShort = Math.max(0, i - shortW + 1);
+                        const iLongStart = Math.max(0, i - longW + 1);
+                        const olderEnd = Math.max(iLongStart, iShort);
+                        const recentSlice = ys.slice(iShort, i + 1);
+                        const olderSlice = ys.slice(iLongStart, olderEnd);
+                        const avg = (arr: number[]) =>
+                          arr.length
+                            ? arr.reduce((a, b) => a + b, 0) / arr.length
+                            : NaN;
+                        const rAvg = avg(recentSlice);
+                        const oAvg = avg(olderSlice);
+                        const y =
+                          Number.isFinite(oAvg) &&
+                          oAvg > 0 &&
+                          Number.isFinite(rAvg)
+                            ? ((rAvg - oAvg) / oAvg) * 100
+                            : 0;
+                        mo.push({ x: pts[i].x, y });
+                      }
+                      out.push({ token: s.token, points: mo });
+                    }
+                    return out;
+                  }
+                  const displaySeries =
+                    tokenMetricKind === "price"
+                      ? baseSeries
+                      : deriveMomentumFromPrice();
                   if (!hasAnyPoints) {
                     return (
-                      <div className="text-sm text-gray-400">Warming up live metrics…</div>
-                    )
+                      <div className="text-sm text-gray-400">
+                        Warming up live metrics…
+                      </div>
+                    );
                   }
-                  function ma(
-                    points: { x: string; y: number }[],
-                    window: number
-                  ) {
-                    const out: { x: string; y: number }[] = [];
-                    let sum = 0;
-                    for (let i = 0; i < points.length; i++) {
-                      sum += points[i].y;
-                      if (i >= window) sum -= points[i - window].y;
-                      if (i >= window - 1)
-                        out.push({ x: points[i].x, y: sum / window });
-                    }
-                    return out;
-                  }
-                  function ema(
-                    points: { x: string; y: number }[],
-                    window: number
-                  ) {
-                    const k = 2 / (window + 1);
-                    let e: number | null = null;
-                    const out: { x: string; y: number }[] = [];
-                    for (let i = 0; i < points.length; i++) {
-                      const y = points[i].y;
-                      e = e == null ? y : y * k + (e as number) * (1 - k);
-                      out.push({ x: points[i].x, y: e });
-                    }
-                    return out;
-                  }
+                  // overlays removed
                   const overlays = [] as {
                     token: string;
                     points: { x: string; y: number }[];
                   }[];
-                  if (tokenMetricKind === "price") {
-                    if (showMA5 && s.length)
-                      overlays.push({ token: "MA5", points: ma(s, 5) });
-                    if (showMA15 && s.length)
-                      overlays.push({ token: "MA15", points: ma(s, 15) });
-                    if (showEMA9 && s.length)
-                      overlays.push({ token: "EMA9", points: ema(s, 9) });
-                    if (showEMA21 && s.length)
-                      overlays.push({ token: "EMA21", points: ema(s, 21) });
-                  }
                   return (
                     <div>
                       <div className="flex items-center gap-3 mb-2 text-xs text-gray-300 flex-wrap">
@@ -1990,105 +2009,20 @@ export default function DcaControl() {
                                 %
                               </button>
                             </div>
-                            <button
-                              onClick={() => setShowIndicators((v) => !v)}
-                              className="px-2 py-0.5 rounded bg-white/5 text-gray-300 hover:text-white"
-                              title="Show/hide indicators"
-                            >
-                              Indicators
-                            </button>
-                            {showIndicators && (
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <label className="inline-flex items-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    className="accent-purple-500"
-                                    checked={logScale}
-                                    onChange={(e) =>
-                                      setLogScale(e.target.checked)
-                                    }
-                                  />{" "}
-                                  Log scale
-                                </label>
-                                <label className="inline-flex items-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    className="accent-purple-500"
-                                    checked={showMA5}
-                                    onChange={(e) =>
-                                      setShowMA5(e.target.checked)
-                                    }
-                                  />{" "}
-                                  MA5
-                                </label>
-                                <label className="inline-flex items-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    className="accent-purple-500"
-                                    checked={showMA15}
-                                    onChange={(e) =>
-                                      setShowMA15(e.target.checked)
-                                    }
-                                  />{" "}
-                                  MA15
-                                </label>
-                                <label className="inline-flex items-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    className="accent-purple-500"
-                                    checked={showEMA9}
-                                    onChange={(e) =>
-                                      setShowEMA9(e.target.checked)
-                                    }
-                                  />{" "}
-                                  EMA9
-                                </label>
-                                <label className="inline-flex items-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    className="accent-purple-500"
-                                    checked={showEMA21}
-                                    onChange={(e) =>
-                                      setShowEMA21(e.target.checked)
-                                    }
-                                  />{" "}
-                                  EMA21
-                                </label>
-                                <label
-                                  className="inline-flex items-center gap-1"
-                                  title="Gate DCA by EMA cross (EMA9 ≥ EMA21)"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    className="accent-emerald-500"
-                                    checked={emaGate}
-                                    onChange={(e) =>
-                                      setEmaGate(e.target.checked)
-                                    }
-                                  />{" "}
-                                  Use EMA cross gate
-                                </label>
-                                <label
-                                  className="inline-flex items-center gap-1"
-                                  title="Toggle volume bars visibility"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    className="accent-blue-500"
-                                    checked={showVolume}
-                                    onChange={(e) =>
-                                      setShowVolume(e.target.checked)
-                                    }
-                                  />{" "}
-                                  Show volume
-                                </label>
-                              </div>
-                            )}
+                            <label className="inline-flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                className="accent-purple-500"
+                                checked={logScale}
+                                onChange={(e) => setLogScale(e.target.checked)}
+                              />{" "}
+                              Log scale
+                            </label>
                           </>
                         )}
                       </div>
                       <TokenMetricsChart
-                        series={baseSeries as any}
+                        series={displaySeries as any}
                         dates={datesForChart}
                         zeroAxis={tokenMetricKind !== "price"}
                         overlays={overlays}

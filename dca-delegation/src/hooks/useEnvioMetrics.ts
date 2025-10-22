@@ -73,9 +73,14 @@ export function useEnvioMetrics(saAddress?: string) {
     }
 
   let abort = new AbortController()
+    let consecutiveErrors = 0
+    const hadFreshCache = !!metrics?.lastUpdated && (Date.now() - (metrics.lastUpdated || 0) < 2 * 60 * 1000)
     async function run() {
-      setLoading(true)
-      setError(null)
+      // Si on a un cache frais, ne pas remettre en "loading" ni effacer l'erreur tout de suite
+      if (!hadFreshCache) {
+        setLoading(true)
+        setError(null)
+      }
       try {
         // 1) Global market activity today from SwapEvent + Kuru_Trade + TokenTransfer (unique tx hashes)
         const dayActivity = await queryEnvio<{ SwapEvent: Array<any>; Kuru_Trade: Array<any>; TokenTransfer: Array<any> }>({
@@ -174,7 +179,16 @@ export function useEnvioMetrics(saAddress?: string) {
         }
       } catch (e: any) {
         if (abort.signal.aborted) return
-        setError(e.message || String(e))
+        consecutiveErrors++
+        // Politique "gracieuse": si on a un cache frais, ne pas passer en Offline dès la 1ère erreur
+        if (!hadFreshCache || consecutiveErrors > 1) {
+          setError(e.message || String(e))
+          setLoading(false)
+        } else {
+          // réessayer rapidement sans basculer l'UI
+          setTimeout(() => { if (!abort.signal.aborted) run() }, 1500)
+          return
+        }
       } finally {
         if (!abort.signal.aborted) setLoading(false)
       }

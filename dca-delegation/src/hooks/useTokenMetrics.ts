@@ -39,6 +39,10 @@ let STATE: { tokenMetrics: TokenMetrics[]; loading: boolean; error: string | nul
 let POLL_ID: any = null
 let IN_FLIGHT = false
 let ABORT: AbortController | null = null
+// Cooldowns to avoid hammering router fallback per token
+const LAST_ROUTER_FALLBACK: Map<string, number> = new Map()
+const ROUTER_FALLBACK_COOLDOWN_MS = Number(((import.meta as any).env?.VITE_ROUTER_FALLBACK_COOLDOWN_MS) ?? 300_000)
+const ROUTER_SANITY_CHECK = ((import.meta as any).env?.VITE_PRICE_SANITY_ROUTER ?? 'false') === 'true'
 
 async function pollOnce() {
   if (IN_FLIGHT) return
@@ -153,7 +157,7 @@ async function pollOnce() {
 function ensurePolling() {
   if (POLL_ID) return
   const pollMs = Number((import.meta as any).env?.VITE_ENVIO_POLL_MS ?? 15000)
-  // Kick immediately then poll
+  // Kick immediately then poll (do not reduce below prior behavior)
   pollOnce()
   POLL_ID = setInterval(pollOnce, Math.max(5000, pollMs))
 }
@@ -374,6 +378,8 @@ export async function calculateTokenMetrics(swaps: any[], tokenMetricsRaw: any[]
       if (debug) console.info('[pricing]', t.symbol, 'no-samples: using fallbacks (router/BFS)')
       // Try on-chain router quote fallback (optional; RPC-only)
       try {
+        const last = LAST_ROUTER_FALLBACK.get(addr) || 0
+        if (Date.now() - last < ROUTER_FALLBACK_COOLDOWN_MS) throw new Error('cooldown')
         const addrChecksum = (addr as `0x${string}`)
         const quoted = await quoteUsdcPerToken(addrChecksum)
         if (Number.isFinite(quoted) && (quoted as number) > 0 && (quoted as number) < 1e9) {
@@ -397,6 +403,7 @@ export async function calculateTokenMetrics(swaps: any[], tokenMetricsRaw: any[]
             liquidityScore,
             trend: 'sideways'
           })
+          LAST_ROUTER_FALLBACK.set(addr, Date.now())
           continue
         }
       } catch {}
@@ -536,9 +543,10 @@ export async function calculateTokenMetrics(swaps: any[], tokenMetricsRaw: any[]
     else if (priceChange24h < -5 && momentum < -2) trend = 'bearish'
 
     // Sanity-check via router quote: si l'écart est > 10x, on privilégie la quote on-chain
-    try {
-      const quoted = await quoteUsdcPerToken(addr as `0x${string}`)
-      if (Number.isFinite(quoted) && (quoted as number) > 0 && (quoted as number) < 1e9) {
+    if (ROUTER_SANITY_CHECK) {
+      try {
+        const quoted = await quoteUsdcPerToken(addr as `0x${string}`)
+        if (Number.isFinite(quoted) && (quoted as number) > 0 && (quoted as number) < 1e9) {
         const q = quoted as number
         const ratio = currentPrice > 0 ? (q > currentPrice ? q / currentPrice : currentPrice / q) : Infinity
         if (!Number.isFinite(currentPrice) || currentPrice <= 0 || ratio > 10) {
@@ -555,8 +563,9 @@ export async function calculateTokenMetrics(swaps: any[], tokenMetricsRaw: any[]
           })
           continue
         }
-      }
-    } catch {}
+        }
+      } catch {}
+    }
 
     if (debug) {
       console.info('[pricing]', t.symbol, 'samples=', normalizedPrices.length, 'price=', currentPrice, 'vol24h=', volume24h)
