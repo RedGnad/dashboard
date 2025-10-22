@@ -8,6 +8,7 @@ const QUIPS = [
   "I am dumb but I always try my best.",
   "I love novee",
   "Serious alpha: Chogtanks is the best game on Monad so far, forget the AAAs",
+  "I am a \"neural\" AI companion.",
 ] as const;
 
 const FORTYTWO_MSG =

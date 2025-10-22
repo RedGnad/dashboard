@@ -13,6 +13,26 @@
     <meta property="fc:miniapp:name" content="DCA Delegation" />
     <meta property="fc:miniapp:icon" content="/vite.svg" />
     <meta property="fc:miniapp:description" content="DCA on Monad with Delegation Toolkit" />
+    <!-- Debug script for testing endpoints -->
+    <script>
+      window.debugEnvio = function() {
+        const ls = localStorage.getItem('envio-endpoint');
+        const params = new URLSearchParams(window.location.search);
+        const envioParam = params.get('envio');
+        console.log('=== ENVIO DEBUG ===');
+        console.log('LocalStorage envio-endpoint:', ls);
+        console.log('URL param envio:', envioParam);
+        return { ls, envioParam };
+      };
+      window.setEnvioFast = function() {
+        localStorage.setItem('envio-endpoint', 'FAST');
+        console.log('Set to FAST, reload page to apply');
+      };
+      window.setEnvioPrecise = function() {
+        localStorage.setItem('envio-endpoint', 'PRECISE');2
+        console.log('Set to PRECISE, reload page to apply');
+      };
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -234,6 +234,8 @@ export default function DcaControl() {
   // Auto stake: always default OFF on every page load (no persistence)
   const [restakeAi, setRestakeAi] = useState<boolean>(false);
 
+  // Force AI to only stake (debug mode)
+
   const [envioMode, setEnvioMode] = useState<"FAST" | "PRECISE" | "DEFAULT">(
     () => {
       try {
@@ -243,8 +245,12 @@ export default function DcaControl() {
         const ls = localStorage.getItem("envio-endpoint")?.toUpperCase();
         if (ls === "FAST" || ls === "PRECISE") return ls;
       } catch {}
-      // Default to PRECISE when not specified
-      return "PRECISE";
+      // Respect the environment variable VITE_ENVIO_DEFAULT
+      const envDefault = String(
+        (import.meta as any).env?.VITE_ENVIO_DEFAULT ?? "FAST"
+      ).toUpperCase();
+      if (envDefault === "FAST" || envDefault === "PRECISE") return envDefault;
+      return "FAST";
     }
   );
   const applyEnvioMode = useCallback((mode: "FAST" | "PRECISE") => {
@@ -270,30 +276,58 @@ export default function DcaControl() {
 
     for (const sym of allowed) {
       const m = tokenMetrics.find((tm) => tm.token === sym);
-      const p = Number.isFinite(m?.price) ? Number(m?.price) : 0;
-      const mom = Number.isFinite(m?.momentum) ? Number(m?.momentum) : 0;
-      const vol = Number.isFinite(m?.volatility) ? Number(m?.volatility) : 0;
 
+      // Prix: si pas de nouvelle donnée, on propage la dernière valeur au lieu d'ajouter 0
       const prevP = nextPrice[sym]?.points || [];
-      const ptsP = [...prevP, { x: label, y: p }];
-      while (ptsP.length > MAX_POINTS) ptsP.shift();
-      nextPrice[sym] = { token: sym, points: ptsP };
+      const lastP = prevP.length ? prevP[prevP.length - 1].y : undefined;
+      const newP =
+        m && Number.isFinite(m.price) && Number(m.price) > 0
+          ? Number(m.price)
+          : undefined;
+      if (newP != null || lastP != null) {
+        const y = newP != null ? newP : (lastP as number);
+        const ptsP = [...prevP, { x: label, y }];
+        while (ptsP.length > MAX_POINTS) ptsP.shift();
+        nextPrice[sym] = { token: sym, points: ptsP };
+      }
 
+      // Momentum: accepte 0 comme valeur légitime mais évite d'écrire 0 quand m est absent
       const prevM = nextMom[sym]?.points || [];
-      const ptsM = [...prevM, { x: label, y: mom }];
-      while (ptsM.length > MAX_POINTS) ptsM.shift();
-      nextMom[sym] = { token: sym, points: ptsM };
+      const lastM = prevM.length ? prevM[prevM.length - 1].y : undefined;
+      const newM =
+        m && Number.isFinite(m.momentum) ? Number(m.momentum) : undefined;
+      if (newM != null || lastM != null) {
+        const y = newM != null ? newM : (lastM as number);
+        const ptsM = [...prevM, { x: label, y }];
+        while (ptsM.length > MAX_POINTS) ptsM.shift();
+        nextMom[sym] = { token: sym, points: ptsM };
+      }
 
+      // Volatilité: idem
       const prevV = nextVol[sym]?.points || [];
-      const ptsV = [...prevV, { x: label, y: vol }];
-      while (ptsV.length > MAX_POINTS) ptsV.shift();
-      nextVol[sym] = { token: sym, points: ptsV };
+      const lastV = prevV.length ? prevV[prevV.length - 1].y : undefined;
+      const newV =
+        m && Number.isFinite(m.volatility) ? Number(m.volatility) : undefined;
+      if (newV != null || lastV != null) {
+        const y = newV != null ? newV : (lastV as number);
+        const ptsV = [...prevV, { x: label, y }];
+        while (ptsV.length > MAX_POINTS) ptsV.shift();
+        nextVol[sym] = { token: sym, points: ptsV };
+      }
 
-      const vol24 = Number.isFinite(m?.volume24h) ? Number(m?.volume24h) : 0;
+      // Volume 24h: si pas de nouvelle donnée, on propage la dernière valeur
       const prevVol = nextVolSeries[sym]?.points || [];
-      const ptsVol = [...prevVol, { x: label, y: vol24 }];
-      while (ptsVol.length > MAX_POINTS) ptsVol.shift();
-      nextVolSeries[sym] = { token: sym, points: ptsVol };
+      const lastVol = prevVol.length
+        ? prevVol[prevVol.length - 1].y
+        : undefined;
+      const newVol =
+        m && Number.isFinite(m.volume24h) ? Number(m.volume24h) : undefined;
+      if (newVol != null || lastVol != null) {
+        const y = newVol != null ? newVol : (lastVol as number);
+        const ptsVol = [...prevVol, { x: label, y }];
+        while (ptsVol.length > MAX_POINTS) ptsVol.shift();
+        nextVolSeries[sym] = { token: sym, points: ptsVol };
+      }
     }
 
     const ndP = [...(tokenDatesPrice || []), label];
@@ -767,6 +801,27 @@ export default function DcaControl() {
                   <div className="text-xl font-semibold text-white flex items-center gap-2">
                     <SlidersHorizontal size={18} />
                     DCA
+                    {/* Pastille Envio Status avec texte */}
+                    <div className="flex items-center gap-1">
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          !metricsLoading &&
+                          !metricsError &&
+                          metrics?.lastUpdated
+                            ? "bg-green-400"
+                            : "bg-gray-500"
+                        }`}
+                      />
+                      <span className="text-xs text-gray-400">
+                        {!metricsLoading &&
+                        !metricsError &&
+                        metrics?.lastUpdated
+                          ? "Envio Ready"
+                          : metricsLoading
+                          ? "Loading..."
+                          : "Unavailable"}
+                      </span>
+                    </div>
                   </div>
                   <label className="inline-flex items-center gap-2 text-sm text-gray-300">
                     <input
@@ -786,19 +841,6 @@ export default function DcaControl() {
                     AI Control
                   </label>
                   <div className="flex items-center gap-2">
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        !metricsLoading && !metricsError
-                          ? "bg-green-400"
-                          : "bg-yellow-400"
-                      }`}
-                    ></span>
-                    <span className="text-[11px] text-gray-400">
-                      Envio{" "}
-                      {!metricsLoading && !metricsError
-                        ? "Available"
-                        : "Pending"}
-                    </span>
                     <button
                       type="button"
                       onClick={() => setShowAiLimits((v) => !v)}
@@ -1187,7 +1229,7 @@ export default function DcaControl() {
                   </div>
                   <div>
                     <label className="block text-xs text-gray-300 mb-1">
-                      Portfolio Actions
+                      Convert to MON
                     </label>
                     <button
                       onClick={() => convertAllToMon(parseInt(slippageBps))}
@@ -1209,7 +1251,7 @@ export default function DcaControl() {
               <div className="glass rounded-2xl p-5">
                 <div className="text-lg font-semibold mb-3 text-white flex items-center gap-2">
                   <Cpu size={18} />
-                  Magma Liquid Stacking
+                  Magma Liquid Staking
                 </div>
                 <div className="space-y-3 text-sm text-gray-300">
                   <div className="flex items-center justify-between">
@@ -1237,6 +1279,8 @@ export default function DcaControl() {
                     helpful. This helps you earn yield while keeping funds
                     liquid. You can turn this off anytime.
                   </div>
+
+                  {/* Debug mode: Force stake only */}
                 </div>
               </div>
               <div className="glass rounded-2xl p-5">
@@ -1300,13 +1344,29 @@ export default function DcaControl() {
                           {(balances as any).gMON ?? "0.0"}
                         </span>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             try {
                               const amt = (balances as any).gMON || "0";
+                              console.log(
+                                "[unstake] Attempting to unstake gMON amount:",
+                                amt
+                              );
                               if (parseFloat(amt) > 0) {
-                                unstakeMagma?.(amt, { silent: true });
+                                const result = await unstakeMagma?.(amt, {
+                                  silent: true,
+                                });
+                                console.log(
+                                  "[unstake] Unstake result:",
+                                  result
+                                );
+                              } else {
+                                console.warn(
+                                  "[unstake] No gMON balance to unstake"
+                                );
                               }
-                            } catch {}
+                            } catch (e) {
+                              console.error("[unstake] Unstake failed:", e);
+                            }
                           }}
                           disabled={isLoading}
                           className="px-2 py-0.5 text-xs rounded bg-gradient-to-r from-amber-600 to-yellow-600 text-white disabled:opacity-50"
@@ -1359,7 +1419,12 @@ export default function DcaControl() {
                 </div>
                 <div className="mt-3">
                   <button
-                    onClick={() => withdrawAll()}
+                    onClick={() => {
+                      console.log("[UI] Withdraw ALL clicked");
+                      withdrawAll().catch((e) =>
+                        console.error("[UI] withdrawAll failed", e)
+                      );
+                    }}
                     disabled={isLoading}
                     className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-rose-700 to-pink-700 hover:from-rose-800 hover:to-pink-800 disabled:opacity-50 text-white font-semibold py-2 px-3 rounded-xl text-sm"
                   >
@@ -1972,11 +2037,28 @@ export default function DcaControl() {
                       : deriveMomentumFromPrice();
                   if (!hasAnyPoints) {
                     return (
-                      <div className="text-sm text-gray-400">
-                        Warming up live metrics…
+                      <div className="flex items-center gap-2 text-sm text-gray-300">
+                        <span
+                          className="inline-block h-3 w-3 rounded-full border-2 border-gray-400 border-t-transparent animate-spin"
+                          aria-hidden
+                        />
+                        <span>Warming up live metrics…</span>
                       </div>
                     );
                   }
+                  // If all latest points are identical or zero across tokens, inform the user (likely fallback/no-liquidity)
+                  const latestValues = displaySeries
+                    .map((s) => (s.points || [])[s.points.length - 1]?.y)
+                    .filter((v) => Number.isFinite(v)) as number[];
+                  const hasVariation = (() => {
+                    if (latestValues.length < 2) return false;
+                    const eps = 1e-9;
+                    const min = Math.min(...latestValues);
+                    const max = Math.max(...latestValues);
+                    return (
+                      Math.abs(max - min) > eps && !(min === 0 && max === 0)
+                    );
+                  })();
                   // overlays removed
                   const overlays = [] as {
                     token: string;
@@ -1984,6 +2066,9 @@ export default function DcaControl() {
                   }[];
                   return (
                     <div>
+                      {!hasVariation && (
+                        <div className="text-xs text-amber-300/80 mb-2"></div>
+                      )}
                       <div className="flex items-center gap-3 mb-2 text-xs text-gray-300 flex-wrap">
                         {tokenMetricKind === "price" && (
                           <>
@@ -2032,7 +2117,13 @@ export default function DcaControl() {
                         showVolume={showVolume}
                         selectedToken={selectedChartToken || undefined}
                         showOnlySelected={true}
-                        logScale={logScale}
+                        logScale={
+                          tokenMetricKind === "price" ||
+                          tokenMetricKind === "momentum"
+                            ? logScale
+                            : false
+                        }
+                        isMomentum={tokenMetricKind === "momentum"}
                         normalizeMode={
                           tokenMetricKind === "price"
                             ? chartUnit === "%"

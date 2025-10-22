@@ -52,7 +52,7 @@ async function fetchWithRetry(input: RequestInfo | URL, init: RequestInit & { ti
     }
     const t = setTimeout(() => {
       try { ctrl.abort('timeout') } catch { ctrl.abort() }
-    }, init.timeoutMs ?? 10000)
+    }, init.timeoutMs ?? 30000) // Increased from 10s to 30s
     try {
       const resp = await fetch(input, { ...init, signal: ctrl.signal })
       clearTimeout(t)
@@ -75,17 +75,25 @@ async function fetchWithRetry(input: RequestInfo | URL, init: RequestInit & { ti
   throw lastErr
 }
 
-export async function queryEnvio<T = any>(req: GraphQLRequest, signal?: AbortSignal): Promise<T> {
-  const url = pickEnvioUrl()
+export async function queryEnvio<T = any>(req: GraphQLRequest, signal?: AbortSignal, endpointOverride?: 'FAST' | 'PRECISE'): Promise<T> {
+  const url = endpointOverride ? 
+    (endpointOverride === 'FAST' ? 
+      (import.meta as any).env?.VITE_ENVIO_GRAPHQL_URL_FAST || pickEnvioUrl() :
+      (import.meta as any).env?.VITE_ENVIO_GRAPHQL_URL_PRECISE || pickEnvioUrl()
+    ) : pickEnvioUrl()
   if (!url) throw new Error('Missing Envio GraphQL URL (VITE_ENVIO_GRAPHQL_URL[_FAST|_PRECISE])')
+  
+  // Log which endpoint is being used for debugging
+  const endpointType = url.includes('8d485d1') ? 'FAST' : url.includes('d1a7b5f') ? 'PRECISE' : 'UNKNOWN'
+  console.log(`[queryEnvio] Using ${endpointType} endpoint: ${url}${endpointOverride ? ` (override: ${endpointOverride})` : ''}`)
 
   // Request coalescing + short-lived cache to prevent bursts
   const ttlMs = Number(((import.meta as any).env?.VITE_ENVIO_REQ_TTL_MS) ?? 2000)
   const key = (() => {
     const compactQ = (req.query || '').replace(/\s+/g, ' ').trim()
     const vars = req.variables ? JSON.stringify(req.variables, Object.keys(req.variables).sort()) : ''
-    return compactQ + '::' + vars
-  })()
+    return url + '::' + compactQ + '::' + vars
+  })();
 
   // Simple in-memory caches
   const anyGlobal = globalThis as any

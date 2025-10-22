@@ -204,7 +204,7 @@ export class AiAuditor {
   }
 
   audit(decision: AiDecision, context: AuditContext): AuditReport {
-    const results = this.rules.map(rule => {
+    const allResults = this.rules.map(rule => {
       const result = rule.check(decision, context)
       return {
         ...result,
@@ -213,10 +213,16 @@ export class AiAuditor {
       }
     })
 
-    // Calculate overall status and risk score
-    const criticalFails = results.filter(r => !r.passed && r.severity === 'critical').length
-    const highFails = results.filter(r => !r.passed && r.severity === 'high').length
-    const mediumFails = results.filter(r => !r.passed && r.severity === 'medium').length
+    // Filter out "not applicable" results to show only relevant checks
+    const results = allResults.filter(result => 
+      !result.message.includes('not applicable') && 
+      !result.message.includes('check not applicable')
+    )
+
+    // Calculate overall status and risk score based on all results
+    const criticalFails = allResults.filter(r => !r.passed && r.severity === 'critical').length
+    const highFails = allResults.filter(r => !r.passed && r.severity === 'high').length
+    const mediumFails = allResults.filter(r => !r.passed && r.severity === 'medium').length
 
     let overallStatus: 'PASS' | 'WARN' | 'FAIL' = 'PASS'
     if (criticalFails > 0) overallStatus = 'FAIL'
@@ -228,7 +234,7 @@ export class AiAuditor {
       criticalFails * 40 + 
       highFails * 25 + 
       mediumFails * 15 + 
-      results.filter(r => !r.passed && r.severity === 'low').length * 5
+      allResults.filter(r => !r.passed && r.severity === 'low').length * 5
     )
 
     const report: AuditReport = {

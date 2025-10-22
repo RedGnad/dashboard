@@ -62,8 +62,9 @@ export function useDcaDelegation() {
     let cancelled = false
     const hash = (dcaStatus as any).lastUserOpHash as string | undefined
     if (!hash) return
-    // Don't re-resolve if we already have a tx hash
-    if ((dcaStatus as any).lastTxHash) return
+    // Always attempt to resolve the latest userOp -> on-chain tx hash.
+    // Previously we returned early when lastTxHash existed which prevented
+    // newer userOps from resolving to their corresponding tx hashes.
     async function resolve() {
       try {
         const rpc = (import.meta as any).env?.VITE_ZERO_DEV_BUNDLER_RPC as string | undefined
@@ -773,12 +774,41 @@ export function useDcaDelegation() {
     if (!token || token.isNative) throw new Error('Unsupported token')
     const balanceStr = (balances as any)[symbol] || '0'
     const amt = (amount && amount !== '') ? amount : balanceStr
-    try {
-      const fresh = await getOrCreateDelegation(delegatorSmartAccount, delegateSmartAccount)
+    
+    // Check for existing valid delegation first to avoid popup
+    let fresh = (signedDelegation && !isDelegationExpired(signedDelegation)) ? signedDelegation : null
+    
+    // If no valid delegation in state, try to find one in localStorage
+    if (!fresh) {
+      try {
+        const key = `dca-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+        const stored = localStorage.getItem(key)
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          if (!isDelegationExpired(parsed)) {
+            fresh = parsed
+            setSignedDelegation(fresh)
+            console.log('[withdrawToken] Using cached delegation from localStorage')
+          }
+        }
+      } catch (e) {
+        console.warn('[withdrawToken] Error reading delegation from localStorage:', e)
+      }
+    }
+    
+    // Only create new delegation if none found (this may trigger popup)
+    if (!fresh) {
+      console.log('[withdrawToken] No valid delegation found, creating new one (may show popup)')
+      fresh = await getOrCreateDelegation(delegatorSmartAccount, delegateSmartAccount)
       if (fresh && fresh !== signedDelegation) setSignedDelegation(fresh)
+    } else {
+      console.log('[withdrawToken] Using existing delegation, no popup needed')
+    }
+    
+    try {
       const uoHash = await redeemErc20TransferDelegation(
         delegateSmartAccount,
-        fresh || signedDelegation,
+        fresh,
         token.address as `0x${string}`,
         token.decimals,
         amt,
@@ -816,9 +846,32 @@ export function useDcaDelegation() {
     await enqueueOp(async () => {
       setIsLoading(true)
       try {
-        const fresh = (signedDelegation && !isDelegationExpired(signedDelegation)) ? signedDelegation : null
+        // Check if we have a valid delegation (could be set by withdrawAll or previous operations)
+        let fresh = (signedDelegation && !isDelegationExpired(signedDelegation)) ? signedDelegation : null
+        
+        // If no valid delegation in state, try to find one in localStorage first
         if (!fresh) {
-          console.warn('[withdrawAllTokens] No valid ERC20 delegation; skipping token withdrawals to avoid extra signature')
+          try {
+            const key = `dca-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+            const stored = localStorage.getItem(key)
+            if (stored) {
+              const parsed = JSON.parse(stored)
+              if (!isDelegationExpired(parsed)) {
+                fresh = parsed
+                setSignedDelegation(fresh)
+                console.log('[withdrawAllTokens] Found valid delegation in localStorage')
+              }
+            }
+          } catch (e) {
+            console.warn('[withdrawAllTokens] Error reading delegation from localStorage:', e)
+          }
+        }
+        
+        // Do NOT create a new delegation here to avoid prompting the user.
+        // We only use an existing delegation from state or localStorage. If none
+        // exists, we skip token withdrawals rather than forcing an extra wallet prompt.
+        if (!fresh) {
+          console.log('[withdrawAllTokens] No valid delegation in state/localStorage; skipping creating one to avoid extra popup')
         }
         let hadNonzero = false
         for (const t of Object.values(TOKENS)) {
@@ -1200,19 +1253,49 @@ export function useDcaDelegation() {
       try { dcaScheduler.stop() } catch {}
       setDcaStatus(prev => ({ ...prev, isActive: false, nextExecution: undefined }))
     }
-    // URGENT FIX: Disable automatic value delegation creation to avoid extra popup during init
+    // On explicit user action (Withdraw All) we will proactively create/use delegations so the
+    // subsequent withdraws can run without additional popups. If the user denies signature, we
+    // continue gracefully and surface an informative error.
     const latest = await getAllBalances(delegatorSmartAccount.address as `0x${string}`)
     const monWei = parseUnits(latest.MON || '0', 18)
     let vd: any = null
-    // DISABLED to avoid popup: if (monWei > 0n) {
-    //   vd = await getOrCreateValueDelegation(
-    //     delegatorSmartAccount,
-    //     delegateSmartAccount,
-    //     address as `0x${string}`,
-    //     monWei
-    //   )
-    // }
-    // Withdraw ERC20s (no prompt; skips if no valid ERC20 delegation)
+
+    // 1) Ensure an ERC20/core delegation exists so withdrawAllTokens can use it
+    try {
+      const freshCore = await getOrCreateDelegation(delegatorSmartAccount, delegateSmartAccount)
+      if (freshCore) {
+        // Make sure the hook state knows about the freshly-created delegation
+        setSignedDelegation(freshCore)
+        
+        // Also persist it to localStorage to ensure withdrawAllTokens can find it
+        const key = `dca-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+        localStorage.setItem(key, JSON.stringify(freshCore))
+        console.log('[withdrawAll] ensured and persisted core ERC20 delegation')
+      }
+    } catch (e: any) {
+      console.warn('[withdrawAll] core delegation creation/lookup failed (user may have denied):', e)
+      // don't throw; continue to attempt other withdrawals where possible
+      setDcaStatus(prev => ({ ...prev, lastError: 'ERC20 delegation not available (withdraw tokens may be skipped).' }))
+    }
+
+    // 2) Create a value delegation for transferring MON to EOA (this will prompt the wallet once)
+    if (monWei > 0n) {
+      try {
+        vd = await getOrCreateValueDelegation(
+          delegatorSmartAccount,
+          delegateSmartAccount,
+          address as `0x${string}`,
+          monWei
+        )
+        console.log('[withdrawAll] ensured value delegation for MON')
+      } catch (e: any) {
+        console.warn('[withdrawAll] value delegation creation failed or denied:', e)
+        // mark but don't abort — we'll attempt to withdraw ERC20s and refresh balances
+        setDcaStatus(prev => ({ ...prev, lastError: 'Value delegation not available (MON withdraw may be skipped).' }))
+      }
+    }
+
+    // Withdraw ERC20s (will use signedDelegation if available; if not, withdrawAllTokens will skip and warn)
     await withdrawAllTokens()
     // Redeem prepared value delegation to transfer MON
     if (vd) {
@@ -1292,7 +1375,10 @@ export function useDcaDelegation() {
     setIsLoading(true)
     try {
       const maxWei = parseUnits(amountMon, 18)
+      console.log(`[stakeMagma] Attempting to stake ${amountMon} MON (${maxWei.toString()} wei)`)
+      // Use getOrCreateMagmaDelegation which handles cache checking and reuse properly
       let md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, maxWei)
+      console.log('[stakeMagma] Got delegation:', md ? 'SUCCESS' : 'FAILED', md?.maxDepositWei ? `(limit: ${md.maxDepositWei})` : '')
       let uoHash: `0x${string}` | null = null
       try {
         uoHash = await redeemDepositMonDelegation(
@@ -1302,7 +1388,9 @@ export function useDcaDelegation() {
         )
       } catch (e: any) {
         const msg = String(e?.message || '')
+        console.error('[stakeMagma] First attempt failed:', msg)
         if (msg.includes('ValueLte') || msg.includes('value') || msg.includes('method-not-allowed') || msg.includes('expired')) {
+          console.warn('[stakeMagma] Creating new delegation due to error:', msg)
           md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, maxWei)
           uoHash = await redeemDepositMonDelegation(
             delegateSmartAccount,
@@ -1352,8 +1440,16 @@ export function useDcaDelegation() {
           }
         } catch {}
         if (!md) {
-          setDcaStatus(prev => ({ ...prev, lastError: 'Unstake silencieux indisponible: autorisation Magma absente/expirée. Activez « Auto stake » pour autoriser puis réessayez.' }))
-          return null
+          console.warn('[unstakeMagma] No delegation found in silent mode, trying to create one...')
+          // En mode silent, si pas de délégation, essayer de la créer une fois
+          try {
+            md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, 0n)
+            console.log('[unstakeMagma] Created delegation in silent mode:', md ? 'SUCCESS' : 'FAILED')
+          } catch (createError) {
+            console.error('[unstakeMagma] Failed to create delegation in silent mode:', createError)
+            setDcaStatus(prev => ({ ...prev, lastError: 'Unstake indisponible: impossible de créer la délégation Magma. Activez « Auto stake » pour autoriser puis réessayez.' }))
+            return null
+          }
         }
       } else {
         md = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, 0n)
@@ -1392,8 +1488,13 @@ export function useDcaDelegation() {
   const ensureMagmaDelegation = useCallback(async (): Promise<boolean> => {
     if (!delegatorSmartAccount || !delegateSmartAccount) throw new Error('Smart accounts not initialized')
     try {
-      // Minimal allowance (0) is fine to establish the scoped delegation; deposit path will recreate with max if needed
-      await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, 0n)
+      console.log('[magma] Ensuring delegation exists...')
+      const delegation = await getOrCreateMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, 0n)
+      console.log('[magma] Delegation ensured:', delegation ? 'SUCCESS' : 'FAILED')
+      if (delegation) {
+        const key = `dca-magma-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+        console.log('[magma] Delegation stored with key:', key)
+      }
       return true
     } catch (e) {
       console.error('[magma] ensure delegation failed:', e)

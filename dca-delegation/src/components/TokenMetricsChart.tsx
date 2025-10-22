@@ -19,6 +19,7 @@ type Props = {
   logScale?: boolean;
   normalizeMode?: "none" | "rebased" | "median" | "pct";
   unit?: "USD" | "%";
+  isMomentum?: boolean;
 };
 
 const COLORS: Record<string, string> = {
@@ -60,8 +61,9 @@ export default function TokenMetricsChart({
   showOnlySelected = false,
   onSelect,
   logScale = false,
-  normalizeMode = "rebased",
+  normalizeMode = "none",
   unit = "USD",
+  isMomentum = false,
 }: Props) {
   const width = 780;
   const h = height;
@@ -88,6 +90,12 @@ export default function TokenMetricsChart({
   const epsilon = 1e-9;
   function logT(v: number) {
     return Math.log10(Math.max(epsilon, v));
+  }
+  function signedLogT(v: number) {
+    // Log scale for momentum: preserve sign but apply log to absolute value
+    if (Math.abs(v) < epsilon) return 0;
+    const logAbs = Math.log10(Math.abs(v) + 1); // +1 to avoid log(0)
+    return v >= 0 ? logAbs : -logAbs;
   }
   function median(arr: number[]) {
     if (!arr.length) return 0;
@@ -143,7 +151,13 @@ export default function TokenMetricsChart({
       return { x: p.x, y };
     });
     if (logScale) {
-      pts = pts.map((p) => ({ x: p.x, y: logT(p.y) }));
+      if (isMomentum) {
+        // For momentum, use signed log scale to preserve negative values
+        pts = pts.map((p) => ({ x: p.x, y: signedLogT(p.y) }));
+      } else {
+        // For price, use regular log scale (positive values only)
+        pts = pts.map((p) => ({ x: p.x, y: p.y > 0 ? logT(p.y) : 0 }));
+      }
     }
     return { token: s.token, points: pts };
   });

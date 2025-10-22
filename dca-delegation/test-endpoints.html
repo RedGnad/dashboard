@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Endpoints</title>
+</head>
+<body>
+    <h1>Test Envio Endpoints</h1>
+    <div>
+        <button onclick="testFast()">Test FAST Endpoint</button>
+        <button onclick="testPrecise()">Test PRECISE Endpoint</button>
+        <button onclick="checkLocalStorage()">Check LocalStorage</button>
+        <button onclick="setFast()">Set FAST in LocalStorage</button>
+        <button onclick="setPrecise()">Set PRECISE in LocalStorage</button>
+    </div>
+    <div id="output" style="margin-top: 20px; font-family: monospace; white-space: pre-wrap;"></div>
+
+    <script>
+        const output = document.getElementById('output');
+        
+        function log(msg) {
+            output.textContent += new Date().toISOString() + ': ' + msg + '\n';
+        }
+        
+        async function testFast() {
+            try {
+                const response = await fetch('https://indexer.hyperindex.xyz/8d485d1/v1/graphql', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: 'query { TokenTransfer(limit: 1){ tokenAddress blockTimestamp } }'
+                    })
+                });
+                const data = await response.json();
+                log('FAST endpoint response: ' + JSON.stringify(data, null, 2));
+            } catch (e) {
+                log('FAST endpoint error: ' + e.message);
+            }
+        }
+        
+        async function testPrecise() {
+            try {
+                const response = await fetch('https://indexer.hyperindex.xyz/d1a7b5f/v1/graphql', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: 'query { Kuru_Trade(limit: 1){ market blockTimestamp } }'
+                    })
+                });
+                const data = await response.json();
+                log('PRECISE endpoint response: ' + JSON.stringify(data, null, 2));
+            } catch (e) {
+                log('PRECISE endpoint error: ' + e.message);
+            }
+        }
+        
+        function checkLocalStorage() {
+            const value = localStorage.getItem('envio-endpoint');
+            log('LocalStorage envio-endpoint: ' + value);
+            
+            // Also check URL params
+            const params = new URLSearchParams(window.location.search);
+            const envioParam = params.get('envio');
+            log('URL param envio: ' + envioParam);
+        }
+        
+        function setFast() {
+            localStorage.setItem('envio-endpoint', 'FAST');
+            log('Set envio-endpoint to FAST');
+        }
+        
+        function setPrecise() {
+            localStorage.setItem('envio-endpoint', 'PRECISE');
+            log('Set envio-endpoint to PRECISE');
+        }
+        
+        // Test on load
+        checkLocalStorage();
+    </script>
+</body>
+</html>

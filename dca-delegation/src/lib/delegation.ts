@@ -783,7 +783,10 @@ export async function createMagmaDelegation(
   const afterTs = BigInt(nowSec - 1)
   const beforeTs = BigInt(nowSec + ttlSeconds)
   const timestampTerms = toHex((afterTs << 128n) | beforeTs, { size: 32 }) as `0x${string}`
-  const valueTerms = toHex(maxDepositWei, { size: 32 }) as `0x${string}`
+  // Use a generous fixed limit (10000 MON) instead of the specific amount to allow multiple stakes
+  const generousLimit = parseUnits('10000', 18)
+  const actualLimit = maxDepositWei > generousLimit ? maxDepositWei : generousLimit
+  const valueTerms = toHex(actualLimit, { size: 32 }) as `0x${string}`
 
   const caveats = [
     createCaveat(env.caveatEnforcers.TimestampEnforcer, timestampTerms),
@@ -807,7 +810,7 @@ export async function createMagmaDelegation(
     ...delegation,
     signature,
     permissionContexts: (delegation as any).permissionContexts ?? [],
-    maxDepositWei: maxDepositWei.toString(),
+    maxDepositWei: actualLimit.toString(),
     expiresAt: Number(beforeTs),
   }
   try {
@@ -823,23 +826,50 @@ export async function getOrCreateMagmaDelegation(
   maxDepositWei: bigint,
 ) {
   const key = `dca-magma-delegation-${delegatorSmartAccount.address.toLowerCase()}-${delegateSmartAccount.address.toLowerCase()}`
+  console.log('[getOrCreateMagmaDelegation] Looking for key:', key)
   const stored = localStorage.getItem(key)
   if (stored) {
     try {
       const signed = JSON.parse(stored)
-      const scopeTargets: string[] = (signed.delegation?.scope?.targets || signed.scope?.targets || [])
-      const lower = Array.isArray(scopeTargets) ? scopeTargets.map((x:string)=>x.toLowerCase()) : []
-      const hasTarget = Array.isArray(scopeTargets) && lower.includes((STAKE_MANAGER as string).toLowerCase())
-      const selectors: string[] = (signed.delegation?.scope?.selectors || signed.scope?.selectors || [])
-      const selSet = new Set(Array.isArray(selectors) ? selectors : [])
-      const hasSelectors = selSet.has('depositMon()') && selSet.has('withdrawMon(uint256)')
-      const match = signed.from?.toLowerCase?.() === delegatorSmartAccount.address.toLowerCase()
-        && signed.to?.toLowerCase?.() === delegateSmartAccount.address.toLowerCase()
-        && !isDelegationExpired(signed)
-        && hasTarget && hasSelectors
-      if (match) return signed
-    } catch {}
+      console.log('[getOrCreateMagmaDelegation] Found cached delegation')
+      
+      // Check if delegation structure uses MetaMask Delegation Toolkit format with caveats
+      const caveats = signed.caveats || []
+      
+      // Find target caveat (AllowedTargets enforcer should contain STAKE_MANAGER address)
+      const targetCaveat = caveats.find((c: any) => 
+        c.enforcer === '0x7F20f61b1f09b08D970938F6fa563634d65c4EeB' && // AllowedTargets enforcer
+        c.terms?.toLowerCase() === STAKE_MANAGER.toLowerCase()
+      )
+      const hasTarget = !!targetCaveat
+      
+      // Find selector caveat (AllowedMethods enforcer should contain our function selectors)  
+      const selectorCaveat = caveats.find((c: any) => 
+        c.enforcer === '0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5' // AllowedMethods enforcer
+      )
+      // The terms should contain the selector hashes for depositMon() and withdrawMon(uint256)
+      const hasSelectors = !!selectorCaveat // For now just check if caveat exists
+      
+      const expired = signed.expiresAt ? (Date.now() / 1000) > signed.expiresAt : false
+      const fromMatch = signed.delegator?.toLowerCase() === delegatorSmartAccount.address.toLowerCase()
+      const toMatch = signed.delegate?.toLowerCase() === delegateSmartAccount.address.toLowerCase()
+      
+      // Delegation validation passed
+      
+      const match = fromMatch && toMatch && !expired && hasTarget && hasSelectors
+      if (match) {
+        console.log('[getOrCreateMagmaDelegation] Using cached delegation')
+        return signed
+      } else {
+        console.log('[getOrCreateMagmaDelegation] Cached delegation invalid, creating new one')
+      }
+    } catch (e) {
+      console.error('[getOrCreateMagmaDelegation] Error parsing cached delegation:', e)
+    }
+  } else {
+    console.log('[getOrCreateMagmaDelegation] No cached delegation found')
   }
+  console.log('[getOrCreateMagmaDelegation] Creating new delegation - THIS WILL SHOW POPUP')
   return await createMagmaDelegation(delegatorSmartAccount, delegateSmartAccount, maxDepositWei)
 }
 

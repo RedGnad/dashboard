@@ -72,30 +72,57 @@ export function useEnvioMetrics(saAddress?: string) {
       return
     }
 
-  let abort = new AbortController()
     let consecutiveErrors = 0
-    const hadFreshCache = !!metrics?.lastUpdated && (Date.now() - (metrics.lastUpdated || 0) < 2 * 60 * 1000)
+    const hadFreshCache = !!metrics?.lastUpdated && (Date.now() - (metrics.lastUpdated || 0) < 30 * 1000)
+    let currentAbort: AbortController | null = null
+    
     async function run() {
+      // Create fresh AbortController for each request batch
+      if (currentAbort) {
+        try { currentAbort.abort('new-request') } catch {}
+      }
+      currentAbort = new AbortController()
+      const abort = currentAbort
+      
       // Si on a un cache frais, ne pas remettre en "loading" ni effacer l'erreur tout de suite
       if (!hadFreshCache) {
         setLoading(true)
         setError(null)
       }
       try {
-        // 1) Global market activity today from SwapEvent + Kuru_Trade + TokenTransfer (unique tx hashes)
-        const dayActivity = await queryEnvio<{ SwapEvent: Array<any>; Kuru_Trade: Array<any>; TokenTransfer: Array<any> }>({
-          query: `query DayActivity($since:Int!,$tokens:[String!]){
-            SwapEvent(where:{ blockTimestamp: { _gt: $since } }, order_by:{ blockTimestamp: desc }, limit: 5000){ transactionHash }
-            Kuru_Trade(where:{ blockTimestamp: { _gt: $since } }, order_by:{ blockTimestamp: desc }, limit: 5000){ transactionHash }
-            TokenTransfer(where:{ tokenAddress: { _in: $tokens }, blockTimestamp: { _gt: $since } }, order_by:{ blockTimestamp: desc }, limit: 5000){ transactionHash }
-          }`,
-          variables: { since, tokens: tracked }
-        }, abort.signal)
+        // 1) Global market activity today from multiple sources (unique tx hashes)
+        // Séparer les requêtes car les données sont sur des endpoints différents
+        const [preciseData, fastData] = await Promise.all([
+          // PRECISE endpoint : SwapEvent + Kuru_Trade
+          queryEnvio<{ SwapEvent: Array<any>; Kuru_Trade: Array<any> }>({
+            query: `query PreciseActivity($since:Int!){
+              SwapEvent(where:{ blockTimestamp: { _gt: $since } }, order_by:{ blockTimestamp: desc }, limit: 1000){ transactionHash }
+              Kuru_Trade(where:{ blockTimestamp: { _gt: $since } }, order_by:{ blockTimestamp: desc }, limit: 1000){ transactionHash }
+            }`,
+            variables: { since }
+          }, abort.signal, 'PRECISE'),
+          
+          // FAST endpoint : TokenTransfer
+          queryEnvio<{ TokenTransfer: Array<any> }>({
+            query: `query FastActivity($since:Int!,$tokens:[String!]){
+              TokenTransfer(where:{ tokenAddress: { _in: $tokens }, blockTimestamp: { _gt: $since } }, order_by:{ blockTimestamp: desc }, limit: 1000){ transactionHash }
+            }`,
+            variables: { since, tokens: tracked }
+          }, abort.signal, 'FAST')
+        ])
+        
         const uniq = new Set<string>()
-        for (const e of (dayActivity?.SwapEvent ?? [])) if (e?.transactionHash) uniq.add(String(e.transactionHash))
-        for (const e of (dayActivity?.Kuru_Trade ?? [])) if (e?.transactionHash) uniq.add(String(e.transactionHash))
-        for (const e of (dayActivity?.TokenTransfer ?? [])) if (e?.transactionHash) uniq.add(String(e.transactionHash))
+        for (const e of (preciseData?.SwapEvent ?? [])) if (e?.transactionHash) uniq.add(String(e.transactionHash))
+        for (const e of (preciseData?.Kuru_Trade ?? [])) if (e?.transactionHash) uniq.add(String(e.transactionHash))
+        for (const e of (fastData?.TokenTransfer ?? [])) if (e?.transactionHash) uniq.add(String(e.transactionHash))
         const txCount = uniq.size
+        
+        console.log(`[useEnvioMetrics] Activity data:`, {
+          swapEvents: preciseData?.SwapEvent?.length ?? 0,
+          kuruTrades: preciseData?.Kuru_Trade?.length ?? 0, 
+          tokenTransfers: fastData?.TokenTransfer?.length ?? 0,
+          uniqueTxCount: txCount
+        })
 
         // 2) Fees Today from SA-specific transfers (optional if saAddress provided)
         let feeWei = 0n
@@ -112,7 +139,7 @@ export function useEnvioMetrics(saAddress?: string) {
               }
             }`,
             variables: { from, since }
-          }, abort.signal)
+          }, abort.signal, 'FAST')
           const uniqTx = new Map<string, { gasUsed: bigint; gasPrice: bigint }>()
           for (const t of transfers.TokenTransfer) {
             if (!tracked.includes(String(t.tokenAddress).toLowerCase())) continue
@@ -138,7 +165,7 @@ export function useEnvioMetrics(saAddress?: string) {
             }
           }`,
           variables: { tokens: tokenList, since: sinceWhale }
-        }, abort.signal)
+        }, abort.signal, 'FAST')
   // Read the latest user-defined threshold (if any) at fetch-time for real-time effect
   const userOverrideRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('whaleThresholdUsd') : null
   const whaleUsdThreshold = Number(userOverrideRaw ?? 10000)
@@ -195,9 +222,16 @@ export function useEnvioMetrics(saAddress?: string) {
     }
 
     run()
-    const pollMs = Number((import.meta as any).env?.VITE_ENVIO_POLL_MS ?? 15000)
-    const id = setInterval(run, Math.max(3000, pollMs))
-    return () => { try { abort.abort('unmount') } catch { abort.abort() }; clearInterval(id) }
+    const pollMs = Number((import.meta as any).env?.VITE_ENVIO_POLL_MS ?? 5000)
+    const id = setInterval(run, Math.max(2000, pollMs))
+    return () => { 
+      try { 
+        if (currentAbort) currentAbort.abort('unmount') 
+      } catch { 
+        if (currentAbort) currentAbort.abort() 
+      }; 
+      clearInterval(id) 
+    }
   }, [saAddress, tracked, since, sinceWhale, envioEnabled])
 
   return { metrics, loading, error }

@@ -192,42 +192,33 @@ export class AutonomousAiAgent {
   private getPersonalityPrompt(personality: AiPersonality): string {
     switch (personality) {
       case 'conservative':
-        return `You are a CONSERVATIVE DeFi trader. Priorities:
-- Preserve capital above all
-- Prefer stable assets (USDC) over volatile ones
-- Use small position sizes (1-5% of portfolio per trade)
-- Longer intervals between decisions (300-1800 seconds)
-- Quick to sell to USDC during uncertainty
-- Only buy when clear bullish signals
-- Maintain diversification across at least 2 tokens; avoid repeating the same token consecutively`
+        return `You are a CONSERVATIVE trader. Keep it simple:
+- Safety first, small steady buys
+- Prefer USDC when unsure
+- Small amounts (1-5% of portfolio)
+- Take your time between decisions
+- Keep messages simple and honest about your strategy`
 
       case 'aggressive':
-        return `You are an AGGRESSIVE DeFi trader. Priorities:
-- Maximize returns, accept higher risk
-- Prefer volatile assets (CHOG) for higher upside
-- Use larger position sizes (5-15% of portfolio per trade)
-- Shorter intervals between decisions (60-300 seconds)
-- Hold through volatility, sell to MON only on major reversals
-- Buy on dips and momentum
-- Diversify position entries across multiple tokens; do not buy the same token more than twice in a row`
+        return `You are an AGGRESSIVE trader. Keep it simple:
+- Go for higher potential returns
+- Prefer volatile tokens like CHOG, PEPE
+- Bigger amounts (5-15% of portfolio)  
+- More frequent decisions
+- Keep messages direct about why you're buying`
 
       case 'contrarian':
-        return `You are a CONTRARIAN DeFi trader. Priorities:
-- Buy when others are selling, sell when others are buying
-- Look for oversold/overbought conditions
-- Medium position sizes (3-8% of portfolio per trade)
-- Medium intervals (180-600 seconds)
-- Fade whale activity and high volume spikes
-- Profit from market inefficiencies
-- Favor underrepresented tokens in recent buys to maintain diversification`
+        return `You are a CONTRARIAN trader. Keep it simple:
+- Sometimes buy when others don't
+- Look for tokens that haven't been bought recently
+- Medium amounts (3-8% of portfolio)
+- Keep messages honest - don't invent complex market analysis`
 
       default: // balanced
-        return `You are a BALANCED DeFi trader. Priorities:
-- Balance risk and reward
-- Diversify between stable (USDC) and volatile (CHOG) assets
-- Use moderate position sizes (2-8% of portfolio per trade)
-- Adaptive intervals based on market conditions (120-900 seconds)
-- Tactical allocation based on momentum and volatility
+        return `You are a BALANCED trader. Keep it simple:
+- Mix of different tokens for balance
+- Reasonable amounts (2-8% of portfolio)
+- Keep messages straightforward about your choices
 - Risk management with stop-losses to USDC
 - Maintain diversification; avoid concentrating all buys in a single token`
     }
@@ -246,8 +237,9 @@ export class AutonomousAiAgent {
     const portfolioValue = this.calculatePortfolioValue(balances)
     const personalityPrompt = this.getPersonalityPrompt(this.personality)
     
-  const allowStake = options?.allowStake !== false
-  const prompt = this.buildDecisionPrompt(balances, metrics, portfolioValue, personalityPrompt, tokenMetrics, { allowStake })
+    const allowStake = options?.allowStake !== false
+    
+    const prompt = this.buildDecisionPrompt(balances, metrics, portfolioValue, personalityPrompt, tokenMetrics, { allowStake })
     
     try {
       if (this.provider !== 'openai') {
@@ -517,7 +509,12 @@ MARKET CONDITIONS:
 - Network Fees: ${metrics.feesTodayMon.toFixed(6)} MON
 
 ${tokenMetrics ? `TOKEN METRICS:
-${tokenMetrics.map(tm => `- ${tm.token}: Price ${tm.price.toFixed(6)}, Change 24h: ${tm.priceChange24h.toFixed(2)}%, Volume: ${tm.volume24h.toFixed(2)}, Trend: ${tm.trend}`).join('\n')}` : ''}
+${tokenMetrics.map(tm => {
+  const isStable = tm.token === 'USDC'
+  const priceStr = isStable ? `$${tm.price.toFixed(4)} (stable)` : `Price ${tm.price.toFixed(6)}`
+  const changeStr = isStable ? `${tm.priceChange24h.toFixed(3)}% (minimal)` : `${tm.priceChange24h.toFixed(2)}%`
+  return `- ${tm.token}: ${priceStr}, Change 24h: ${changeStr}, Volume: ${tm.volume24h.toFixed(2)}, Trend: ${tm.trend}`
+}).join('\n')}` : ''}
 
 PERSONALITY: ${this.personality.toUpperCase()}
 ${personalityPrompt}
@@ -538,6 +535,7 @@ CONSTRAINTS:
 
 SPECIAL RULES:
 - Never choose WMON as a target.
+- USDC is a USD stablecoin - expect minimal price variations (typically ±0.5%). Large percentage changes for USDC indicate data noise, not real market movement.
 ${allowStake ? `- Consider STAKE only when MON share is very high (≥55% of portfolio), or ≥50% with high whale activity, and ONLY if it clearly beats the best volatile alternative for this tick.
 - Suggested STAKE size: about 3-8% of portfolio in a single action; use sparingly (roughly 10-20% of the time when conditions match) and avoid back-to-back stakes.
 - Maintain diversification even when staking is considered; do not let gMON crowd out volatile exposure.` : `- Staking is DISABLED by the user. Do not propose STAKE or UNSTAKE.`}
@@ -548,6 +546,18 @@ DECISION LOGIC:
 - If MON balance is low but gMON exists and staking is allowed, you may UNSTAKE first, then proceed (keep stake usage modest overall).
 - Maintain diversification and risk management.
 
+REASONING GUIDELINES:
+- Keep explanations simple and honest
+- Don't invent detailed market analysis if data is limited
+- Use casual, friendly language (avoid overly technical jargon)
+- Be direct about the real reasons (diversification, balance, simple DCA strategy)
+- Examples of good reasoning:
+  * "Buying some CHOG to diversify the portfolio"
+  * "USDC looks stable, good for some balance"
+  * "Continuing DCA into PEPE as planned"
+  * "Portfolio heavy on MON, adding some volatiles"
+- Avoid phrases like "market inefficiencies", "oversold conditions", "contrarian strategy" unless you have real data to support it
+
 Respond with JSON only:
 {
   "action": {
@@ -555,7 +565,7 @@ Respond with JSON only:
     "sourceToken": "MON|USDC|<any volatile token symbol>",
     "targetToken": "<symbol from allowed targets>",
     "amount": "0.05",
-    "reasoning": "Market analysis and decision rationale"
+    "reasoning": "Simple, honest explanation (1-2 sentences max)"
   },
   "nextInterval": 300,
   "confidence": 0.8
